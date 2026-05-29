@@ -3,8 +3,11 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # Install dependencies (use lockfile-agnostic install since only package.json is guaranteed)
+# --legacy-peer-deps: react-native 0.73 stack pins react@18 while some dev tooling
+# (e.g. @testing-library/react-native) pulls react-test-renderer@19. Dev/test deps
+# aren't needed for the static web build, but npm still resolves the full tree.
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm install --no-audit --no-fund --legacy-peer-deps
 
 # Build the static web bundle
 COPY . .

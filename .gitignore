@@ -16,3 +16,8 @@ android/app/build/
 *.orig.*
 web-build/
 .expo/
+
+# Local deployment helper scripts (may contain tokens/secrets)
+.deploy-*.ps1
+.playwright-mcp/
+*.png
