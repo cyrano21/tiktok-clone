@@ -1,0 +1,28 @@
+import { FastifyInstance } from "fastify";
+import { authRoutes } from "./auth.routes";
+import { feedRoutes } from "./feed.routes";
+import { videoRoutes } from "./video.routes";
+import { userRoutes } from "./user.routes";
+import { commentRoutes } from "./comment.routes";
+import { hashtagRoutes } from "./hashtag.routes";
+import { soundRoutes } from "./sound.routes";
+import { searchRoutes } from "./search.routes";
+import { messageRoutes } from "./message.routes";
+import { liveRoutes } from "./live.routes";
+import { notificationRoutes } from "./notification.routes";
+import { tiktokRoutes } from "./tiktok.routes";
+
+export async function registerRoutes(app: FastifyInstance) {
+  app.register(authRoutes, { prefix: "/v1/auth" });
+  app.register(feedRoutes, { prefix: "/v1/feed" });
+  app.register(videoRoutes, { prefix: "/v1/videos" });
+  app.register(userRoutes, { prefix: "/v1/users" });
+  app.register(commentRoutes, { prefix: "/v1/comments" });
+  app.register(hashtagRoutes, { prefix: "/v1/hashtags" });
+  app.register(soundRoutes, { prefix: "/v1/sounds" });
+  app.register(searchRoutes, { prefix: "/v1/search" });
+  app.register(messageRoutes, { prefix: "/v1/messages" });
+  app.register(liveRoutes, { prefix: "/v1/live" });
+  app.register(notificationRoutes, { prefix: "/v1/notifications" });
+  app.register(tiktokRoutes, { prefix: "/v1/tiktok" });
+}

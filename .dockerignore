@@ -1,0 +1,16 @@
+node_modules
+dist
+.git
+.gitignore
+*.log
+.env
+.env.local
+backend/node_modules
+backend/dist
+ios
+android
+.expo
+.playwright-mcp
+*.png
+.vscode
+.idea

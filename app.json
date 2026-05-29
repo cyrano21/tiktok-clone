@@ -1,0 +1,34 @@
+{
+  "expo": {
+    "name": "TikTok Clone",
+    "slug": "tiktok-clone",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#000000",
+    "splash": {
+      "backgroundColor": "#000000"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.tiktokclone.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Pour créer des vidéos",
+        "NSMicrophoneUsageDescription": "Pour enregistrer l'audio des vidéos",
+        "NSPhotoLibraryUsageDescription": "Pour accéder à vos photos et vidéos"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#000000"
+      },
+      "package": "com.tiktokclone.app",
+      "permissions": ["CAMERA", "RECORD_AUDIO", "READ_EXTERNAL_STORAGE"]
+    },
+    "web": {
+      "bundler": "metro",
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

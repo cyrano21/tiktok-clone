@@ -1,0 +1,333 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  username        String    @unique
+  email           String?   @unique
+  phone           String?   @unique
+  passwordHash    String
+  displayName     String?
+  bio             String?   @db.VarChar(200)
+  avatarUrl       String?
+  coverUrl        String?
+  website         String?
+
+  followerCount   Int       @default(0)
+  followingCount  Int       @default(0)
+  videoCount      Int       @default(0)
+  likeCount       BigInt    @default(0)
+
+  isVerified      Boolean   @default(false)
+  isPrivate       Boolean   @default(false)
+  isBanned        Boolean   @default(false)
+  role            String    @default("user")
+
+  language        String    @default("fr")
+  contentPrefs    Json      @default("[]")
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  videos          Video[]
+  sounds          Sound[]
+  likes           Like[]
+  comments        Comment[]
+  followers       Follow[]       @relation("following")
+  following       Follow[]       @relation("follower")
+  messages        Message[]
+  views           VideoView[]
+  shares          Share[]
+  saves           Save[]
+  notifications   Notification[]
+  liveStreams     LiveStream[]
+  liveGifts      LiveGift[]
+
+  conversationsAsP1 Conversation[] @relation("conv_p1")
+  conversationsAsP2 Conversation[] @relation("conv_p2")
+
+  tiktokAccount     TikTokAccount?
+
+  @@index([username])
+  @@index([email])
+  @@index([createdAt])
+}
+
+/// Stores the OAuth tokens for a user's connected TikTok account.
+/// Tokens are obtained via the official OAuth flow and used by the backend
+/// only — never exposed to the frontend.
+model TikTokAccount {
+  id                   String   @id @default(uuid())
+  userId               String   @unique
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  openId               String   @unique
+  scope                String
+  accessToken          String   @db.Text
+  refreshToken         String   @db.Text
+  accessTokenExpiresAt DateTime
+  refreshTokenExpiresAt DateTime
+
+  displayName          String?
+  avatarUrl            String?
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([openId])
+}
+
+model Video {
+  id              String    @id @default(uuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title           String?   @db.VarChar(150)
+  description     String?   @db.Text
+
+  videoUrl        String
+  thumbnailUrl    String?
+  coverUrl        String?
+  duration        Float     @default(0)
+  width           Int       @default(1080)
+  height          Int       @default(1920)
+
+  visibility      String    @default("public")
+  allowDuet       Boolean   @default(true)
+  allowStitch     Boolean   @default(true)
+  allowComment    Boolean   @default(true)
+
+  viewCount       BigInt    @default(0)
+  likeCount       BigInt    @default(0)
+  commentCount    BigInt    @default(0)
+  shareCount      BigInt    @default(0)
+  saveCount       BigInt    @default(0)
+
+  engagementScore Float     @default(0)
+  isTrending      Boolean   @default(false)
+  trendingRank    Int?
+
+  locationLat     Float?
+  locationLng     Float?
+  locationName    String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  likes           Like[]
+  comments        Comment[]
+  shares          Share[]
+  saves           Save[]
+  views           VideoView[]
+  hashtags        VideoHashtag[]
+  soundId         String?
+  sound           Sound?    @relation(fields: [soundId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@index([isTrending, trendingRank])
+  @@index([engagementScore])
+}
+
+model Hashtag {
+  id          String         @id @default(uuid())
+  name        String         @unique
+  videoCount  BigInt         @default(0)
+  viewCount   BigInt         @default(0)
+  isTrending  Boolean        @default(false)
+  createdAt   DateTime       @default(now())
+  videos      VideoHashtag[]
+}
+
+model VideoHashtag {
+  videoId   String
+  hashtagId String
+  video     Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  hashtag   Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, hashtagId])
+}
+
+model Sound {
+  id          String   @id @default(uuid())
+  title       String
+  artist      String?
+  audioUrl    String
+  coverUrl    String?
+  duration    Float    @default(0)
+  videoCount  BigInt   @default(0)
+  isOriginal  Boolean  @default(false)
+  creatorId   String?
+  creator     User?    @relation(fields: [creatorId], references: [id])
+  createdAt   DateTime @default(now())
+
+  videos      Video[]
+
+  @@index([videoCount])
+  @@index([createdAt])
+}
+
+model Like {
+  id        String   @id @default(uuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([videoId])
+}
+
+model Comment {
+  id        String    @id @default(uuid())
+  userId    String
+  videoId   String
+  parentId  String?
+  text      String    @db.Text
+  likeCount Int       @default(0)
+  isPinned  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
+  replies   Comment[] @relation("CommentReplies")
+
+  @@index([videoId, createdAt])
+}
+
+model Follow {
+  id           String   @id @default(uuid())
+  followerId   String
+  followingId  String
+  createdAt    DateTime @default(now())
+
+  follower     User     @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following    User     @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+}
+
+model Share {
+  id        String   @id @default(uuid())
+  userId    String
+  videoId   String
+  platform  String   @default("in_app")
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId])
+}
+
+model Save {
+  id        String   @id @default(uuid())
+  userId    String
+  videoId   String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+model VideoView {
+  id              String   @id @default(uuid())
+  userId          String?
+  videoId         String
+  watchDuration   Float    @default(0)
+  watchPercentage Float    @default(0)
+  fromSource      String?
+  createdAt       DateTime @default(now())
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+
+  @@index([videoId, createdAt])
+}
+
+model Conversation {
+  id             String    @id @default(uuid())
+  participant1Id String
+  participant2Id String
+  lastMessageAt  DateTime?
+  createdAt      DateTime  @default(now())
+
+  participant1   User      @relation("conv_p1", fields: [participant1Id], references: [id])
+  participant2   User      @relation("conv_p2", fields: [participant2Id], references: [id])
+  messages       Message[]
+
+  @@unique([participant1Id, participant2Id])
+}
+
+model Message {
+  id              String       @id @default(uuid())
+  conversationId  String
+  senderId        String
+  type            String       @default("text")
+  content         String?      @db.Text
+  mediaUrl        String?
+  isRead          Boolean      @default(false)
+  createdAt       DateTime     @default(now())
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User         @relation(fields: [senderId], references: [id])
+
+  @@index([conversationId, createdAt])
+}
+
+model LiveStream {
+  id           String    @id @default(uuid())
+  userId       String
+  title        String
+  status       String    @default("live")
+  streamKey    String    @unique
+  viewerCount  Int       @default(0)
+  likeCount    Int       @default(0)
+  thumbnailUrl String?
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+
+  user         User       @relation(fields: [userId], references: [id])
+  gifts        LiveGift[]
+
+  @@index([status])
+  @@index([viewerCount])
+}
+
+model LiveGift {
+  id            String     @id @default(uuid())
+  streamId      String
+  senderId      String
+  giftType      String
+  diamondValue  Int
+  createdAt     DateTime   @default(now())
+
+  stream        LiveStream @relation(fields: [streamId], references: [id])
+  sender        User       @relation(fields: [senderId], references: [id])
+}
+
+model Notification {
+  id          String   @id @default(uuid())
+  userId      String
+  type        String
+  title       String
+  body        String
+  data        Json?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
