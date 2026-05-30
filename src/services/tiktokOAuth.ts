@@ -17,15 +17,14 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const TOKEN_KEY = "@auth_token";
 
 function resolveApiBase(): string {
-  // Allow a runtime override (e.g. set on window in index.html or by Vite's
-  // `define`) without depending on `import.meta` (incompatible with the
-  // project's commonjs tsconfig). Falls back to the local Fastify server.
+  // Allow an explicit runtime override (e.g. set on window) without depending
+  // on `import.meta`. Otherwise use the SAME-ORIGIN `/v1` API exposed by the
+  // Next.js route handlers (no separate backend server).
   const override =
     typeof globalThis !== "undefined" &&
     (globalThis as any).__TIKTOK_API_BASE__;
-  return (
-    (typeof override === "string" && override) || "http://localhost:3000/v1"
-  );
+  if (typeof override === "string" && override) return override;
+  return "/v1";
 }
 
 const API_BASE = resolveApiBase();

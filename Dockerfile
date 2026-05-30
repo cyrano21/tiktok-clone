@@ -1,29 +1,33 @@
-# --- Build stage ---------------------------------------------------------
-FROM node:20-alpine AS build
+# --- Dependencies --------------------------------------------------------
+FROM node:20-alpine AS deps
 WORKDIR /app
-
-# Install dependencies (use lockfile-agnostic install since only package.json is guaranteed)
-# --legacy-peer-deps: react-native 0.73 stack pins react@18 while some dev tooling
-# (e.g. @testing-library/react-native) pulls react-test-renderer@19. Dev/test deps
-# aren't needed for the static web build, but npm still resolves the full tree.
 COPY package*.json ./
+# react-native-web + RN deps resolve a broad tree; allow peer flexibility.
 RUN npm install --no-audit --no-fund --legacy-peer-deps
 
-# Build the static web bundle
+# --- Build ---------------------------------------------------------------
+FROM node:20-alpine AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run web:build
+RUN npm run build
 
-# --- Runtime stage -------------------------------------------------------
-FROM nginx:1.27-alpine AS runtime
+# --- Runtime -------------------------------------------------------------
+FROM node:20-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
 
-# SPA-friendly nginx config (history fallback to index.html)
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Next standalone output: minimal server + traced node_modules.
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+COPY --from=build /app/public ./public
 
-# Static assets produced by Vite
-COPY --from=build /app/dist /usr/share/nginx/html
+EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/v1/health >/dev/null 2>&1 || exit 1
 
-EXPOSE 80
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
-
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "server.js"]

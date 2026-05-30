@@ -23,11 +23,11 @@ export const useDerivedValue = <T,>(factory: () => T) => ({ value: factory() });
 export const useAnimatedRef = () => React.createRef();
 export const useAnimatedScrollHandler = () => () => {};
 
-export const withSpring = <T,>(value: T) => value as T;
-export const withTiming = <T,>(value: T) => value as T;
+export const withSpring = <T,>(value: T, _config?: any, _callback?: any) => value as T;
+export const withTiming = <T,>(value: T, _config?: any, _callback?: any) => value as T;
 export const withDelay = <T,>(_d: number, value: T) => value as T;
-export const withSequence = (...args: any[]) => args[args.length - 1];
-export const withRepeat = <T,>(value: T) => value as T;
+export const withSequence = <T,>(...args: T[]) => args[args.length - 1];
+export const withRepeat = <T,>(value: T, _n?: number, _reverse?: boolean, _cb?: any) => value as T;
 
 export const runOnJS = (fn: any) => fn;
 export const runOnUI = (fn: any) => fn;

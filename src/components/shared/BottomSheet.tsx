@@ -47,10 +47,10 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
     .onStart(() => {
       context.value = { y: translateY.value };
     })
-    .onUpdate((event) => {
+    .onUpdate((event: any) => {
       translateY.value = Math.max(0, context.value.y + event.translationY);
     })
-    .onEnd((event) => {
+    .onEnd((event: any) => {
       if (event.translationY > height * 0.3 || event.velocityY > 500) {
         translateY.value = withTiming(height, { duration: tokens.animation.normal });
         backdropOpacity.value = withTiming(0, { duration: tokens.animation.fast });

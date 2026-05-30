@@ -1,7 +1,16 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const BASE_URL = 'https://api.tiktok-clone.app/v1';
+// Same-origin API (Next.js route handlers under /v1). Override at runtime with
+// window.__TIKTOK_API_BASE__ if pointing at an external API.
+function resolveBaseUrl(): string {
+  const override =
+    typeof globalThis !== 'undefined' && (globalThis as any).__TIKTOK_API_BASE__;
+  if (typeof override === 'string' && override) return override;
+  return '/v1';
+}
+
+const BASE_URL = resolveBaseUrl();
 const TOKEN_KEY = '@auth_token';
 const REFRESH_TOKEN_KEY = '@refresh_token';
 

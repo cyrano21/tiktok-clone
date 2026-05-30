@@ -21,3 +21,9 @@ web-build/
 .deploy-*.ps1
 .playwright-mcp/
 *.png
+
+# Build artifacts / caches
+.temp/
+*.tsbuildinfo
+.tc.txt
+.build.txt

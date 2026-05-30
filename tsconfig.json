@@ -1,15 +1,21 @@
 {
   "compilerOptions": {
-    "target": "esnext",
-    "module": "commonjs",
+    "target": "es2020",
     "lib": ["es2021", "DOM", "DOM.Iterable"],
-    "jsx": "react-native",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
     "strict": true,
     "esModuleInterop": true,
+    "allowJs": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "incremental": true,
     "baseUrl": ".",
+    "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["src/*"],
       "@components/*": ["src/components/*"],
@@ -18,13 +24,26 @@
       "@services/*": ["src/services/*"],
       "@store/*": ["src/store/*"],
       "@theme/*": ["src/theme/*"],
-      "@types/*": ["src/types/*"]
+      "@types/*": ["src/types/*"],
+      "react-native-safe-area-context": ["src/mocks/react-native-safe-area-context.ts"],
+      "react-native-reanimated": ["src/mocks/react-native-reanimated.ts"],
+      "react-native-gesture-handler": ["src/mocks/react-native-gesture-handler.ts"],
+      "react-native-haptic-feedback": ["src/mocks/react-native-haptic-feedback.ts"],
+      "react-native-video": ["src/mocks/react-native-video.web.tsx"],
+      "react-native-mmkv": ["src/mocks/react-native-mmkv.ts"]
     }
   },
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
   "exclude": [
     "node_modules",
-    "babel.config.js",
-    "metro.config.js",
-    "jest.config.js"
+    "backend",
+    "dist",
+    ".next",
+    "__tests__"
   ]
 }
