@@ -5,9 +5,9 @@ const nextConfig = {
   reactStrictMode: true,
   // Produce a self-contained server bundle for a small Docker runtime image.
   output: 'standalone',
-  // Proxy /v1/* API calls to the backend container (avoids mixed-content HTTPS→HTTP)
+  // Proxy /v1/* API calls to the backend via Coolify's internal proxy (avoids mixed-content HTTPS→HTTP)
   async rewrites() {
-    const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://g768f00mzzn2n0wf7k4motnn:4000';
+    const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://g768f00mzzn2n0wf7k4motnn.51.255.192.89.sslip.io';
     return [
       {
         source: '/v1/:path*',
