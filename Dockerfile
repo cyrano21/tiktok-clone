@@ -9,6 +9,11 @@ RUN npm install --no-audit --no-fund --legacy-peer-deps
 FROM node:20-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Accept build-time env vars from Coolify for Next.js NEXT_PUBLIC_* inlining
+ARG NEXT_PUBLIC_API_BASE_URL
+ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
