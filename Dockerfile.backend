@@ -1,18 +1,20 @@
-# Context is repo root. All COPY paths are relative to repo root.
+# Multi-stage Dockerfile for tiktok-clone backend (Fastify API)
+# Context = repository root
 
 FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
-COPY backend/package*.json ./
-COPY backend/prisma ./prisma
-RUN npm install --no-audit --no-fund --legacy-peer-deps
+COPY backend/package.json backend/package-lock.json* ./
+RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
 FROM node:20-alpine AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/prisma ./prisma
-COPY backend/. .
-RUN npx prisma generate && npm run build
+COPY backend/tsconfig.json ./
+COPY backend/src ./src
+COPY backend/prisma ./prisma
+RUN npx prisma generate
+RUN npx tsc
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
@@ -20,7 +22,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-COPY backend/package*.json ./
+COPY backend/package.json ./
 
 EXPOSE 4000
 CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
