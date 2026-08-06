@@ -136,6 +136,8 @@ const styles = StyleSheet.create({
   gridContent: {
     padding: 2,
     paddingTop: tokens.spacing.md,
+    // The tab bar is absolutely positioned over the screen; keep the final row scrollable above it.
+    paddingBottom: 96,
   },
   trendingItem: {
     flex: 1,
