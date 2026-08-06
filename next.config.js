@@ -5,6 +5,16 @@ const nextConfig = {
   reactStrictMode: true,
   // Produce a self-contained server bundle for a small Docker runtime image.
   output: 'standalone',
+  // Proxy /v1/* API calls to the backend container (avoids mixed-content HTTPS→HTTP)
+  async rewrites() {
+    const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://g768f00mzzn2n0wf7k4motnn:4000';
+    return [
+      {
+        source: '/v1/:path*',
+        destination: `${backendUrl}/v1/:path*`,
+      },
+    ];
+  },
   // react-native-web ships untranspiled ESM/Flow-ish code; transpile it + the
   // RN-ecosystem aliases so Next can bundle them for the browser.
   transpilePackages: ['react-native-web'],
