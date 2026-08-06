@@ -6,6 +6,7 @@ import { useNavigation } from '@/navigation/NavigationContext';
 import { useStudioStore } from '@/store/studioStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { useMyProfile } from '@/hooks/useMyProfile';
+import { shareText } from '@/services/share';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VIDEO_SIZE = (SCREEN_WIDTH - 4) / 3;
@@ -43,7 +44,8 @@ export const ProfileScreen: React.FC = () => {
   }));
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
-    <TouchableOpacity style={styles.videoItem}>
+    <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('feed.foryou')}>
+
       <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />
       <View style={styles.videoOverlay}>
         <Text style={styles.videoViews}>▶ {item.viewsCount}</Text>
@@ -94,7 +96,7 @@ export const ProfileScreen: React.FC = () => {
             <TouchableOpacity style={styles.editButton} onPress={() => nav.push('profile.edit')}>
               <Text style={styles.editButtonText}>Edit profile</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.shareButton}>
+            <TouchableOpacity style={styles.shareButton} onPress={() => shareText(`Découvre le profil @${profile.user.username}`)}>
               <Text style={styles.shareButtonIcon}>↗</Text>
             </TouchableOpacity>
           </View>

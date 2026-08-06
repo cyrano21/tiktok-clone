@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, TextInput, Image } 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { shareText } from '@/services/share';
 
 interface ChatMessage {
   id: string;
@@ -83,7 +84,7 @@ export const LiveScreen: React.FC = () => {
         <View style={styles.giftsPanel}>
           <View style={styles.giftsGrid}>
             {GIFTS.map((gift, index) => (
-              <TouchableOpacity key={index} style={styles.giftItem}>
+              <TouchableOpacity key={index} style={styles.giftItem} onPress={() => setShowGifts(false)}>
                 <Text style={styles.giftEmoji}>{gift}</Text>
               </TouchableOpacity>
             ))}
@@ -103,7 +104,7 @@ export const LiveScreen: React.FC = () => {
           <TouchableOpacity style={styles.giftButton} onPress={() => setShowGifts(!showGifts)}>
             <Text style={styles.giftButtonIcon}>🎁</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.shareButton}>
+          <TouchableOpacity style={styles.shareButton} onPress={() => shareText('Regarde ce LIVE sur TikTok Clone')}>
             <Text style={styles.shareButtonIcon}>↗</Text>
           </TouchableOpacity>
         </View>

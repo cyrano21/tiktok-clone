@@ -14,6 +14,8 @@ export const LiveBroadcastScreen: React.FC = () => {
   const [selectedEffect, setSelectedEffect] = useState('None');
   const [selectedFilter, setSelectedFilter] = useState('Normal');
   const [viewerCount, setViewerCount] = useState(0);
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -32,7 +34,7 @@ export const LiveBroadcastScreen: React.FC = () => {
             <Text style={styles.viewerText}>{viewerCount} viewers</Text>
           </View>
         )}
-        <TouchableOpacity style={styles.flipButton}>
+        <TouchableOpacity style={styles.flipButton} onPress={() => setIsFrontCamera((value) => !value)}>
           <Text style={styles.flipIcon}>🔄</Text>
         </TouchableOpacity>
       </View>
@@ -87,16 +89,16 @@ export const LiveBroadcastScreen: React.FC = () => {
 
       {isLive && (
         <View style={styles.liveControls}>
-          <TouchableOpacity style={styles.controlButton}>
+          <TouchableOpacity style={styles.controlButton} onPress={() => setSelectedEffect((value) => value === 'None' ? 'Beauty' : 'None')}>
             <Text style={styles.controlIcon}>✨</Text>
             <Text style={styles.controlLabel}>Effects</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton}>
+          <TouchableOpacity style={styles.controlButton} onPress={() => setSelectedFilter((value) => value === 'Normal' ? 'Vivid' : 'Normal')}>
             <Text style={styles.controlIcon}>🎨</Text>
             <Text style={styles.controlLabel}>Filters</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.controlButton}>
-            <Text style={styles.controlIcon}>🔇</Text>
+          <TouchableOpacity style={styles.controlButton} onPress={() => setIsMuted((value) => !value)}>
+            <Text style={styles.controlIcon}>{isMuted ? '🔇' : '🎙'}</Text>
             <Text style={styles.controlLabel}>Mute</Text>
           </TouchableOpacity>
           <TouchableOpacity

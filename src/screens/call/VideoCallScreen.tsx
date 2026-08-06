@@ -11,6 +11,7 @@ export const VideoCallScreen: React.FC = () => {
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [isSpeakerOn, setIsSpeakerOn] = useState(true);
   const [callDuration, setCallDuration] = useState('02:34');
+  const [isFrontCamera, setIsFrontCamera] = useState(true);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -18,7 +19,7 @@ export const VideoCallScreen: React.FC = () => {
         <Text style={styles.remoteVideoPlaceholder}>📹 Remote Video</Text>
       </View>
 
-      <View style={styles.localVideo}>
+      <View style={[styles.localVideo, !isFrontCamera && styles.localVideoFlipped]}>
         {isCameraOff ? (
           <View style={styles.cameraOffPlaceholder}>
             <Text style={styles.cameraOffIcon}>📷</Text>
@@ -56,7 +57,7 @@ export const VideoCallScreen: React.FC = () => {
           <Text style={styles.controlLabel}>{isCameraOff ? 'Camera On' : 'Camera Off'}</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.controlButton}>
+        <TouchableOpacity style={styles.controlButton} onPress={() => setIsFrontCamera((value) => !value)}>
           <Text style={styles.controlIcon}>🔄</Text>
           <Text style={styles.controlLabel}>Flip</Text>
         </TouchableOpacity>
@@ -110,6 +111,7 @@ const styles = StyleSheet.create({
     color: tokens.colors.white,
     fontSize: tokens.typography.body.fontSize,
   },
+  localVideoFlipped: { transform: [{ scaleX: -1 }] },
   cameraOffPlaceholder: {
     alignItems: 'center',
     gap: tokens.spacing.xs,

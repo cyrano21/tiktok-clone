@@ -25,6 +25,11 @@ export const SearchScreen: React.FC = () => {
   const nav = useNavigation();
   const [query, setQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState('users');
+  const [recentSearches, setRecentSearches] = useState(RECENT_SEARCHES);
+
+  const removeRecentSearch = (search: string) => {
+    setRecentSearches((items) => items.filter((item) => item !== search));
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -79,18 +84,20 @@ export const SearchScreen: React.FC = () => {
         <View style={styles.recentSection}>
           <View style={styles.recentHeader}>
             <Text style={styles.recentTitle}>Recent searches</Text>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => setRecentSearches([])}>
               <Text style={styles.clearAll}>Clear all</Text>
             </TouchableOpacity>
           </View>
-          {RECENT_SEARCHES.map((search, index) => (
-            <TouchableOpacity key={index} style={styles.recentItem} onPress={() => nav.push('explore.hashtag', { tag: search })}>
-              <Text style={styles.recentIcon}>🕐</Text>
-              <Text style={styles.recentText}>{search}</Text>
-              <TouchableOpacity>
+          {recentSearches.map((search) => (
+            <View key={search} style={styles.recentItem}>
+              <TouchableOpacity style={styles.recentTarget} onPress={() => nav.push('explore.hashtag', { tag: search })}>
+                <Text style={styles.recentIcon}>🕐</Text>
+                <Text style={styles.recentText}>{search}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => removeRecentSearch(search)}>
                 <Text style={styles.removeIcon}>✕</Text>
               </TouchableOpacity>
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
       )}
@@ -193,6 +200,7 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing.sm,
     gap: tokens.spacing.sm,
   },
+  recentTarget: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.sm },
   recentIcon: {
     fontSize: 16,
   },

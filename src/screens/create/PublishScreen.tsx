@@ -12,6 +12,13 @@ export const PublishScreen: React.FC = () => {
   const [allowDuet, setAllowDuet] = useState(true);
   const [allowStitch, setAllowStitch] = useState(true);
   const [visibility, setVisibility] = useState<'public' | 'friends' | 'private'>('public');
+  const [tagMode, setTagMode] = useState<'hashtags' | 'mention' | 'location' | null>(null);
+
+  const insertTag = (mode: 'hashtags' | 'mention' | 'location') => {
+    const prefix = mode === 'hashtags' ? '# ' : mode === 'mention' ? '@ ' : '📍 ';
+    setTagMode(mode);
+    setDescription((value) => `${value}${value && !value.endsWith(' ') ? ' ' : ''}${prefix}`);
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -43,15 +50,15 @@ export const PublishScreen: React.FC = () => {
         </View>
 
         <View style={styles.tagsSection}>
-          <TouchableOpacity style={styles.tagButton}>
+          <TouchableOpacity style={[styles.tagButton, tagMode === 'hashtags' && styles.tagButtonActive]} onPress={() => insertTag('hashtags')}>
             <Text style={styles.tagIcon}>#</Text>
             <Text style={styles.tagText}>Hashtags</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.tagButton}>
+          <TouchableOpacity style={[styles.tagButton, tagMode === 'mention' && styles.tagButtonActive]} onPress={() => insertTag('mention')}>
             <Text style={styles.tagIcon}>@</Text>
             <Text style={styles.tagText}>Mention</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.tagButton}>
+          <TouchableOpacity style={[styles.tagButton, tagMode === 'location' && styles.tagButtonActive]} onPress={() => insertTag('location')}>
             <Text style={styles.tagIcon}>📍</Text>
             <Text style={styles.tagText}>Location</Text>
           </TouchableOpacity>
@@ -154,6 +161,7 @@ const styles = StyleSheet.create({
   charCount: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, marginTop: tokens.spacing.xs, textAlign: 'right' },
   tagsSection: { flexDirection: 'row', gap: tokens.spacing.sm, marginTop: tokens.spacing.md, paddingVertical: tokens.spacing.md, borderTopWidth: 0.5, borderTopColor: tokens.colors.surface },
   tagButton: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.xs, paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.full },
+  tagButtonActive: { backgroundColor: tokens.colors.brand.primary },
   tagIcon: { fontSize: 14 },
   tagText: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize },
   settingsSection: { marginTop: tokens.spacing.lg },

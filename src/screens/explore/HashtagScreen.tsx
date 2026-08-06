@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Dimensions }
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
+import { shareText } from '@/services/share';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VIDEO_SIZE = (SCREEN_WIDTH - 4) / 3;
@@ -27,7 +28,8 @@ export const HashtagScreen: React.FC = () => {
   const [isFollowing, setIsFollowing] = useState(false);
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
-    <TouchableOpacity style={styles.videoItem}>
+    <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('feed.foryou')}>
+
       <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />
       <View style={styles.videoOverlay}>
         <Text style={styles.videoViews}>▶ {item.viewsCount}</Text>
@@ -42,7 +44,7 @@ export const HashtagScreen: React.FC = () => {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>#{tag}</Text>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => shareText(`Découvre le hashtag #${tag}`)}>
           <Text style={styles.shareIcon}>↗</Text>
         </TouchableOpacity>
       </View>
@@ -166,6 +168,8 @@ const styles = StyleSheet.create({
   },
   videoGrid: {
     gap: 2,
+    // The shared tab bar overlays the child route; leave the last row scrollable above it.
+    paddingBottom: 96,
   },
   videoItem: {
     width: VIDEO_SIZE,

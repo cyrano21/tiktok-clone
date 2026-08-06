@@ -102,7 +102,7 @@ export const FollowingScreen: React.FC = () => {
   return (
     <View style={styles.container} onLayout={handleLayout}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => nav.replace('feed.following')}>
           <Text style={[styles.headerTab, styles.headerTabActive]}>Following</Text>
         </TouchableOpacity>
         <View style={styles.headerDivider} />

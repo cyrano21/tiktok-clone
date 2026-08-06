@@ -64,7 +64,7 @@ export const ForYouScreen: React.FC = () => {
           <Text style={styles.headerTab}>Following</Text>
         </TouchableOpacity>
         <View style={styles.headerDivider} />
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => nav.replace('feed.foryou')}>
           <Text style={[styles.headerTab, styles.headerTabActive]}>For You</Text>
         </TouchableOpacity>
       </View>

@@ -42,6 +42,7 @@ export const ChatScreen: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const listRef = useRef<FlatList<Message>>(null);
   const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [attachment, setAttachment] = useState<string | null>(null);
 
   const scrollToEnd = useCallback(() => {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
@@ -110,11 +111,9 @@ export const ChatScreen: React.FC = () => {
         contentContainerStyle={styles.messagesList}
         showsVerticalScrollIndicator={false}
         onContentSizeChange={scrollToEnd}
-      />
-
-      <View style={[styles.inputContainer, { paddingBottom: insets.bottom || tokens.spacing.sm }]}>
-        <TouchableOpacity style={styles.attachButton}>
-          <Text style={styles.attachIcon}>+</Text>
+      />      <View style={[styles.inputContainer, { paddingBottom: insets.bottom || tokens.spacing.sm }]}>
+        <TouchableOpacity style={styles.attachButton} onPress={() => setAttachment(attachment ? null : 'https://picsum.photos/seed/chat-attachment/200/200')}>
+          <Text style={styles.attachIcon}>{attachment ? '✓' : '+'}</Text>
         </TouchableOpacity>
         <View style={styles.inputWrapper}>
           <TextInput

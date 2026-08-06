@@ -14,6 +14,7 @@ export const LoginScreen: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const handleLogin = async (): Promise<boolean> => {
     if (!email.trim() || !password) return false;
@@ -68,13 +69,14 @@ export const LoginScreen: React.FC = () => {
             />
           </View>
 
-          <TouchableOpacity style={styles.forgotPassword}>
+          <TouchableOpacity style={styles.forgotPassword} onPress={() => setNotice('Réinitialisation du mot de passe : contacte le support ou utilise ton compte backend.')}>
             <Text style={styles.forgotPasswordText}>Forgot password?</Text>
           </TouchableOpacity>
 
           {error && (
             <Text style={styles.errorText}>{error}</Text>
           )}
+          {notice && <Text style={styles.noticeText}>{notice}</Text>}
 
           <TouchableOpacity
             style={[styles.loginButton, { backgroundColor: branding.primaryColor }, (!email || !password) && styles.loginButtonDisabled]}
@@ -92,10 +94,10 @@ export const LoginScreen: React.FC = () => {
         </View>
 
         <View style={styles.socialButtons}>
-          <TouchableOpacity style={styles.socialButton}>
+          <TouchableOpacity style={styles.socialButton} onPress={() => setNotice('Connexion Google bientôt disponible via OAuth.') }>
             <Text style={styles.socialButtonText}>Continue with Google</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.socialButton}>
+          <TouchableOpacity style={styles.socialButton} onPress={() => setNotice('Connexion Apple bientôt disponible via OAuth.') }>
             <Text style={styles.socialButtonText}>Continue with Apple</Text>
           </TouchableOpacity>
         </View>
@@ -179,6 +181,7 @@ const styles = StyleSheet.create({
     fontSize: tokens.typography.body.fontSize,
     fontWeight: '600',
   },
+  noticeText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
   loginButtonText: {
     color: tokens.colors.white,
     fontSize: tokens.typography.subhead.fontSize,

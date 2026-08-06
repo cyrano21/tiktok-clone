@@ -15,10 +15,13 @@ export const RecordScreen: React.FC = () => {
   const [selectedDuration, setSelectedDuration] = useState('60s');
   const [isRecording, setIsRecording] = useState(false);
   const [isFrontCamera, setIsFrontCamera] = useState(true);
+  const [flashOn, setFlashOn] = useState(false);
+  const [timerOn, setTimerOn] = useState(false);
+  const [activeTool, setActiveTool] = useState<'effects' | 'filters' | null>(null);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      <View style={styles.cameraPreview}>
+      <View style={[styles.cameraPreview, !isFrontCamera && styles.cameraPreviewFlipped]}>
         <Text style={styles.cameraPlaceholder}>📷 Camera Preview</Text>
       </View>
 
@@ -27,7 +30,7 @@ export const RecordScreen: React.FC = () => {
           <Text style={styles.topButtonText}>✕</Text>
         </TouchableOpacity>
         <View style={styles.topCenter} pointerEvents="box-none">
-          <TouchableOpacity style={styles.soundPicker}>
+          <TouchableOpacity style={styles.soundPicker} onPress={() => nav.push('explore.sound')}>
             <Text style={styles.soundPickerText}>♪ Add sound</Text>
           </TouchableOpacity>
         </View>
@@ -39,19 +42,19 @@ export const RecordScreen: React.FC = () => {
           <Text style={styles.sideIcon}>🔄</Text>
           <Text style={styles.sideLabel}>Flip</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideButton}>
-          <Text style={styles.sideIcon}>⚡</Text>
+        <TouchableOpacity style={styles.sideButton} onPress={() => setFlashOn((value) => !value)}>
+          <Text style={styles.sideIcon}>{flashOn ? '💡' : '⚡'}</Text>
           <Text style={styles.sideLabel}>Flash</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideButton}>
-          <Text style={styles.sideIcon}>⏱</Text>
+        <TouchableOpacity style={styles.sideButton} onPress={() => setTimerOn((value) => !value)}>
+          <Text style={styles.sideIcon}>{timerOn ? '⏲' : '⏱'}</Text>
           <Text style={styles.sideLabel}>Timer</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideButton}>
+        <TouchableOpacity style={[styles.sideButton, activeTool === 'effects' && styles.sideButtonActive]} onPress={() => setActiveTool((value) => value === 'effects' ? null : 'effects')}>
           <Text style={styles.sideIcon}>✨</Text>
           <Text style={styles.sideLabel}>Effects</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.sideButton}>
+        <TouchableOpacity style={[styles.sideButton, activeTool === 'filters' && styles.sideButtonActive]} onPress={() => setActiveTool((value) => value === 'filters' ? null : 'filters')}>
           <Text style={styles.sideIcon}>🎨</Text>
           <Text style={styles.sideLabel}>Filters</Text>
         </TouchableOpacity>
@@ -73,7 +76,7 @@ export const RecordScreen: React.FC = () => {
         </View>
 
         <View style={styles.recordRow}>
-          <TouchableOpacity style={styles.effectsButton}>
+          <TouchableOpacity style={styles.effectsButton} onPress={() => setActiveTool((value) => value === 'effects' ? null : 'effects')}>
             <Text style={styles.effectsIcon}>✨</Text>
           </TouchableOpacity>
 
@@ -116,6 +119,7 @@ const styles = StyleSheet.create({
     color: tokens.colors.text.secondary,
     fontSize: tokens.typography.title.fontSize,
   },
+  cameraPreviewFlipped: { transform: [{ scaleX: -1 }] },
   topControls: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -162,6 +166,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
+  sideButtonActive: { opacity: 0.65 },
   sideIcon: {
     fontSize: 24,
   },
