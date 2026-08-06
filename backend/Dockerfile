@@ -1,15 +1,14 @@
 # --- Dependencies --------------------------------------------------------
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm install --no-audit --no-fund --legacy-peer-deps
 
 # --- Build ---------------------------------------------------------------
 FROM node:20-alpine AS build
 WORKDIR /app
-ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
-COPY . .
+COPY backend/. .
 # Generate Prisma client + compile TypeScript to dist/
 RUN npx prisma generate && npm run build
 
@@ -20,7 +19,7 @@ ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-COPY package*.json ./
+COPY backend/package*.json ./
 
 EXPOSE 4000
 
