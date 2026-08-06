@@ -3,18 +3,28 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingVi
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { authService } from '@/services/authService';
+import { useBranding } from '@/store/brandingStore';
 
 export const LoginScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const branding = useBranding();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = async () => {
+  const handleLogin = async (): Promise<boolean> => {
+    if (!email.trim() || !password) return false;
     setIsLoading(true);
+    setError(null);
     try {
-      // API call would go here
+      await authService.login(email.trim(), password);
+      return true;
+    } catch (e: any) {
+      setError(e?.message ?? 'Identifiants incorrects');
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -28,6 +38,7 @@ export const LoginScreen: React.FC = () => {
       <View style={styles.content}>
         <View style={styles.headerSection}>
           <Text style={styles.title}>Log in</Text>
+          <Text style={[styles.brandName, { color: branding.primaryColor }]}>{branding.name}</Text>
           <Text style={styles.subtitle}>
             Manage your account, check notifications, comment on videos, and more.
           </Text>
@@ -61,9 +72,13 @@ export const LoginScreen: React.FC = () => {
             <Text style={styles.forgotPasswordText}>Forgot password?</Text>
           </TouchableOpacity>
 
+          {error && (
+            <Text style={styles.errorText}>{error}</Text>
+          )}
+
           <TouchableOpacity
-            style={[styles.loginButton, (!email || !password) && styles.loginButtonDisabled]}
-            onPress={async () => { await handleLogin(); nav.reset('feed.foryou'); }}
+            style={[styles.loginButton, { backgroundColor: branding.primaryColor }, (!email || !password) && styles.loginButtonDisabled]}
+            onPress={async () => { if (await handleLogin()) nav.reset('feed.foryou'); }}
             disabled={!email || !password || isLoading}
           >
             <Text style={styles.loginButtonText}>{isLoading ? 'Logging in...' : 'Log in'}</Text>
@@ -151,6 +166,18 @@ const styles = StyleSheet.create({
   },
   loginButtonDisabled: {
     opacity: 0.5,
+  },
+  brandName: {
+    fontSize: tokens.typography.caption.fontSize,
+    fontWeight: '700',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    marginBottom: tokens.spacing.sm,
+  },
+  errorText: {
+    color: tokens.colors.semantic.error,
+    fontSize: tokens.typography.body.fontSize,
+    fontWeight: '600',
   },
   loginButtonText: {
     color: tokens.colors.white,

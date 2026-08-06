@@ -11,4 +11,5 @@ export async function authRoutes(app: FastifyInstance) {
   // Protected routes
   app.post('/logout', { preHandler: authMiddleware }, AuthController.logout);
   app.get('/me', { preHandler: authMiddleware }, AuthController.me);
+  app.patch('/me', { preHandler: authMiddleware }, AuthController.updateProfile);
 }

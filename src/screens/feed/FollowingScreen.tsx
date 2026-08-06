@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, StyleSheet, FlatList, Dimensions, RefreshControl, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, FlatList, Dimensions, RefreshControl, Text, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { Video } from '@/types';
@@ -54,6 +54,7 @@ export const FollowingScreen: React.FC = () => {
       <FeedItem
         video={item}
         isActive={index === currentIndex}
+        itemHeight={containerHeight}
         onCommentPress={() => nav.push('video.comments', { postId: item.id, count: item.commentsCount })}
         onSharePress={() => nav.push('inbox')}
         onProfilePress={() => nav.push('profile')}
@@ -83,8 +84,23 @@ export const FollowingScreen: React.FC = () => {
     );
   }
 
+  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT);
+  const handleLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0) setContainerHeight(h);
+  }, []);
+
+  const getItemLayout = useCallback(
+    (_: unknown, index: number) => ({
+      length: containerHeight,
+      offset: containerHeight * index,
+      index,
+    }),
+    [containerHeight]
+  );
+
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={handleLayout}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity>
           <Text style={[styles.headerTab, styles.headerTabActive]}>Following</Text>
@@ -101,9 +117,10 @@ export const FollowingScreen: React.FC = () => {
         keyExtractor={(item) => item.id}
         pagingEnabled
         showsVerticalScrollIndicator={false}
-        snapToInterval={SCREEN_HEIGHT}
+        snapToInterval={containerHeight}
         snapToAlignment="start"
         decelerationRate="fast"
+        getItemLayout={getItemLayout}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         refreshControl={

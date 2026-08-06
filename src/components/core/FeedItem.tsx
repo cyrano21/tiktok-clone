@@ -9,11 +9,10 @@ import { useDoubleTap } from '@/hooks/useDoubleTap';
 import { useFeedStore } from '@/store/feedStore';
 import { getProductById, formatPrice } from '@/services/demoShop';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 interface FeedItemProps {
   video: Video;
   isActive: boolean;
+  itemHeight?: number;
   onCommentPress: () => void;
   onSharePress: () => void;
   onProfilePress: (userId: string) => void;
@@ -23,6 +22,7 @@ interface FeedItemProps {
 export const FeedItem: React.FC<FeedItemProps> = ({
   video,
   isActive,
+  itemHeight,
   onCommentPress,
   onSharePress,
   onProfilePress,
@@ -60,8 +60,18 @@ export const FeedItem: React.FC<FeedItemProps> = ({
     setHeartVisible(false);
   }, []);
 
+  const containerStyle = itemHeight ? [styles.container, { height: itemHeight }] : styles.container;
+
   return (
-    <View style={styles.container}>
+    <View style={containerStyle}>
+      {/* Thumbnail fallback while video loads */}
+      {video.thumbnailUrl ? (
+        <Image
+          source={{ uri: video.thumbnailUrl }}
+          style={styles.thumbnailBg}
+          resizeMode="cover"
+        />
+      ) : null}
       <VideoPlayer
         uri={video.videoUrl}
         isActive={isActive}
@@ -134,15 +144,23 @@ export const FeedItem: React.FC<FeedItemProps> = ({
   );
 };
 
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
+
 const styles = StyleSheet.create({
   container: {
-    width: SCREEN_WIDTH,
+    width: '100%',
     height: SCREEN_HEIGHT,
     backgroundColor: tokens.colors.black,
+    overflow: 'hidden',
+  },
+  thumbnailBg: {
+    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
   },
   infoOverlay: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 90,
     left: tokens.feed.infoPadding,
     right: tokens.feed.rightBarWidth + tokens.spacing.lg,
     gap: tokens.spacing.xs,

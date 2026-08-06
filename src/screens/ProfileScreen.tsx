@@ -5,6 +5,7 @@ import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { useStudioStore } from '@/store/studioStore';
 import { useSessionStore } from '@/store/sessionStore';
+import { useMyProfile } from '@/hooks/useMyProfile';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VIDEO_SIZE = (SCREEN_WIDTH - 4) / 3;
@@ -13,6 +14,12 @@ interface VideoGridItem {
   id: string;
   thumbnailUrl: string;
   viewsCount: string;
+}
+
+function formatShort(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.0', '')}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1).replace('.0', '')}K`;
+  return String(Math.round(n));
 }
 
 const MOCK_VIDEOS: VideoGridItem[] = Array.from({ length: 18 }, (_, i) => ({
@@ -27,6 +34,13 @@ export const ProfileScreen: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'videos' | 'liked'>('videos');
   const myPosts = useStudioStore((s) => s.posts);
   const isSeller = useSessionStore((s) => s.isSeller);
+  const profile = useMyProfile();
+
+  const realVideos: VideoGridItem[] = profile.videos.map((v) => ({
+    id: v.id,
+    thumbnailUrl: v.thumbnailUrl,
+    viewsCount: formatShort(v.viewsCount),
+  }));
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
     <TouchableOpacity style={styles.videoItem}>
@@ -43,7 +57,10 @@ export const ProfileScreen: React.FC = () => {
         <TouchableOpacity onPress={() => nav.push('profile.settings')}>
           <Text style={styles.headerIcon}>☰</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>@username</Text>
+        <View style={styles.headerTitleRow}>
+          <Text style={styles.headerTitle}>@{profile.user.username}</Text>
+          <View style={[styles.liveDot, { backgroundColor: profile.live ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]} />
+        </View>
         <TouchableOpacity onPress={() => nav.push('profile.settings')}>
           <Text style={styles.headerIcon}>⋯</Text>
         </TouchableOpacity>
@@ -52,23 +69,23 @@ export const ProfileScreen: React.FC = () => {
       <ScrollView showsVerticalScrollIndicator={false}>
         <View style={styles.profileSection}>
           <Image
-            source={{ uri: 'https://picsum.photos/100/100' }}
+            source={{ uri: profile.user.avatarUrl ?? 'https://picsum.photos/100/100' }}
             style={styles.avatar}
           />
-          <Text style={styles.displayName}>Display Name</Text>
-          <Text style={styles.username}>@username</Text>
+          <Text style={styles.displayName}>{profile.user.displayName}</Text>
+          <Text style={styles.username}>@{profile.user.username}</Text>
 
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>128</Text>
+              <Text style={styles.statValue}>{formatShort(profile.user.followingCount)}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>14.2K</Text>
+              <Text style={styles.statValue}>{formatShort(profile.user.followersCount)}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>892K</Text>
+              <Text style={styles.statValue}>{formatShort(profile.likesCount)}</Text>
               <Text style={styles.statLabel}>Likes</Text>
             </View>
           </View>
@@ -104,10 +121,11 @@ export const ProfileScreen: React.FC = () => {
             <Text style={styles.studioChevron}>›</Text>
           </TouchableOpacity>
 
-          <Text style={styles.bio}>
-            Creative content creator 🎬{'\n'}
-            Making videos that inspire ✨
-          </Text>
+          {profile.user.bio ? (
+            <Text style={styles.bio}>{profile.user.bio}</Text>
+          ) : (
+            <Text style={[styles.bio, { color: tokens.colors.text.tertiary }]}>Aucune bio pour le moment</Text>
+          )}
         </View>
 
         <View style={styles.tabRow}>
@@ -130,7 +148,7 @@ export const ProfileScreen: React.FC = () => {
         </View>
 
         <FlatList
-          data={[
+          data={profile.live ? realVideos : [
             ...myPosts.map((p) => ({ id: p.id, thumbnailUrl: p.thumbnailUrl, viewsCount: 'Nouveau' })),
             ...MOCK_VIDEOS,
           ]}
@@ -157,11 +175,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.spacing.md,
     paddingVertical: tokens.spacing.sm,
   },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   headerTitle: {
     color: tokens.colors.white,
     fontSize: tokens.typography.title.fontSize,
     fontWeight: '700',
   },
+  liveDot: { width: 8, height: 8, borderRadius: 4, marginTop: 2 },
   headerIcon: {
     color: tokens.colors.white,
     fontSize: 24,

@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView } from 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { authService } from '@/services/authService';
 
 const INTERESTS = [
   'Comedy', 'Dance', 'Music', 'Food', 'Sports', 'Fashion',
@@ -25,11 +26,24 @@ export const RegisterScreen: React.FC = () => {
     );
   };
 
-  const handleNext = () => {
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleNext = async () => {
     if (step === 'info') {
       setStep('interests');
-    } else {
+      return;
+    }
+    // Interests step = finalize registration against the real backend.
+    setIsLoading(true);
+    setError(null);
+    try {
+      await authService.register({ email: email.trim(), username: username.trim(), password });
       nav.reset('feed.foryou');
+    } catch (e: any) {
+      setError(e?.message ?? "Impossible de créer le compte");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -87,6 +101,10 @@ export const RegisterScreen: React.FC = () => {
             </View>
           </View>
 
+          {error && (
+            <Text style={styles.errorText}>{error}</Text>
+          )}
+
           <Text style={styles.terms}>
             By continuing, you agree to our Terms of Service and acknowledge our Privacy Policy.
           </Text>
@@ -132,7 +150,7 @@ export const RegisterScreen: React.FC = () => {
           disabled={step === 'interests' && selectedInterests.length < 3}
         >
           <Text style={styles.nextButtonText}>
-            {step === 'info' ? 'Next' : 'Get Started'}
+            {step === 'info' ? 'Next' : isLoading ? 'Creating…' : 'Get Started'}
           </Text>
         </TouchableOpacity>
       </View>
@@ -197,6 +215,12 @@ const styles = StyleSheet.create({
     fontSize: tokens.typography.body.fontSize,
     paddingHorizontal: tokens.spacing.md,
     height: 48,
+  },
+  errorText: {
+    color: tokens.colors.semantic.error,
+    fontSize: tokens.typography.body.fontSize,
+    fontWeight: '600',
+    marginTop: tokens.spacing.md,
   },
   terms: {
     color: tokens.colors.text.tertiary,

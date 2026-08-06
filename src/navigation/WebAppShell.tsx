@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { useNavigation, RouteName } from './NavigationContext';
 import { SCREEN_REGISTRY, TAB_ROUTES, ROUTE_TO_TAB } from './screenRegistry';
+import { useBrandingStore } from '@/store/brandingStore';
 
 const { width } = Dimensions.get('window');
 const isMobile = width < 500;
@@ -58,6 +59,7 @@ export function WebAppShell() {
   const Screen = SCREEN_REGISTRY[route];
   const showTabBar = !FULLSCREEN_ROUTES.includes(route);
   const activeTab = ROUTE_TO_TAB[route];
+  const branding = useBrandingStore((s) => s.branding);
 
   return (
     <View style={styles.outer}>
@@ -79,7 +81,7 @@ export function WebAppShell() {
               if (tab.route === 'create') {
                 return (
                   <TouchableOpacity key={tab.route} style={styles.navItem} onPress={() => nav.reset('create')}>
-                    <View style={styles.createBtn}>
+                    <View style={[styles.createBtn, { backgroundColor: branding.primaryColor, shadowColor: branding.accentColor }]}>
                       <Text style={styles.createBtnText}>+</Text>
                     </View>
                   </TouchableOpacity>
@@ -87,8 +89,8 @@ export function WebAppShell() {
               }
               return (
                 <TouchableOpacity key={tab.route} style={styles.navItem} onPress={() => nav.reset(tab.route)}>
-                  <Text style={[styles.navIcon, isActive && styles.navIconActive]}>{tab.icon}</Text>
-                  <Text style={[styles.navLabel, isActive && styles.navLabelActive]}>{tab.label}</Text>
+                  <Text style={[styles.navIcon, isActive && { color: branding.primaryColor, opacity: 1 }]}>{tab.icon}</Text>
+                  <Text style={[styles.navLabel, isActive && { color: branding.primaryColor, fontWeight: '700' }]}>{tab.label}</Text>
                 </TouchableOpacity>
               );
             })}
@@ -140,9 +142,7 @@ const styles = StyleSheet.create({
   },
   navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2 },
   navIcon: { fontSize: 21, opacity: 0.65 },
-  navIconActive: { opacity: 1 },
   navLabel: { fontSize: 9, color: '#a8a8a8' },
-  navLabelActive: { color: '#fff', fontWeight: '700' },
   createBtn: {
     width: 46, height: 30, borderRadius: 8,
     backgroundColor: '#FE2C55',

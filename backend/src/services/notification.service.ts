@@ -17,9 +17,7 @@ export class NotificationService {
         type: params.type,
         title: params.title,
         body: params.body,
-        actorId: params.actorId,
-        resourceId: params.resourceId,
-        resourceType: params.resourceType,
+        data: { actorId: params.actorId, resourceId: params.resourceId, resourceType: params.resourceType },
       },
     });
 
@@ -41,20 +39,35 @@ export class NotificationService {
         orderBy: { createdAt: 'desc' },
         skip: offset,
         take: limit,
-        include: {
-          actor: { select: { id: true, username: true, displayName: true, avatar: true } },
-        },
       }),
       prisma.notification.count({ where: { userId } }),
     ]);
 
-    return { notifications, total, page, limit };
+    // Enrich with actor info (username + avatar) stored in the data JSON.
+    const actorIds = notifications
+      .map((n) => (n.data as any)?.actorId)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+    const actors = actorIds.length
+      ? await prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, username: true, displayName: true, avatarUrl: true },
+        })
+      : [];
+    const actorMap = new Map(actors.map((a) => [a.id, a]));
+
+    const enriched = notifications.map((n) => {
+      const actorId = (n.data as any)?.actorId;
+      const actor = actorId ? actorMap.get(actorId) : undefined;
+      return { ...n, actor: actor ?? null };
+    });
+
+    return { notifications: enriched, total, page, limit };
   }
 
   static async markAsRead(userId: string, notificationId: string) {
     await prisma.notification.update({
       where: { id: notificationId, userId },
-      data: { readAt: new Date() },
+      data: { isRead: true },
     });
 
     // Decrement unread count
@@ -64,8 +77,8 @@ export class NotificationService {
 
   static async markAllAsRead(userId: string) {
     await prisma.notification.updateMany({
-      where: { userId, readAt: null },
-      data: { readAt: new Date() },
+      where: { userId, isRead: false },
+      data: { isRead: true },
     });
 
     await redis.set(`unread_notifications:${userId}`, '0');

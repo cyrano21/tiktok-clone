@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
+import { NotificationService } from '../services/notification.service';
 
 export async function userRoutes(app: FastifyInstance) {
   // Get user profile
@@ -12,7 +13,7 @@ export async function userRoutes(app: FastifyInstance) {
         id: true,
         username: true,
         displayName: true,
-        avatar: true,
+        avatarUrl: true,
         bio: true,
         isVerified: true,
         createdAt: true,
@@ -31,7 +32,7 @@ export async function userRoutes(app: FastifyInstance) {
     const user = await prisma.user.findUnique({ where: { username } });
     if (!user) return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
     const videos = await prisma.video.findMany({
-      where: { userId: user.id, isPublished: true },
+      where: { userId: user.id, visibility: 'public' },
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: parseInt(limit),
@@ -51,6 +52,7 @@ export async function userRoutes(app: FastifyInstance) {
       return reply.send({ following: false });
     }
     await prisma.follow.create({ data: { followerId: userId, followingId: id } });
+    await NotificationService.notifyFollow(id, userId);
     return reply.send({ following: true });
   });
 
@@ -77,7 +79,7 @@ export async function userRoutes(app: FastifyInstance) {
         id: true,
         username: true,
         displayName: true,
-        avatar: true,
+        avatarUrl: true,
         isVerified: true,
         _count: { select: { followers: true } },
       },

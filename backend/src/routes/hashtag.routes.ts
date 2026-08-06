@@ -25,7 +25,7 @@ export async function hashtagRoutes(app: FastifyInstance) {
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true } },
       },
     });

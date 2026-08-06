@@ -31,7 +31,7 @@ export class AuthController {
       data: {
         email,
         username,
-        password: hashedPassword,
+        passwordHash: hashedPassword,
         displayName: displayName || username,
       },
     });
@@ -47,13 +47,23 @@ export class AuthController {
 
   static async login(req: FastifyRequest, reply: FastifyReply) {
     const { email, password } = req.body as any;
+    const identifier = String(email ?? '').trim();
+    if (!identifier || !password) {
+      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'Identifier and password are required' });
+    }
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    // Accepts both email and username ("Email or username" placeholder).
+    const user = await prisma.user.findFirst({
+      where:
+        identifier.includes('@')
+          ? { email: identifier }
+          : { username: identifier },
+    });
     if (!user) {
       return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
     }
 
-    const validPassword = await bcrypt.compare(password, user.password);
+    const validPassword = await bcrypt.compare(password, user.passwordHash);
     if (!validPassword) {
       return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
     }
@@ -97,6 +107,55 @@ export class AuthController {
     return reply.send({ message: 'Logged out successfully' });
   }
 
+  static async updateProfile(req: FastifyRequest, reply: FastifyReply) {
+    const userId = (req as any).userId;
+    const { displayName, bio, avatarUrl, website } = req.body as any;
+
+    const data: Record<string, string | null | undefined> = {};
+    if (displayName !== undefined) {
+      if (typeof displayName !== 'string' || displayName.length > 50) {
+        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'displayName too long (max 50)' });
+      }
+      data.displayName = displayName.trim();
+    }
+    if (bio !== undefined) {
+      if (typeof bio !== 'string' || bio.length > 200) {
+        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'bio too long (max 200)' });
+      }
+      data.bio = bio.trim();
+    }
+    if (avatarUrl !== undefined) {
+      if (typeof avatarUrl !== 'string' || avatarUrl.length > 500) {
+        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'avatarUrl too long' });
+      }
+      data.avatarUrl = avatarUrl.trim() || null;
+    }
+    if (website !== undefined) {
+      if (typeof website !== 'string' || website.length > 200) {
+        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'website too long' });
+      }
+      data.website = website.trim() || null;
+    }
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: data as any,
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        displayName: true,
+        avatarUrl: true,
+        bio: true,
+        isVerified: true,
+        createdAt: true,
+        _count: { select: { followers: true, following: true, videos: true } },
+      },
+    });
+
+    return reply.send({ user });
+  }
+
   static async me(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).userId;
     const user = await prisma.user.findUnique({
@@ -106,7 +165,7 @@ export class AuthController {
         email: true,
         username: true,
         displayName: true,
-        avatar: true,
+        avatarUrl: true,
         bio: true,
         isVerified: true,
         createdAt: true,

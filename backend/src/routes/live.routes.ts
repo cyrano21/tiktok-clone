@@ -8,7 +8,7 @@ export async function liveRoutes(app: FastifyInstance) {
     const userId = (req as any).userId;
     const { title, description } = req.body as any;
     const stream = await prisma.liveStream.create({
-      data: { userId, title, description, isActive: true },
+      data: { userId, title, status: 'live', streamKey: require('uuid').v4() },
     });
     return reply.status(201).send({ stream });
   });
@@ -21,7 +21,7 @@ export async function liveRoutes(app: FastifyInstance) {
     if (!stream || stream.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized' });
     }
-    await prisma.liveStream.update({ where: { id }, data: { isActive: false, endedAt: new Date() } });
+    await prisma.liveStream.update({ where: { id }, data: { status: 'ended', endedAt: new Date() } });
     return reply.send({ message: 'Stream ended' });
   });
 
@@ -31,7 +31,7 @@ export async function liveRoutes(app: FastifyInstance) {
     const stream = await prisma.liveStream.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
       },
     });
     if (!stream) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Stream not found' });
@@ -43,12 +43,12 @@ export async function liveRoutes(app: FastifyInstance) {
     const { page = '1', limit = '20' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const streams = await prisma.liveStream.findMany({
-      where: { isActive: true },
+      where: { status: 'live' },
       orderBy: { viewerCount: 'desc' },
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
       },
     });
     return reply.send({ streams, page: parseInt(page), limit: parseInt(limit) });

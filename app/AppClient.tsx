@@ -1,9 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationProvider } from '@/navigation/NavigationContext';
 import { WebAppShell } from '@/navigation/WebAppShell';
+import { useBrandingStore } from '@/store/brandingStore';
 
 /**
  * Client-only root for the react-native-web app.
@@ -13,6 +14,12 @@ import { WebAppShell } from '@/navigation/WebAppShell';
  * Vite `App.tsx` composition exactly — only the build host changed (Next.js).
  */
 export default function AppClient() {
+  const loadBranding = useBrandingStore((s) => s.load);
+
+  useEffect(() => {
+    loadBranding();
+  }, [loadBranding]);
+
   return (
     <SafeAreaProvider>
       <NavigationProvider initial={{ name: 'feed.foryou' }}>

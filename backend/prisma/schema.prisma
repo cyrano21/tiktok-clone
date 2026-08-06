@@ -28,12 +28,16 @@ model User {
   isPrivate       Boolean   @default(false)
   isBanned        Boolean   @default(false)
   role            String    @default("user")
+  plan            String    @default("FREE") // FREE | PRO | BUSINESS
 
   language        String    @default("fr")
   contentPrefs    Json      @default("[]")
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+
+  subscription    Subscription?
+  publishJobs     PublishJob[]
 
   videos          Video[]
   sounds          Sound[]
@@ -330,4 +334,60 @@ model Notification {
   user        User     @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+/// SaaS subscription: FREE (free), PRO (9.99€/mo), BUSINESS (29.99€/mo).
+/// Payment is mocked in dev; swap for a real Stripe checkout when keys are available.
+model Subscription {
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan       String // FREE | PRO | BUSINESS
+  status     String   @default("active") // active | trialing | past_due | canceled
+  priceCents Int      @default(0)
+  startedAt  DateTime @default(now())
+  renewsAt   DateTime?
+  canceledAt DateTime?
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// White-label branding: tenant identity (name, logo, colors) shown across the app.
+model Branding {
+  id           String   @id @default(uuid())
+  tenant       String   @unique @default("default")
+  name         String   @default("TikTok")
+  logoUrl      String?  @db.Text
+  primaryColor String   @default("#FE2C55")
+  accentColor  String   @default("#25F4EE")
+  tagline      String?  @default("Short videos")
+  supportEmail String?
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Cross-posting queue: schedule a video to be published to external platforms.
+model PublishJob {
+  id          String    @id @default(uuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  videoId     String?
+  videoUrl    String?
+  caption     String?
+  platform    String // tiktok | reels | shorts
+  status      String    @default("scheduled") // scheduled | processing | published | failed | canceled
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  error       String?
+  externalId  String? // platform-side post id
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId, status])
+  @@index([scheduledAt])
 }

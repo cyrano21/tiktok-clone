@@ -1,34 +1,13 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ScrollView, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { notificationService, NotificationItem } from '@/services/notificationService';
 
 type ActivityType = 'like' | 'comment' | 'follow' | 'mention';
 
-interface ActivityItem {
-  id: string;
-  type: ActivityType;
-  username: string;
-  avatarUrl: string;
-  text: string;
-  timestamp: string;
-  thumbnailUrl?: string;
-  isFollowing?: boolean;
-}
-
-const ACTIVITIES: ActivityItem[] = [
-  { id: 'a1', type: 'like', username: 'leamartin', avatarUrl: 'https://i.pravatar.cc/100?img=47', text: 'a aimé votre vidéo', timestamp: '2m', thumbnailUrl: 'https://picsum.photos/seed/av1/100/140' },
-  { id: 'a2', type: 'follow', username: 'thomas.k', avatarUrl: 'https://i.pravatar.cc/100?img=12', text: 'a commencé à vous suivre', timestamp: '8m', isFollowing: false },
-  { id: 'a3', type: 'comment', username: 'studio.flow', avatarUrl: 'https://i.pravatar.cc/100?img=68', text: 'a commenté : "Incroyable 🔥"', timestamp: '23m', thumbnailUrl: 'https://picsum.photos/seed/av2/100/140' },
-  { id: 'a4', type: 'mention', username: 'naelle_', avatarUrl: 'https://i.pravatar.cc/100?img=32', text: 'vous a mentionné dans un commentaire', timestamp: '1h', thumbnailUrl: 'https://picsum.photos/seed/av3/100/140' },
-  { id: 'a5', type: 'like', username: 'maxence_off', avatarUrl: 'https://i.pravatar.cc/100?img=15', text: 'et 24 autres ont aimé votre vidéo', timestamp: '2h', thumbnailUrl: 'https://picsum.photos/seed/av4/100/140' },
-  { id: 'a6', type: 'follow', username: 'la.cheffe', avatarUrl: 'https://i.pravatar.cc/100?img=45', text: 'a commencé à vous suivre', timestamp: '3h', isFollowing: true },
-  { id: 'a7', type: 'comment', username: 'pierre.dance', avatarUrl: 'https://i.pravatar.cc/100?img=8', text: 'a répondu à votre commentaire', timestamp: '5h', thumbnailUrl: 'https://picsum.photos/seed/av5/100/140' },
-  { id: 'a8', type: 'like', username: 'mia.sunset', avatarUrl: 'https://i.pravatar.cc/100?img=24', text: 'a aimé votre commentaire', timestamp: '8h', thumbnailUrl: 'https://picsum.photos/seed/av6/100/140' },
-  { id: 'a9', type: 'mention', username: 'kev_skate', avatarUrl: 'https://i.pravatar.cc/100?img=11', text: 'vous a tagué dans une vidéo', timestamp: '1j', thumbnailUrl: 'https://picsum.photos/seed/av7/100/140' },
-  { id: 'a10', type: 'follow', username: 'amelie_yoga', avatarUrl: 'https://i.pravatar.cc/100?img=49', text: 'a commencé à vous suivre', timestamp: '2j', isFollowing: false },
-];
+const EMPTY_ACTIVITIES: NotificationItem[] = [];
 
 const FILTERS: { id: ActivityType | 'all'; label: string }[] = [
   { id: 'all', label: 'Tout' },
@@ -49,19 +28,38 @@ export const ActivityScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const [filter, setFilter] = useState<ActivityType | 'all'>('all');
-  const [following, setFollowing] = useState<Record<string, boolean>>(
-    () => Object.fromEntries(ACTIVITIES.filter((a) => a.type === 'follow').map((a) => [a.id, !!a.isFollowing]))
-  );
+  const [activities, setActivities] = useState<NotificationItem[]>(EMPTY_ACTIVITIES);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const items = await notificationService.getNotifications(30);
+      setActivities(items);
+      await notificationService.markAllAsRead();
+    } catch {
+      setActivities(EMPTY_ACTIVITIES);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    load();
+  }, [load]);
 
   const data = useMemo(
-    () => (filter === 'all' ? ACTIVITIES : ACTIVITIES.filter((a) => a.type === filter)),
-    [filter]
+    () => (filter === 'all' ? activities : activities.filter((a) => a.type === filter)),
+    [filter, activities]
   );
 
-  const toggleFollow = (id: string) =>
-    setFollowing((prev) => ({ ...prev, [id]: !prev[id] }));
-
-  const renderItem = ({ item }: { item: ActivityItem }) => (
+  const renderItem = ({ item }: { item: NotificationItem }) => (
     <View style={styles.item}>
       <View style={styles.avatarWrap}>
         <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
@@ -77,16 +75,7 @@ export const ActivityScreen: React.FC = () => {
         <Text style={styles.itemTime}>{item.timestamp}</Text>
       </View>
 
-      {item.type === 'follow' ? (
-        <TouchableOpacity
-          style={[styles.followBtn, following[item.id] && styles.followingBtn]}
-          onPress={() => toggleFollow(item.id)}
-        >
-          <Text style={[styles.followBtnText, following[item.id] && styles.followingBtnText]}>
-            {following[item.id] ? 'Abonné' : 'Suivre'}
-          </Text>
-        </TouchableOpacity>
-      ) : item.thumbnailUrl ? (
+      {item.thumbnailUrl ? (
         <Image source={{ uri: item.thumbnailUrl }} style={styles.thumb} />
       ) : null}
     </View>
@@ -122,10 +111,15 @@ export const ActivityScreen: React.FC = () => {
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={tokens.colors.white} />
+        }
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyEmoji}>🔔</Text>
-            <Text style={styles.emptyText}>Aucune activité ici pour le moment</Text>
+            <Text style={styles.emptyText}>
+              {loading ? 'Chargement…' : 'Aucune activité ici pour le moment'}
+            </Text>
           </View>
         }
       />

@@ -11,6 +11,10 @@ import { messageRoutes } from "./message.routes";
 import { liveRoutes } from "./live.routes";
 import { notificationRoutes } from "./notification.routes";
 import { tiktokRoutes } from "./tiktok.routes";
+import { analyticsRoutes } from "./analytics.routes";
+import { billingRoutes } from "./billing.routes";
+import { publishRoutes } from "./publish.routes";
+import { brandingRoutes } from "./branding.routes";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
@@ -25,4 +29,8 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(liveRoutes, { prefix: "/v1/live" });
   app.register(notificationRoutes, { prefix: "/v1/notifications" });
   app.register(tiktokRoutes, { prefix: "/v1/tiktok" });
+  app.register(analyticsRoutes, { prefix: "/v1/analytics" });
+  app.register(billingRoutes, { prefix: "/v1/billing" });
+  app.register(publishRoutes, { prefix: "/v1/publish" });
+  app.register(brandingRoutes, { prefix: "/v1/branding" });
 }

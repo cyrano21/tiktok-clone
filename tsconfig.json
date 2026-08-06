@@ -38,12 +38,12 @@
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"
-  ],
-  "exclude": [
+  ],    "exclude": [
     "node_modules",
     "backend",
     "dist",
     ".next",
-    "__tests__"
+    "__tests__",
+    "jest.setup.ts"
   ]
 }

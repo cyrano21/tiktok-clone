@@ -9,12 +9,11 @@ export async function messageRoutes(app: FastifyInstance) {
   app.get('/conversations', async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = (req as any).userId;
     const conversations = await prisma.conversation.findMany({
-      where: { participants: { some: { userId } } },
-      orderBy: { updatedAt: 'desc' },
+      where: { OR: [{ participant1Id: userId }, { participant2Id: userId }] },
+      orderBy: { lastMessageAt: 'desc' },
       include: {
-        participants: {
-          include: { user: { select: { id: true, username: true, displayName: true, avatar: true } } },
-        },
+        participant1: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        participant2: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
     });
@@ -31,7 +30,7 @@ export async function messageRoutes(app: FastifyInstance) {
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: parseInt(limit),
-      include: { sender: { select: { id: true, username: true, displayName: true, avatar: true } } },
+      include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
     });
     return reply.send({ messages: messages.reverse(), page: parseInt(page), limit: parseInt(limit) });
   });
@@ -42,10 +41,10 @@ export async function messageRoutes(app: FastifyInstance) {
     const userId = (req as any).userId;
     const { text, type = 'text' } = req.body as any;
     const message = await prisma.message.create({
-      data: { conversationId: id, senderId: userId, text, type },
-      include: { sender: { select: { id: true, username: true, displayName: true, avatar: true } } },
+      data: { conversationId: id, senderId: userId, content: text, type },
+      include: { sender: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
     });
-    await prisma.conversation.update({ where: { id }, data: { updatedAt: new Date() } });
+    await prisma.conversation.update({ where: { id }, data: { lastMessageAt: new Date() } });
     return reply.status(201).send({ message });
   });
 
@@ -56,12 +55,12 @@ export async function messageRoutes(app: FastifyInstance) {
     const allParticipants = [userId, ...participantIds];
     const conversation = await prisma.conversation.create({
       data: {
-        participants: { create: allParticipants.map((id: string) => ({ userId: id })) },
+        participant1Id: allParticipants[0],
+        participant2Id: allParticipants[1] || allParticipants[0],
       },
       include: {
-        participants: {
-          include: { user: { select: { id: true, username: true, displayName: true, avatar: true } } },
-        },
+        participant1: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
+        participant2: { select: { id: true, username: true, displayName: true, avatarUrl: true } },
       },
     });
     return reply.status(201).send({ conversation });

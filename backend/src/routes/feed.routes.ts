@@ -25,12 +25,12 @@ export async function feedRoutes(app: FastifyInstance) {
     const { page = '1', limit = '20' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const streams = await prisma.liveStream.findMany({
-      where: { isActive: true },
+      where: { status: 'live' },
       orderBy: { viewerCount: 'desc' },
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
       },
     });
     return reply.send({ streams, page: parseInt(page), limit: parseInt(limit) });
@@ -41,12 +41,12 @@ export async function feedRoutes(app: FastifyInstance) {
     const { page = '1', limit = '20' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const videos = await prisma.video.findMany({
-      where: { isPublished: true },
-      orderBy: [{ viewsCount: 'desc' }, { likesCount: 'desc' }],
+      where: { visibility: 'public' },
+      orderBy: [{ viewCount: 'desc' }, { likeCount: 'desc' }],
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true, shares: true } },
       },
     });

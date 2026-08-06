@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'rea
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
-import { useStudioStore, MediaPost } from '@/store/studioStore';
+import { useCreatorAnalytics } from '@/hooks/useCreatorAnalytics';
 import { MiniBarChart } from '@/components/studio/MiniBarChart';
 
 function formatShort(n: number): string {
@@ -25,8 +25,7 @@ const METRIC_TABS: Array<{ id: Metric; label: string }> = [
 export const StudioAnalyticsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  const analytics = useStudioStore((s) => s.analytics());
-  const posts = useStudioStore((s) => s.posts);
+  const analytics = useCreatorAnalytics();
   const [metric, setMetric] = useState<Metric>('views');
 
   const metricTotal: Record<Metric, number> = {
@@ -38,23 +37,29 @@ export const StudioAnalyticsScreen: React.FC = () => {
 
   // For non-view metrics we approximate a 7-day curve proportionally to daily views.
   const totalDaily = analytics.dailyViews.reduce((a, b) => a + b, 0) || 1;
+  const isLive = analytics.live;
   const chartData =
     metric === 'views'
       ? analytics.dailyViews
       : analytics.dailyViews.map((d) => Math.round((d / totalDaily) * metricTotal[metric]));
 
-  const topPosts = [...posts].sort((a, b) => b.metrics.views - a.metrics.views).slice(0, 5);
+  const topPosts = analytics.topVideos;
 
-  const renderTopPost = (p: MediaPost, rank: number) => (
-    <TouchableOpacity key={p.id} style={styles.postRow} onPress={() => nav.push('studio.post', { postId: p.id })}>
+  const renderTopPost = (p: { id: string; title: string | null; thumbnailUrl: string | null; viewCount: number; likeCount: number; commentCount: number }, rank: number) => (
+    <TouchableOpacity
+      key={p.id}
+      style={styles.postRow}
+      onPress={isLive ? undefined : () => nav.push('studio.post', { postId: p.id })}
+      disabled={isLive}
+    >
       <Text style={styles.rank}>{rank}</Text>
-      <Image source={{ uri: p.thumbnailUrl }} style={styles.thumb} />
+      <Image source={{ uri: p.thumbnailUrl ?? '' }} style={styles.thumb} />
       <View style={styles.postBody}>
-        <Text style={styles.postCaption} numberOfLines={2}>{p.caption}</Text>
+        <Text style={styles.postCaption} numberOfLines={2}>{p.title ?? 'Sans titre'}</Text>
         <View style={styles.postMetaRow}>
-          <Text style={styles.postMeta}>▶ {formatShort(p.metrics.views)}</Text>
-          <Text style={styles.postMeta}>♥ {formatShort(p.metrics.likes)}</Text>
-          <Text style={styles.postMeta}>💬 {formatShort(p.metrics.comments)}</Text>
+          <Text style={styles.postMeta}>▶ {formatShort(p.viewCount)}</Text>
+          <Text style={styles.postMeta}>♥ {formatShort(p.likeCount)}</Text>
+          <Text style={styles.postMeta}>💬 {formatShort(p.commentCount)}</Text>
         </View>
       </View>
       <Text style={styles.chevron}>›</Text>
@@ -90,6 +95,15 @@ export const StudioAnalyticsScreen: React.FC = () => {
           <Text style={styles.cardLabel}>{METRIC_TABS.find((m) => m.id === metric)?.label} · 7 derniers jours</Text>
           <Text style={styles.cardTotal}>{formatShort(metricTotal[metric])}</Text>
           <MiniBarChart data={chartData} labels={DAY_LABELS} height={150} />
+        </View>
+
+        {/* Live badge */}
+        <View style={styles.liveBadgeRow}>
+          <View style={[styles.liveBadge, { backgroundColor: (isLive ? tokens.colors.semantic.success : tokens.colors.text.tertiary) + '22' }]}>
+            <Text style={[styles.liveBadgeText, { color: isLive ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]}>
+              {isLive ? '● Données réelles (API)' : '○ Mode démo — connecte-toi pour tes vraies stats'}
+            </Text>
+          </View>
         </View>
 
         {/* Audience */}
@@ -139,6 +153,9 @@ const styles = StyleSheet.create({
   cardLabel: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
   cardTotal: { color: tokens.colors.white, fontSize: tokens.typography.display.fontSize, fontWeight: '800' },
   statsGrid: { flexDirection: 'row', gap: tokens.spacing.sm, paddingHorizontal: tokens.spacing.md, marginTop: tokens.spacing.md },
+  liveBadgeRow: { paddingHorizontal: tokens.spacing.md, marginTop: tokens.spacing.sm },
+  liveBadge: { alignSelf: 'flex-start', borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.md, paddingVertical: 5 },
+  liveBadgeText: { fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
   statCard: { flex: 1, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.md, gap: 4 },
   statValue: { color: tokens.colors.white, fontSize: tokens.typography.headline.fontSize, fontWeight: '800' },
   statLabel: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },

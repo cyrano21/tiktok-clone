@@ -7,12 +7,9 @@ export async function commentRoutes(app: FastifyInstance) {
   app.post('/:id/like', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as any;
     const userId = (req as any).userId;
-    const existing = await prisma.commentLike.findUnique({ where: { userId_commentId: { userId, commentId: id } } });
-    if (existing) {
-      await prisma.commentLike.delete({ where: { id: existing.id } });
-      return reply.send({ liked: false });
-    }
-    await prisma.commentLike.create({ data: { userId, commentId: id } });
+    const comment = await prisma.comment.findUnique({ where: { id } });
+    if (!comment) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Comment not found' });
+    await prisma.comment.update({ where: { id }, data: { likeCount: { increment: 1 } } });
     return reply.send({ liked: true });
   });
 
@@ -39,8 +36,8 @@ export async function commentRoutes(app: FastifyInstance) {
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
-        _count: { select: { likes: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+        _count: { select: { replies: true } },
       },
     });
     return reply.send({ replies, page: parseInt(page), limit: parseInt(limit) });

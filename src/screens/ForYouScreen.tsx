@@ -1,5 +1,5 @@
-import React, { useCallback, useRef } from 'react';
-import { View, StyleSheet, FlatList, Dimensions, RefreshControl, Text, TouchableOpacity } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, StyleSheet, FlatList, Dimensions, RefreshControl, Text, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { Video } from '@/types';
@@ -7,7 +7,7 @@ import { FeedItem } from '@/components/core/FeedItem';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
 import { useNavigation } from '@/navigation/NavigationContext';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export const ForYouScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -29,6 +29,7 @@ export const ForYouScreen: React.FC = () => {
       <FeedItem
         video={item}
         isActive={index === currentIndex}
+        itemHeight={containerHeight}
         onCommentPress={() => nav.push('video.comments', { postId: item.id, count: item.commentsCount })}
         onSharePress={() => nav.push('inbox')}
         onProfilePress={() => nav.push('profile')}
@@ -38,19 +39,26 @@ export const ForYouScreen: React.FC = () => {
     [currentIndex, nav]
   );
 
+  const [containerHeight, setContainerHeight] = useState(Dimensions.get('window').height);
+
+  const handleLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0) setContainerHeight(h);
+  }, []);
+
   const keyExtractor = useCallback((item: Video) => item.id, []);
 
   const getItemLayout = useCallback(
     (_: unknown, index: number) => ({
-      length: SCREEN_HEIGHT,
-      offset: SCREEN_HEIGHT * index,
+      length: containerHeight,
+      offset: containerHeight * index,
       index,
     }),
-    []
+    [containerHeight]
   );
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={handleLayout}>
       <View style={[styles.header, { paddingTop: insets.top }]}>
         <TouchableOpacity onPress={() => nav.replace('feed.following')}>
           <Text style={styles.headerTab}>Following</Text>
@@ -68,7 +76,7 @@ export const ForYouScreen: React.FC = () => {
         keyExtractor={keyExtractor}
         pagingEnabled
         showsVerticalScrollIndicator={false}
-        snapToInterval={SCREEN_HEIGHT}
+        snapToInterval={containerHeight}
         snapToAlignment="start"
         decelerationRate="fast"
         getItemLayout={getItemLayout}

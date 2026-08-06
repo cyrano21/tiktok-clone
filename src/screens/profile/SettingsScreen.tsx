@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch } from 're
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { authService } from '@/services/authService';
+import { useBrandingStore } from '@/store/brandingStore';
 
 type Kind = 'nav' | 'toggle' | 'cycle' | 'action';
 
@@ -26,10 +28,11 @@ const SETTINGS_SECTIONS: SettingSection[] = [
   {
     title: 'Account',
     items: [
+      { id: 'view_profile', icon: '🙋', label: 'Voir mon profil', kind: 'nav' },
       { id: 'manage', icon: '👤', label: 'Manage account', kind: 'nav', body: 'Gérez vos informations de compte, e-mail, numéro de téléphone et mot de passe.' },
       { id: 'privacy', icon: '🔒', label: 'Privacy', kind: 'nav', body: 'Contrôlez qui peut voir vos vidéos, vous suivre, commenter et vous envoyer des messages.' },
       { id: 'security', icon: '🛡', label: 'Security', kind: 'nav', body: 'Activez la double authentification et consultez les appareils connectés.' },
-      { id: 'balance', icon: '💰', label: 'Balance', kind: 'nav', body: 'Solde actuel : $0.00. Rechargez des pièces pour soutenir vos créateurs préférés.' },
+      { id: 'balance', icon: '💰', label: 'Balance', kind: 'nav', body: 'Solde actuel : 0,00 €. Rechargez des pièces pour soutenir vos créateurs préférés.' },
     ],
   },
   {
@@ -46,6 +49,12 @@ const SETTINGS_SECTIONS: SettingSection[] = [
     items: [
       { id: 'cache', icon: '🗑', label: 'Clear cache', kind: 'action' },
       { id: 'datasaver', icon: '📶', label: 'Data saver', kind: 'toggle' },
+    ],
+  },
+  {
+    title: 'Tenant / White-label',
+    items: [
+      { id: 'branding', icon: '🎨', label: 'Branding & white-label', kind: 'nav', body: 'Nom, logo et couleurs de la plateforme. Revendez-la en marque blanche à des écoles, entreprises ou communautés.' },
     ],
   },
   {
@@ -71,6 +80,7 @@ export const SettingsScreen: React.FC = () => {
   });
   const [langIndex, setLangIndex] = useState(1); // English by default
   const [cacheCleared, setCacheCleared] = useState(false);
+  const branding = useBrandingStore((s) => s.branding);
 
   const languageOptions = ['Français', 'English', 'Español', 'Deutsch'];
 
@@ -80,7 +90,15 @@ export const SettingsScreen: React.FC = () => {
   const handleItem = (item: SettingItem) => {
     switch (item.kind) {
       case 'nav':
-        nav.push('profile.settings.detail', { title: item.label, body: item.body });
+        if (item.id === 'view_profile') {
+          nav.push('profile');
+          break;
+        }
+        if (item.id === 'branding') {
+          nav.push('studio.branding');
+          break;
+        }
+        nav.push('profile.settings.detail', { title: item.label, body: item.body, id: item.id });
         break;
       case 'cycle':
         if (item.id === 'language') setLangIndex((i) => (i + 1) % languageOptions.length);
@@ -97,6 +115,14 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const renderRight = (item: SettingItem) => {
+    if (item.id === 'branding') {
+      return (
+        <View style={styles.settingRight}>
+          <Text style={[styles.settingValue, { color: branding.primaryColor, fontWeight: '700' }]}>{branding.name}</Text>
+          <Text style={styles.settingArrow}>›</Text>
+        </View>
+      );
+    }
     if (item.kind === 'toggle') {
       return (
         <Switch
@@ -125,7 +151,7 @@ export const SettingsScreen: React.FC = () => {
     if (item.id === 'balance') {
       return (
         <View style={styles.settingRight}>
-          <Text style={styles.settingValue}>$0.00</Text>
+          <Text style={styles.settingValue}>0,00 €</Text>
           <Text style={styles.settingArrow}>›</Text>
         </View>
       );
@@ -165,7 +191,13 @@ export const SettingsScreen: React.FC = () => {
           </View>
         ))}
 
-        <TouchableOpacity style={styles.logoutButton} onPress={() => nav.reset('auth.login')}>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={async () => {
+            await authService.logout();
+            nav.reset('auth.login');
+          }}
+        >
           <Text style={styles.logoutText}>Log out</Text>
         </TouchableOpacity>
 

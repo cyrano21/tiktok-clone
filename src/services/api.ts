@@ -1,12 +1,18 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Same-origin API (Next.js route handlers under /v1). Override at runtime with
-// window.__TIKTOK_API_BASE__ if pointing at an external API.
+// API base URL resolution:
+// 1. window.__TIKTOK_API_BASE__ set at runtime (highest priority)
+// 2. NEXT_PUBLIC_API_BASE_URL env var (set in .env.local)
+// 3. Default: http://localhost:4000/v1 in dev, /v1 (same-origin) otherwise
 function resolveBaseUrl(): string {
-  const override =
+  const runtimeOverride =
     typeof globalThis !== 'undefined' && (globalThis as any).__TIKTOK_API_BASE__;
-  if (typeof override === 'string' && override) return override;
+  if (typeof runtimeOverride === 'string' && runtimeOverride) return runtimeOverride;
+
+  const envBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (typeof envBase === 'string' && envBase) return envBase;
+
   return '/v1';
 }
 
@@ -118,6 +124,11 @@ class ApiClient {
 
   async put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
     const response: AxiosResponse<T> = await this.client.put(url, data, config);
+    return response.data;
+  }
+
+  async patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T> {
+    const response: AxiosResponse<T> = await this.client.patch(url, data, config);
     return response.data;
   }
 

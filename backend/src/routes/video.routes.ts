@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
+import { NotificationService } from '../services/notification.service';
 
 export async function videoRoutes(app: FastifyInstance) {
   // Get video by ID
@@ -9,7 +10,7 @@ export async function videoRoutes(app: FastifyInstance) {
     const video = await prisma.video.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true, shares: true } },
       },
     });
@@ -55,11 +56,15 @@ export async function videoRoutes(app: FastifyInstance) {
     const existing = await prisma.like.findUnique({ where: { userId_videoId: { userId, videoId: id } } });
     if (existing) {
       await prisma.like.delete({ where: { id: existing.id } });
-      await prisma.video.update({ where: { id }, data: { likesCount: { decrement: 1 } } });
+      await prisma.video.update({ where: { id }, data: { likeCount: { decrement: 1 } } });
       return reply.send({ liked: false });
     }
+    const video = await prisma.video.findUnique({ where: { id }, select: { userId: true } });
     await prisma.like.create({ data: { userId, videoId: id } });
-    await prisma.video.update({ where: { id }, data: { likesCount: { increment: 1 } } });
+    await prisma.video.update({ where: { id }, data: { likeCount: { increment: 1 } } });
+    if (video) {
+      await NotificationService.notifyLike(video.userId, userId, id);
+    }
     return reply.send({ liked: true });
   });
 
@@ -67,12 +72,12 @@ export async function videoRoutes(app: FastifyInstance) {
   app.post('/:id/save', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as any;
     const userId = (req as any).userId;
-    const existing = await prisma.savedVideo.findUnique({ where: { userId_videoId: { userId, videoId: id } } });
+    const existing = await prisma.save.findUnique({ where: { userId_videoId: { userId, videoId: id } } });
     if (existing) {
-      await prisma.savedVideo.delete({ where: { id: existing.id } });
+      await prisma.save.delete({ where: { id: existing.id } });
       return reply.send({ saved: false });
     }
-    await prisma.savedVideo.create({ data: { userId, videoId: id } });
+    await prisma.save.create({ data: { userId, videoId: id } });
     return reply.send({ saved: true });
   });
 
@@ -81,14 +86,21 @@ export async function videoRoutes(app: FastifyInstance) {
     const { id } = req.params as any;
     const userId = (req as any).userId;
     await prisma.share.create({ data: { userId, videoId: id } });
-    await prisma.video.update({ where: { id }, data: { sharesCount: { increment: 1 } } });
+    await prisma.video.update({ where: { id }, data: { shareCount: { increment: 1 } } });
     return reply.send({ shared: true });
   });
 
   // Record view
   app.post('/:id/view', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = req.params as any;
-    await prisma.video.update({ where: { id }, data: { viewsCount: { increment: 1 } } });
+    const userId = (req as any).userId || null;
+    const video = await prisma.video.findUnique({ where: { id }, select: { userId: true } });
+    if (!video) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Video not found' });
+    // Individual view row powers the daily analytics curve.
+    await prisma.videoView.create({
+      data: { userId, videoId: id, fromSource: 'in_app' },
+    });
+    await prisma.video.update({ where: { id }, data: { viewCount: { increment: 1 } } });
     return reply.send({ viewed: true });
   });
 
@@ -103,8 +115,8 @@ export async function videoRoutes(app: FastifyInstance) {
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
-        _count: { select: { replies: true, likes: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+        _count: { select: { replies: true } },
       },
     });
     return reply.send({ comments, page: parseInt(page), limit: parseInt(limit) });
@@ -117,9 +129,13 @@ export async function videoRoutes(app: FastifyInstance) {
     const { text, parentId } = req.body as any;
     const comment = await prisma.comment.create({
       data: { text, userId, videoId: id, parentId },
-      include: { user: { select: { id: true, username: true, displayName: true, avatar: true } } },
+      include: { user: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
     });
-    await prisma.video.update({ where: { id }, data: { commentsCount: { increment: 1 } } });
+    await prisma.video.update({ where: { id }, data: { commentCount: { increment: 1 } } });
+    const videoOwner = await prisma.video.findUnique({ where: { id }, select: { userId: true } });
+    if (videoOwner) {
+      await NotificationService.notifyComment(videoOwner.userId, userId, id, text);
+    }
     return reply.status(201).send({ comment });
   });
 }

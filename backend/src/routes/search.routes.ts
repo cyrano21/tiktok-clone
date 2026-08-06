@@ -11,16 +11,16 @@ export async function searchRoutes(app: FastifyInstance) {
 
     const [videos, users, hashtags, sounds] = await Promise.all([
       prisma.video.findMany({
-        where: { caption: { contains: q, mode: 'insensitive' }, isPublished: true },
+        where: { description: { contains: q, mode: 'insensitive' }, visibility: 'public' },
         take: parseInt(limit),
         skip: offset,
-        include: { user: { select: { id: true, username: true, displayName: true, avatar: true } } },
+        include: { user: { select: { id: true, username: true, displayName: true, avatarUrl: true } } },
       }),
       prisma.user.findMany({
         where: { OR: [{ username: { contains: q, mode: 'insensitive' } }, { displayName: { contains: q, mode: 'insensitive' } }] },
         take: parseInt(limit),
         skip: offset,
-        select: { id: true, username: true, displayName: true, avatar: true, isVerified: true, _count: { select: { followers: true } } },
+        select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true, _count: { select: { followers: true } } },
       }),
       prisma.hashtag.findMany({
         where: { name: { contains: q, mode: 'insensitive' } },
@@ -45,12 +45,12 @@ export async function searchRoutes(app: FastifyInstance) {
     if (!q) return reply.status(400).send({ error: 'BAD_REQUEST', message: 'Query parameter q is required' });
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const videos = await prisma.video.findMany({
-      where: { caption: { contains: q, mode: 'insensitive' }, isPublished: true },
-      orderBy: { viewsCount: 'desc' },
+      where: { description: { contains: q, mode: 'insensitive' }, visibility: 'public' },
+      orderBy: { viewCount: 'desc' },
       skip: offset,
       take: parseInt(limit),
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true } },
       },
     });
@@ -66,7 +66,7 @@ export async function searchRoutes(app: FastifyInstance) {
       where: { OR: [{ username: { contains: q, mode: 'insensitive' } }, { displayName: { contains: q, mode: 'insensitive' } }] },
       skip: offset,
       take: parseInt(limit),
-      select: { id: true, username: true, displayName: true, avatar: true, bio: true, isVerified: true, _count: { select: { followers: true, videos: true } } },
+      select: { id: true, username: true, displayName: true, avatarUrl: true, bio: true, isVerified: true, _count: { select: { followers: true, videos: true } } },
     });
     return reply.send({ users, page: parseInt(page), limit: parseInt(limit) });
   });
@@ -95,7 +95,7 @@ export async function searchRoutes(app: FastifyInstance) {
       where: { OR: [{ title: { contains: q, mode: 'insensitive' } }, { artist: { contains: q, mode: 'insensitive' } }] },
       skip: offset,
       take: parseInt(limit),
-      include: { user: { select: { id: true, username: true, displayName: true, avatar: true } }, _count: { select: { videos: true } } },
+      include: { creator: { select: { id: true, username: true, displayName: true, avatarUrl: true } }, _count: { select: { videos: true } } },
     });
     return reply.send({ sounds, page: parseInt(page), limit: parseInt(limit) });
   });

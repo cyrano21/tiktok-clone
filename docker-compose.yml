@@ -40,10 +40,10 @@ services:
     container_name: tiktok-api
     restart: unless-stopped
     ports:
-      - '3000:3000'
+      - '4000:4000'
     environment:
-      NODE_ENV: development
-      PORT: 3000
+      NODE_ENV: production
+      PORT: 4000
       DATABASE_URL: postgresql://tiktok:tiktok_secret@postgres:5432/tiktok_clone
       REDIS_URL: redis://redis:6379
       JWT_SECRET: super_secret_jwt_key_change_in_production
@@ -59,9 +59,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    volumes:
-      - ./backend/src:/app/src
-    command: sh -c "npx prisma migrate deploy && npm run dev"
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   minio:
     image: minio/minio:latest

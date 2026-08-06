@@ -5,12 +5,34 @@ import websocket from '@fastify/websocket';
 import { registerRoutes } from './routes/index';
 import { setupRateLimiter } from './middleware/rateLimiter';
 
+/** Recursively convert BigInt values to numbers so Fastify can serialize payloads.
+ *  Date instances pass through untouched (they serialize natively). */
+function convertBigInts(value: unknown): unknown {
+  if (typeof value === 'bigint') return Number(value);
+  if (value instanceof Date) return value;
+  if (Array.isArray(value)) return value.map(convertBigInts);
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = convertBigInts(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
       level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     },
     bodyLimit: 104857600,
+  });
+
+  // Prisma returns BigInt for counters (viewCount, likeCount, ...) which Fastify's
+  // JSON serializer can't handle. Convert them to numbers before serialization.
+  app.addHook('preSerialization', async (_request, _reply, payload) => {
+    return convertBigInts(payload);
   });
 
   await app.register(cors, { origin: true, credentials: true });

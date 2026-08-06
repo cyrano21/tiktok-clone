@@ -516,7 +516,7 @@ export async function uploadVideoBytes(
         "Content-Length": String(bytes.length),
         "Content-Range": `bytes 0-${bytes.length - 1}/${bytes.length}`,
       },
-      body: bytes,
+      body: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as BodyInit,
     });
   } catch (err) {
     throw new TikTokApiError(

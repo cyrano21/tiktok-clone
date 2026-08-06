@@ -25,7 +25,7 @@ export class RecommendationService {
     }
 
     // Cache the result
-    await redis.set(cacheKey, JSON.stringify(videos), { EX: this.CACHE_TTL });
+    await redis.set(cacheKey, JSON.stringify(videos, (_k, v) => (typeof v === 'bigint' ? Number(v) : v)), { EX: this.CACHE_TTL });
 
     return videos;
   }
@@ -40,18 +40,18 @@ export class RecommendationService {
 
     const videos = await prisma.video.findMany({
       where: {
-        isPublished: true,
+        visibility: 'public',
         userId: { not: userId },
       },
       orderBy: [
-        { likesCount: 'desc' },
-        { viewsCount: 'desc' },
+        { likeCount: 'desc' },
+        { viewCount: 'desc' },
         { createdAt: 'desc' },
       ],
       skip: offset,
       take: limit,
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true, shares: true } },
       },
     });
@@ -61,16 +61,16 @@ export class RecommendationService {
 
   private static async getTrendingFeed(offset: number, limit: number) {
     const videos = await prisma.video.findMany({
-      where: { isPublished: true },
+      where: { visibility: 'public' },
       orderBy: [
-        { viewsCount: 'desc' },
-        { likesCount: 'desc' },
+        { viewCount: 'desc' },
+        { likeCount: 'desc' },
         { createdAt: 'desc' },
       ],
       skip: offset,
       take: limit,
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true, shares: true } },
       },
     });
@@ -83,7 +83,7 @@ export class RecommendationService {
 
     const videos = await prisma.video.findMany({
       where: {
-        isPublished: true,
+        visibility: 'public',
         user: {
           followers: { some: { followerId: userId } },
         },
@@ -92,7 +92,7 @@ export class RecommendationService {
       skip: offset,
       take: limit,
       include: {
-        user: { select: { id: true, username: true, displayName: true, avatar: true, isVerified: true } },
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { likes: true, comments: true, shares: true } },
       },
     });

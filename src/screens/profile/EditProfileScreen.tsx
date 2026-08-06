@@ -1,16 +1,61 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
+import { useMyProfile } from '@/hooks/useMyProfile';
+import { authService } from '@/services/authService';
 
 export const EditProfileScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  const [name, setName] = useState('Display Name');
-  const [username, setUsername] = useState('username');
-  const [bio, setBio] = useState('Creative content creator 🎬');
+  const profile = useMyProfile();
+
+  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [bio, setBio] = useState('');
   const [link, setLink] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [lastUserId, setLastUserId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Prefill when the profile arrives; re-prefill if the user changes (demo → real).
+  useEffect(() => {
+    if (loaded && profile.user.id === lastUserId) return;
+    setName(profile.user.displayName ?? '');
+    setUsername(profile.user.username);
+    setBio(profile.user.bio ?? '');
+    setLink('');
+    setLoaded(true);
+    setLastUserId(profile.user.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile.user.id, profile.live]);
+
+  const save = async () => {
+    if (!profile.live) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await authService.updateProfile({
+        displayName: name.trim(),
+        bio: bio.trim(),
+        website: link.trim() || undefined,
+      });
+      nav.back();
+    } catch (e: any) {
+      setError(e?.message ?? 'Impossible d’enregistrer');
+      setSaving(false);
+    }
+  };
+
+  if (!loaded) {
+    return (
+      <View style={[styles.container, styles.center, { paddingTop: insets.top }]}>
+        <ActivityIndicator color={tokens.colors.brand.primary} />
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
@@ -19,18 +64,20 @@ export const EditProfileScreen: React.FC = () => {
           <Text style={styles.cancelButton}>Cancel</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Edit profile</Text>
-        <TouchableOpacity onPress={() => nav.back()}>
-          <Text style={styles.saveButton}>Save</Text>
+        <TouchableOpacity onPress={save} disabled={saving || !profile.live}>
+          <Text style={[styles.saveButton, (saving || !profile.live) && { opacity: 0.5 }]}>
+            {saving ? '…' : profile.live ? 'Save' : '—'}
+          </Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.avatarSection}>
-          <Image source={{ uri: 'https://picsum.photos/100/100' }} style={styles.avatar} />
-          <TouchableOpacity>
-            <Text style={styles.changePhotoText}>Change photo</Text>
-          </TouchableOpacity>
+          <Image source={{ uri: profile.user.avatarUrl ?? 'https://picsum.photos/100/100' }} style={styles.avatar} />
+          <Text style={styles.changePhotoText}>{profile.live ? `@${username}` : 'Compte de démonstration'}</Text>
         </View>
+
+        {error && <Text style={styles.errorText}>{error}</Text>}
 
         <View style={styles.formSection}>
           <View style={styles.fieldRow}>
@@ -40,16 +87,18 @@ export const EditProfileScreen: React.FC = () => {
               value={name}
               onChangeText={setName}
               placeholderTextColor={tokens.colors.text.tertiary}
+              maxLength={50}
             />
           </View>
 
           <View style={styles.fieldRow}>
             <Text style={styles.fieldLabel}>Username</Text>
             <TextInput
-              style={styles.fieldInput}
+              style={[styles.fieldInput, styles.fieldReadonly]}
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
+              editable={false}
               placeholderTextColor={tokens.colors.text.tertiary}
             />
           </View>
@@ -61,7 +110,7 @@ export const EditProfileScreen: React.FC = () => {
               value={bio}
               onChangeText={setBio}
               multiline
-              maxLength={80}
+              maxLength={200}
               placeholderTextColor={tokens.colors.text.tertiary}
             />
           </View>
@@ -79,6 +128,12 @@ export const EditProfileScreen: React.FC = () => {
             />
           </View>
         </View>
+
+        {profile.live ? (
+          <Text style={styles.hint}>Les modifications sont enregistrées sur ton compte réel.</Text>
+        ) : (
+          <Text style={styles.hint}>Connecte-toi pour modifier ton vrai profil.</Text>
+        )}
       </ScrollView>
     </View>
   );
@@ -89,6 +144,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: tokens.colors.bg,
   },
+  center: { justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -117,6 +173,14 @@ const styles = StyleSheet.create({
     fontSize: tokens.typography.body.fontSize,
     fontWeight: '500',
   },
+  errorText: {
+    color: tokens.colors.semantic.error,
+    fontSize: tokens.typography.body.fontSize,
+    fontWeight: '600',
+    textAlign: 'center',
+    paddingHorizontal: tokens.spacing.md,
+    marginBottom: tokens.spacing.sm,
+  },
   formSection: {
     paddingHorizontal: tokens.spacing.md,
   },
@@ -138,8 +202,16 @@ const styles = StyleSheet.create({
     color: tokens.colors.white,
     fontSize: tokens.typography.body.fontSize,
   },
+  fieldReadonly: { color: tokens.colors.text.tertiary },
   bioInput: {
     minHeight: 60,
     textAlignVertical: 'top',
+  },
+  hint: {
+    color: tokens.colors.text.tertiary,
+    fontSize: tokens.typography.caption.fontSize,
+    textAlign: 'center',
+    marginTop: tokens.spacing.lg,
+    paddingHorizontal: tokens.spacing.xl,
   },
 });
