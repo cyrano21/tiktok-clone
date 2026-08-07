@@ -96,9 +96,22 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
       </TouchableOpacity>
 
       {video.sound && (
-        <Animated.View style={styles.soundDisc}>
-          <Image source={{ uri: video.sound.coverUrl }} style={styles.soundDiscImage} />
-        </Animated.View>
+        <div className="disc-spin" style={{
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          overflow: 'hidden',
+          marginTop: tokens.spacing.sm,
+          borderWidth: 6,
+          borderStyle: 'solid',
+          borderColor: tokens.colors.elevated,
+        }}>
+          <img src={video.sound.coverUrl} style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }} alt="" />
+        </div>
       )}
     </View>
   );
@@ -177,4 +190,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  soundDiscSpin: {
+    animationKeyframes: {
+      '0%': { transform: [{ rotate: '0deg' }] },
+      '100%': { transform: [{ rotate: '360deg' }] },
+    },
+    animationDuration: '3000ms',
+    animationIterationCount: 'infinite',
+    animationTimingFunction: 'linear',
+  } as any,
 });

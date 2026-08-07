@@ -10,8 +10,8 @@ import {
 } from '@/types';
 import { apiClient } from './api';
 
-// Demo mode is OFF — the app talks to the real Fastify backend.
-const USE_DEMO = false;
+// Demo mode is ON — uses local demo data (no backend required).
+const USE_DEMO = true;
 
 interface BackendUser {
   id: string;
@@ -157,7 +157,7 @@ function mapFeed(raw: { videos: BackendVideo[]; page?: number; limit?: number })
 
 export const feedService = {
   getFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    if (USE_DEMO) return { videos: [], cursor: null, hasMore: false };
+    if (USE_DEMO) { const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit); }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/for-you',
       { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }
@@ -166,7 +166,7 @@ export const feedService = {
   },
 
   getFollowingFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    if (USE_DEMO) return { videos: [], cursor: null, hasMore: false };
+    if (USE_DEMO) { const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit); }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/following',
       { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }

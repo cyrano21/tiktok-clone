@@ -1,16 +1,28 @@
 import { Video, FeedResponse, User, Sound, Hashtag } from '@/types';
 
 // Public CC0 / sample videos that actually play in browsers (Google, GTV, mixkit).
-const SAMPLE_VIDEOS: { url: string; cover: string }[] = [
+// Raw video URLs (will be proxied through /api/video to bypass CORS)
+const RAW_VIDEOS: { url: string; cover: string }[] = [
   { url: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/720/Big_Buck_Bunny_720_10s_2MB.mp4', cover: 'https://picsum.photos/seed/bb1/720/1280' },
-  { url: 'https://media.w3.org/2010/05/sintel/trailer.mp4', cover: 'https://picsum.photos/seed/sintel/720/1280' },
-  { url: 'https://media.w3.org/2010/05/video/movie_300.mp4', cover: 'https://picsum.photos/seed/movie/720/1280' },
-  { url: 'https://media.w3.org/2010/05/bunny/trailer.mp4', cover: 'https://picsum.photos/seed/bunny/720/1280' },
   { url: 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/720/Jellyfish_720_10s_1MB.mp4', cover: 'https://picsum.photos/seed/jelly/720/1280' },
-  { url: 'https://test-videos.co.uk/vids/sintel/mp4/h264/360/Sintel_360_10s_1MB.mp4', cover: 'https://picsum.photos/seed/sintel2/720/1280' },
+  { url: 'https://test-videos.co.uk/vids/sintel/mp4/h264/360/Sintel_360_10s_1MB.mp4', cover: 'https://picsum.photos/seed/sintel/720/1280' },
   { url: 'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_2MB.mp4', cover: 'https://picsum.photos/seed/bb2/720/1280' },
   { url: 'https://test-videos.co.uk/vids/jellyfish/mp4/h264/360/Jellyfish_360_10s_1MB.mp4', cover: 'https://picsum.photos/seed/jelly2/720/1280' },
+  { url: 'https://media.w3.org/2010/05/sintel/trailer.mp4', cover: 'https://picsum.photos/seed/sintel2/720/1280' },
+  { url: 'https://media.w3.org/2010/05/video/movie_300.mp4', cover: 'https://picsum.photos/seed/movie/720/1280' },
+  { url: 'https://media.w3.org/2010/05/bunny/trailer.mp4', cover: 'https://picsum.photos/seed/bunny/720/1280' },
 ];
+
+// Proxy URLs through our own API to avoid CORS issues
+function proxyUrl(url: string): string {
+  return `/api/video?url=${encodeURIComponent(url)}`;
+}
+
+// Public API: proxied video URLs
+const SAMPLE_VIDEOS = RAW_VIDEOS.map((v) => ({
+  url: proxyUrl(v.url),
+  cover: v.cover,
+}));
 
 const CREATORS: Array<Pick<User, 'username' | 'displayName' | 'avatarUrl' | 'bio' | 'isVerified'>> = [
   { username: 'leamartin', displayName: 'Léa Martin', avatarUrl: 'https://i.pravatar.cc/200?img=47', bio: 'Créatrice contenu lifestyle 🌸', isVerified: true },

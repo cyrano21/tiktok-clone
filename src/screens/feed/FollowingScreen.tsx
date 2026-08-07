@@ -48,6 +48,21 @@ export const FollowingScreen: React.FC = () => {
   );
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
+  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT);
+
+  const handleLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0) setContainerHeight(h);
+  }, []);
+
+  const getItemLayout = useCallback(
+    (_: unknown, index: number) => ({
+      length: containerHeight,
+      offset: containerHeight * index,
+      index,
+    }),
+    [containerHeight]
+  );
 
   const renderItem = useCallback(
     ({ item, index }: { item: Video; index: number }) => (
@@ -61,7 +76,7 @@ export const FollowingScreen: React.FC = () => {
         onProductPress={(productId) => nav.push('shop.product', { productId })}
       />
     ),
-    [currentIndex, nav]
+    [currentIndex, nav, containerHeight]
   );
 
   if (isLoading) {
@@ -83,21 +98,6 @@ export const FollowingScreen: React.FC = () => {
       </View>
     );
   }
-
-  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT);
-  const handleLayout = useCallback((e: LayoutChangeEvent) => {
-    const h = e.nativeEvent.layout.height;
-    if (h > 0) setContainerHeight(h);
-  }, []);
-
-  const getItemLayout = useCallback(
-    (_: unknown, index: number) => ({
-      length: containerHeight,
-      offset: containerHeight * index,
-      index,
-    }),
-    [containerHeight]
-  );
 
   return (
     <View style={styles.container} onLayout={handleLayout}>

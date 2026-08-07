@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, FlatList, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, FlatList, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
-import { useStudioStore } from '@/store/studioStore';
 import { useSessionStore } from '@/store/sessionStore';
 import { useMyProfile } from '@/hooks/useMyProfile';
 import { shareText } from '@/services/share';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const VIDEO_SIZE = (SCREEN_WIDTH - 4) / 3;
+import { Modal } from 'react-native';
 
 interface VideoGridItem {
   id: string;
@@ -23,28 +20,29 @@ function formatShort(n: number): string {
   return String(Math.round(n));
 }
 
-const MOCK_VIDEOS: VideoGridItem[] = Array.from({ length: 18 }, (_, i) => ({
-  id: `video-${i}`,
-  thumbnailUrl: `https://picsum.photos/seed/profvid${i}/200/300`,
-  viewsCount: `${Math.floor(Math.random() * 900 + 100)}K`,
-}));
-
 export const ProfileScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const videoSize = (Math.min(width, 430) - 4) / 3;
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const nav = useNavigation();
   const [activeTab, setActiveTab] = useState<'videos' | 'liked'>('videos');
-  const myPosts = useStudioStore((s) => s.posts);
   const isSeller = useSessionStore((s) => s.isSeller);
   const profile = useMyProfile();
 
-  const realVideos: VideoGridItem[] = profile.videos.map((v) => ({
+  const visibleVideos = activeTab === 'liked' ? profile.likedVideos : profile.videos;
+  const realVideos: VideoGridItem[] = visibleVideos.map((v) => ({
     id: v.id,
     thumbnailUrl: v.thumbnailUrl,
     viewsCount: formatShort(v.viewsCount),
   }));
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
-    <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('feed.foryou')}>
+    <TouchableOpacity
+      testID={`profile-video-${item.id}`}
+      style={[styles.videoItem, { width: videoSize, height: videoSize * 1.3 }]}
+      onPress={() => nav.push('feed.foryou')}
+    >
 
       <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />
       <View style={styles.videoOverlay}>
@@ -63,12 +61,19 @@ export const ProfileScreen: React.FC = () => {
           <Text style={styles.headerTitle}>@{profile.user.username}</Text>
           <View style={[styles.liveDot, { backgroundColor: profile.live ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]} />
         </View>
-        <TouchableOpacity onPress={() => nav.push('profile.settings')}>
+        <TouchableOpacity onPress={() => setShowOptionsMenu(true)}>
           <Text style={styles.headerIcon}>⋯</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false}>
+        {profile.loading && (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator color={tokens.colors.brand.primary} />
+            <Text style={styles.loadingText}>Chargement du profil…</Text>
+          </View>
+        )}
+        {profile.error && <Text style={styles.errorText}>{profile.error}</Text>}
         <View style={styles.profileSection}>
           <Image
             source={{ uri: profile.user.avatarUrl ?? 'https://picsum.photos/100/100' }}
@@ -150,17 +155,89 @@ export const ProfileScreen: React.FC = () => {
         </View>
 
         <FlatList
-          data={profile.live ? realVideos : [
-            ...myPosts.map((p) => ({ id: p.id, thumbnailUrl: p.thumbnailUrl, viewsCount: 'Nouveau' })),
-            ...MOCK_VIDEOS,
-          ]}
+          data={profile.live ? realVideos : []}
+          extraData={activeTab}
           renderItem={renderVideoItem}
           keyExtractor={(item) => item.id}
           numColumns={3}
           scrollEnabled={false}
           contentContainerStyle={styles.videoGrid}
+          ListEmptyComponent={(
+            <Text style={styles.emptyText}>
+              {activeTab === 'liked' ? 'Aucune vidéo aimée pour le moment.' : 'Aucune vidéo publiée pour le moment.'}
+            </Text>
+          )}
         />
       </ScrollView>
+
+      {/* Options Menu (⋯) */}
+      <Modal
+        visible={showOptionsMenu}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowOptionsMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowOptionsMenu(false)}
+        >
+          <View style={styles.optionsSheet}>
+            <View style={styles.optionsHandle} />
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                shareText(`Découvre le profil @${profile.user.username}`);
+              }}
+            >
+              <Text style={styles.optionIcon}>↗</Text>
+              <Text style={styles.optionText}>Partager le profil</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                nav.push('profile.settings');
+              }}
+            >
+              <Text style={styles.optionIcon}>⚙️</Text>
+              <Text style={styles.optionText}>Paramètres</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                nav.push('orders');
+              }}
+            >
+              <Text style={styles.optionIcon}>📦</Text>
+              <Text style={styles.optionText}>Mes commandes</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.optionItem}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                nav.push('studio');
+              }}
+            >
+              <Text style={styles.optionIcon}>🎨</Text>
+              <Text style={styles.optionText}>ORKY Studio</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.optionItem, styles.optionItemDanger]}
+              onPress={() => {
+                setShowOptionsMenu(false);
+                authService.logout();
+                nav.replace('auth.login');
+              }}
+            >
+              <Text style={[styles.optionIcon, styles.optionIconDanger]}>🚪</Text>
+              <Text style={[styles.optionText, styles.optionTextDanger]}>Se déconnecter</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -188,6 +265,15 @@ const styles = StyleSheet.create({
     color: tokens.colors.white,
     fontSize: 24,
   },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: tokens.spacing.sm,
+    paddingVertical: tokens.spacing.sm,
+  },
+  loadingText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
+  errorText: { color: tokens.colors.semantic.error, fontSize: tokens.typography.caption.fontSize, textAlign: 'center', paddingHorizontal: tokens.spacing.md },
   profileSection: {
     alignItems: 'center',
     paddingVertical: tokens.spacing.lg,
@@ -327,11 +413,10 @@ const styles = StyleSheet.create({
   },
   videoGrid: {
     gap: 2,
+    paddingHorizontal: 2,
   },
   videoItem: {
-    width: VIDEO_SIZE,
-    height: VIDEO_SIZE * 1.3,
-    margin: 0.5,
+    aspectRatio: 1 / 1.3,
   },
   videoThumbnail: {
     width: '100%',
@@ -344,9 +429,62 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  emptyText: {
+    color: tokens.colors.text.secondary,
+    textAlign: 'center',
+    padding: tokens.spacing.lg,
+  },
   videoViews: {
     color: tokens.colors.white,
     fontSize: tokens.typography.caption.fontSize,
     fontWeight: '600',
+  },
+  // Options menu (⋯)
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  optionsSheet: {
+    backgroundColor: tokens.colors.surface,
+    borderTopLeftRadius: tokens.radius.lg,
+    borderTopRightRadius: tokens.radius.lg,
+    paddingBottom: tokens.spacing.xl,
+  },
+  optionsHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: tokens.colors.text.tertiary,
+    alignSelf: 'center',
+    marginTop: tokens.spacing.sm,
+    marginBottom: tokens.spacing.md,
+  },
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: tokens.spacing.md,
+    paddingHorizontal: tokens.spacing.lg,
+    gap: tokens.spacing.md,
+  },
+  optionIcon: {
+    fontSize: 20,
+    width: 28,
+    textAlign: 'center',
+  },
+  optionText: {
+    color: tokens.colors.white,
+    fontSize: tokens.typography.body.fontSize,
+  },
+  optionItemDanger: {
+    marginTop: tokens.spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: tokens.colors.border,
+  },
+  optionIconDanger: {
+    opacity: 0.9,
+  },
+  optionTextDanger: {
+    color: tokens.colors.semantic.error,
   },
 });

@@ -245,6 +245,20 @@ body {
   50% { opacity: 0.5; }
 }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes discSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.disc-spin {
+  animation: discSpin 3s linear infinite;
+}
+
 @keyframes likeHeart {
   0% { 
     transform: scale(0);
