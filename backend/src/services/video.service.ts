@@ -1,47 +1,367 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3';
-import { s3Client, S3_BUCKET, CDN_URL } from '../config/s3';
+import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { createReadStream, createWriteStream } from 'fs';
+import { mkdtemp, rm, stat, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { randomUUID } from 'crypto';
+import { spawn } from 'child_process';
+import { Readable, Transform } from 'stream';
+import { pipeline } from 'stream/promises';
+import { s3Client, S3_BUCKET, CDN_URL } from '../config/s3';
 
-export async function uploadToS3(
-  buffer: Buffer,
-  mimetype: string,
-  folder: string
-): Promise<{ key: string; url: string }> {
-  const ext = mimetype.split('/')[1] || 'mp4';
-  const key = `${folder}/${randomUUID()}.${ext}`;
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const MAX_VIDEO_DURATION_SECONDS = 10 * 60;
+const DEFAULT_IMAGE_DURATION_SECONDS = 5;
 
-  await s3Client.send(
-    new PutObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: key,
-      Body: buffer,
-      ContentType: mimetype,
-      ACL: 'public-read',
-    })
-  );
+const VIDEO_TYPES = new Set(['video/mp4', 'video/webm', 'video/quicktime']);
+const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
-  return { key, url: `${CDN_URL}/${key}` };
-}
+export type MediaFilterSettings = {
+  brightness?: number;
+  contrast?: number;
+  saturate?: number;
+  sepia?: number;
+  grayscale?: number;
+};
 
-export async function generateThumbnail(videoUrl: string): Promise<string> {
-  // In production, this would use FFmpeg or a media processing service
-  // to extract a frame from the video and upload it as a thumbnail
-  const thumbnailKey = `thumbnails/${randomUUID()}.jpg`;
-  return `${CDN_URL}/${thumbnailKey}`;
-}
+export type IngestMediaOptions = {
+  stream: Readable;
+  filename: string;
+  mimetype: string;
+  trimStart?: number;
+  trimEnd?: number;
+  overlayText?: string;
+  filters?: MediaFilterSettings;
+};
 
-export async function processVideo(videoKey: string): Promise<{
+export type IngestedMedia = {
+  videoKey: string;
+  videoUrl: string;
+  thumbnailKey: string;
+  thumbnailUrl: string;
   duration: number;
   width: number;
   height: number;
-  qualities: string[];
-}> {
-  // In production, this would trigger a transcoding pipeline
-  // (e.g., AWS MediaConvert, FFmpeg) to generate multiple quality versions
-  return {
-    duration: 0,
-    width: 1080,
-    height: 1920,
-    qualities: ['360p', '480p', '720p', '1080p'],
+  sourceSizeBytes: number;
+};
+
+export class MediaPipelineError extends Error {
+  statusCode: number;
+  code: string;
+
+  constructor(code: string, message: string, statusCode = 400) {
+    super(message);
+    this.name = code;
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+function mediaExtension(mimetype: string) {
+  const extensions: Record<string, string> = {
+    'video/mp4': 'mp4',
+    'video/webm': 'webm',
+    'video/quicktime': 'mov',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
   };
+  return extensions[mimetype] ?? 'bin';
+}
+
+function publicUrlForKey(key: string) {
+  return `${CDN_URL.replace(/\/$/, '')}/${key.replace(/^\//, '')}`;
+}
+
+export function objectKeyFromPublicUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const prefix = `${CDN_URL.replace(/\/$/, '')}/`;
+  if (!url.startsWith(prefix)) return null;
+  const key = url.slice(prefix.length);
+  if (!key || key.includes('..') || key.startsWith('/')) return null;
+  return key;
+}
+
+export async function deleteMediaObjects(keys: Array<string | null | undefined>) {
+  const uniqueKeys = [...new Set(keys.filter((key): key is string => Boolean(key)))];
+  await Promise.allSettled(uniqueKeys.map((key) => s3Client.send(new DeleteObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  }))));
+}
+
+export async function deleteMediaUrls(urls: Array<string | null | undefined>) {
+  await deleteMediaObjects(urls.map(objectKeyFromPublicUrl));
+}
+
+async function uploadFileToS3(filePath: string, mimetype: string, folder: string, extension: string) {
+  const key = `${folder}/${randomUUID()}.${extension}`;
+  const fileStat = await stat(filePath);
+
+  await s3Client.send(new PutObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+    Body: createReadStream(filePath),
+    ContentType: mimetype,
+    ContentLength: fileStat.size,
+    CacheControl: 'public, max-age=31536000, immutable',
+  }));
+
+  return { key, url: publicUrlForKey(key) };
+}
+
+function run(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.once('error', (error) => {
+      reject(new MediaPipelineError(
+        'MEDIA_PROCESSOR_UNAVAILABLE',
+        `Unable to start ${command}: ${error.message}`,
+        503,
+      ));
+    });
+    child.once('close', (code) => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new MediaPipelineError(
+        'MEDIA_PROCESSING_FAILED',
+        `${command} exited with code ${code}: ${stderr.slice(-1500)}`,
+        422,
+      ));
+    });
+  });
+}
+
+type ProbeResult = {
+  duration: number;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+};
+
+async function probe(filePath: string): Promise<ProbeResult> {
+  const { stdout } = await run('ffprobe', [
+    '-v', 'error',
+    '-print_format', 'json',
+    '-show_format',
+    '-show_streams',
+    filePath,
+  ]);
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    throw new MediaPipelineError('INVALID_MEDIA', 'ffprobe returned invalid metadata', 422);
+  }
+
+  const videoStream = (parsed.streams ?? []).find((stream: any) => stream.codec_type === 'video');
+  if (!videoStream) throw new MediaPipelineError('INVALID_MEDIA', 'No video/image stream found', 422);
+
+  const duration = Number(videoStream.duration ?? parsed.format?.duration ?? 0);
+  const width = Number(videoStream.width ?? 0);
+  const height = Number(videoStream.height ?? 0);
+  const hasAudio = Boolean((parsed.streams ?? []).some((stream: any) => stream.codec_type === 'audio'));
+
+  return {
+    duration: Number.isFinite(duration) ? duration : 0,
+    width: Number.isFinite(width) ? width : 0,
+    height: Number.isFinite(height) ? height : 0,
+    hasAudio,
+  };
+}
+
+function clamp(value: number | undefined, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.min(max, Math.max(min, value as number));
+}
+
+function escapeFilterPath(path: string) {
+  return path
+    .replace(/\\/g, '/')
+    .replace(/:/g, '\\:')
+    .replace(/'/g, "\\'");
+}
+
+function sepiaFilter(amountPercent: number) {
+  const s = Math.min(1, Math.max(0, amountPercent / 100));
+  const rr = 1 - 0.607 * s;
+  const rg = 0.769 * s;
+  const rb = 0.189 * s;
+  const gr = 0.349 * s;
+  const gg = 1 - 0.314 * s;
+  const gb = 0.168 * s;
+  const br = 0.272 * s;
+  const bg = 0.534 * s;
+  const bb = 1 - 0.869 * s;
+  return `colorchannelmixer=rr=${rr.toFixed(4)}:rg=${rg.toFixed(4)}:rb=${rb.toFixed(4)}:gr=${gr.toFixed(4)}:gg=${gg.toFixed(4)}:gb=${gb.toFixed(4)}:br=${br.toFixed(4)}:bg=${bg.toFixed(4)}:bb=${bb.toFixed(4)}`;
+}
+
+function buildVideoFilters(filters: MediaFilterSettings | undefined, overlayFile: string | null) {
+  const brightness = clamp(filters?.brightness, 50, 150, 100);
+  const contrast = clamp(filters?.contrast, 50, 150, 100);
+  const saturation = clamp(filters?.saturate, 0, 200, 100);
+  const sepia = clamp(filters?.sepia, 0, 100, 0);
+  const grayscale = clamp(filters?.grayscale, 0, 100, 0);
+
+  const chain = [
+    'scale=w=min(1080\\,iw):h=min(1920\\,ih):force_original_aspect_ratio=decrease',
+    // yuv420p/libx264 requires even output dimensions.
+    'scale=trunc(iw/2)*2:trunc(ih/2)*2',
+    `eq=brightness=${((brightness - 100) / 200).toFixed(3)}:contrast=${(contrast / 100).toFixed(3)}:saturation=${(saturation / 100).toFixed(3)}`,
+  ];
+
+  if (sepia > 0) chain.push(sepiaFilter(sepia));
+  if (grayscale >= 50) chain.push('hue=s=0');
+
+  if (overlayFile) {
+    chain.push(
+      `drawtext=textfile='${escapeFilterPath(overlayFile)}':fontcolor=white:fontsize=h/24:box=1:boxcolor=black@0.35:boxborderw=12:x=(w-text_w)/2:y=(h-text_h)/2`,
+    );
+  }
+
+  return chain.join(',');
+}
+
+async function transcode(
+  inputPath: string,
+  outputPath: string,
+  inputKind: 'video' | 'image',
+  options: IngestMediaOptions,
+  overlayFile: string | null,
+) {
+  const trimStart = Math.max(0, Number(options.trimStart ?? 0));
+  const requestedTrimEnd = Math.max(0, Number(options.trimEnd ?? 0));
+  const args: string[] = ['-hide_banner', '-loglevel', 'error'];
+
+  if (inputKind === 'image') {
+    args.push('-loop', '1', '-i', inputPath, '-t', String(DEFAULT_IMAGE_DURATION_SECONDS));
+  } else {
+    if (trimStart > 0) args.push('-ss', trimStart.toFixed(3));
+    args.push('-i', inputPath);
+    if (requestedTrimEnd > trimStart) {
+      args.push('-t', Math.min(MAX_VIDEO_DURATION_SECONDS, requestedTrimEnd - trimStart).toFixed(3));
+    } else {
+      args.push('-t', String(MAX_VIDEO_DURATION_SECONDS));
+    }
+  }
+
+  args.push(
+    '-vf', buildVideoFilters(options.filters, overlayFile),
+    '-c:v', 'libx264',
+    '-preset', process.env.FFMPEG_PRESET || 'veryfast',
+    '-crf', process.env.FFMPEG_CRF || '23',
+    '-pix_fmt', 'yuv420p',
+    '-movflags', '+faststart',
+    '-r', '30',
+  );
+
+  if (inputKind === 'image') args.push('-an');
+  else args.push('-c:a', 'aac', '-b:a', '128k');
+
+  args.push('-y', outputPath);
+  await run('ffmpeg', args);
+}
+
+async function makeThumbnail(videoPath: string, thumbnailPath: string, duration: number) {
+  const seek = duration > 1 ? Math.min(1, duration / 3) : 0;
+  await run('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-ss', seek.toFixed(3),
+    '-i', videoPath,
+    '-frames:v', '1',
+    '-vf', 'scale=360:-2',
+    '-q:v', '3',
+    '-y', thumbnailPath,
+  ]);
+}
+
+async function persistInput(stream: Readable, path: string) {
+  let size = 0;
+  const limiter = new Transform({
+    transform(chunk, _encoding, callback) {
+      size += chunk.length;
+      if (size > MAX_UPLOAD_BYTES) {
+        callback(new MediaPipelineError('MEDIA_TOO_LARGE', 'Media exceeds the 100 MB upload limit', 413));
+        return;
+      }
+      callback(null, chunk);
+    },
+  });
+
+  await pipeline(stream, limiter, createWriteStream(path, { flags: 'wx' }));
+  return size;
+}
+
+export async function ingestMedia(options: IngestMediaOptions): Promise<IngestedMedia> {
+  const inputKind = VIDEO_TYPES.has(options.mimetype)
+    ? 'video'
+    : IMAGE_TYPES.has(options.mimetype)
+      ? 'image'
+      : null;
+
+  if (!inputKind) {
+    throw new MediaPipelineError(
+      'UNSUPPORTED_MEDIA_TYPE',
+      `Unsupported media type: ${options.mimetype}`,
+      415,
+    );
+  }
+
+  const workspace = await mkdtemp(join(tmpdir(), 'tiktok-media-'));
+  const inputPath = join(workspace, `source.${mediaExtension(options.mimetype)}`);
+  const outputPath = join(workspace, 'processed.mp4');
+  const thumbnailPath = join(workspace, 'thumbnail.jpg');
+  const overlayText = options.overlayText?.trim().slice(0, 120) ?? '';
+  const overlayFile = overlayText ? join(workspace, 'overlay.txt') : null;
+  const uploadedKeys: string[] = [];
+
+  try {
+    const sourceSizeBytes = await persistInput(options.stream, inputPath);
+    if (sourceSizeBytes === 0) throw new MediaPipelineError('EMPTY_MEDIA', 'Uploaded media is empty', 400);
+
+    const sourceProbe = await probe(inputPath);
+    if (inputKind === 'video' && sourceProbe.duration > MAX_VIDEO_DURATION_SECONDS && !options.trimEnd) {
+      throw new MediaPipelineError(
+        'MEDIA_TOO_LONG',
+        `Video duration exceeds ${MAX_VIDEO_DURATION_SECONDS / 60} minutes; trim it before publishing`,
+        422,
+      );
+    }
+
+    if (overlayFile) await writeFile(overlayFile, overlayText, 'utf8');
+
+    await transcode(inputPath, outputPath, inputKind, options, overlayFile);
+    const processed = await probe(outputPath);
+    if (!processed.width || !processed.height || !processed.duration) {
+      throw new MediaPipelineError('INVALID_MEDIA_OUTPUT', 'Processed video metadata is incomplete', 422);
+    }
+
+    await makeThumbnail(outputPath, thumbnailPath, processed.duration);
+
+    const video = await uploadFileToS3(outputPath, 'video/mp4', 'videos', 'mp4');
+    uploadedKeys.push(video.key);
+    const thumbnail = await uploadFileToS3(thumbnailPath, 'image/jpeg', 'thumbnails', 'jpg');
+    uploadedKeys.push(thumbnail.key);
+
+    return {
+      videoKey: video.key,
+      videoUrl: video.url,
+      thumbnailKey: thumbnail.key,
+      thumbnailUrl: thumbnail.url,
+      duration: processed.duration,
+      width: processed.width,
+      height: processed.height,
+      sourceSizeBytes,
+    };
+  } catch (error) {
+    await deleteMediaObjects(uploadedKeys);
+    throw error;
+  } finally {
+    await rm(workspace, { recursive: true, force: true }).catch(() => undefined);
+  }
 }

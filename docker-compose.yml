@@ -35,8 +35,8 @@ services:
 
   api:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: tiktok-api
     restart: unless-stopped
     ports:
@@ -46,18 +46,28 @@ services:
       PORT: 4000
       DATABASE_URL: postgresql://tiktok:tiktok_secret@postgres:5432/tiktok_clone
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: super_secret_jwt_key_change_in_production
-      JWT_REFRESH_SECRET: super_secret_refresh_key_change_in_production
-      AWS_REGION: us-east-1
+      JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_only_refresh_change_me}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      S3_BUCKET: tiktok-clone-videos
+      S3_BUCKET: ${S3_BUCKET:-tiktok-clone-videos}
       S3_ENDPOINT: http://minio:9000
       S3_FORCE_PATH_STYLE: 'true'
+      # Browser-facing URL. Override with an HTTPS CDN/domain in production.
+      CDN_URL: ${CDN_URL:-http://localhost:9000/tiktok-clone-videos}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # LIVEKIT_URL is returned to browsers, so localhost is correct for local
+      # desktop development but must become wss://live.<domain> in production.
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
@@ -98,6 +108,23 @@ services:
       echo 'MinIO bucket ready';
       exit 0;
       "
+
+  # Local WebRTC SFU. Production needs real secrets, TLS/WSS and network ports
+  # configured for the public host; livekit.dev.yaml is intentionally dev-only.
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    container_name: tiktok-livekit
+    restart: unless-stopped
+    command: --config /etc/livekit.yaml --bind 0.0.0.0
+    volumes:
+      - ./livekit.dev.yaml:/etc/livekit.yaml:ro
+    ports:
+      - '7880:7880'
+      - '7881:7881'
+      - '7882:7882/udp'
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:

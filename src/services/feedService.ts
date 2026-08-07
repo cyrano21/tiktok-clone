@@ -10,10 +10,8 @@ import {
 } from '@/types';
 import { apiClient } from './api';
 
-// Demo mode is OFF — the app now talks to the real Fastify backend.
+// Demo mode is OFF — the app talks to the real Fastify backend.
 const USE_DEMO = false;
-
-// ---- Field mappers (Prisma backend shapes → frontend types) ----
 
 interface BackendUser {
   id: string;
@@ -29,6 +27,10 @@ interface BackendUser {
   isVerified?: boolean;
   createdAt?: string;
 }
+
+type BackendHashtag =
+  | { id: string; name: string }
+  | { hashtag: { id: string; name: string } };
 
 interface BackendVideo {
   id: string;
@@ -50,7 +52,17 @@ interface BackendVideo {
   allowStitch?: boolean;
   sound?: { id: string; title: string; artist?: string | null; coverUrl?: string | null } | null;
   soundId?: string | null;
-  hashtags?: Array<{ id: string; name: string }>;
+  hashtags?: BackendHashtag[];
+}
+
+interface BackendComment {
+  id: string;
+  user: BackendUser;
+  text: string;
+  likeCount?: number;
+  isLiked?: boolean;
+  createdAt?: string;
+  _count?: { replies?: number };
 }
 
 function mapUser(u: BackendUser): User {
@@ -69,6 +81,10 @@ function mapUser(u: BackendUser): User {
     isFollowedBy: false,
     createdAt: u.createdAt ?? new Date().toISOString(),
   };
+}
+
+function unwrapHashtag(input: BackendHashtag) {
+  return 'hashtag' in input ? input.hashtag : input;
 }
 
 function mapVideo(v: BackendVideo): Video {
@@ -99,19 +115,35 @@ function mapVideo(v: BackendVideo): Video {
     duration: v.duration ?? 0,
     isLiked: false,
     isSaved: false,
-    hashtags: (v.hashtags ?? []).map((h) => ({
-      id: h.id,
-      name: h.name,
-      viewsCount: 0,
-      videosCount: 0,
-      isFollowing: false,
-    })),
+    hashtags: (v.hashtags ?? []).map((input) => {
+      const hashtag = unwrapHashtag(input);
+      return {
+        id: hashtag.id,
+        name: hashtag.name,
+        viewsCount: 0,
+        videosCount: 0,
+        isFollowing: false,
+      };
+    }),
     sound,
     location: null,
     createdAt: v.createdAt ?? new Date().toISOString(),
     allowComments: v.allowComment ?? true,
     allowDuet: v.allowDuet ?? true,
     allowStitch: v.allowStitch ?? true,
+  };
+}
+
+function mapComment(c: BackendComment): Comment {
+  return {
+    id: c.id,
+    user: mapUser(c.user ?? { id: '', username: 'user', displayName: 'User', avatarUrl: '' }),
+    text: c.text ?? '',
+    likesCount: Number(c.likeCount ?? 0),
+    isLiked: Boolean(c.isLiked),
+    repliesCount: Number(c._count?.replies ?? 0),
+    replies: [],
+    createdAt: c.createdAt ?? new Date().toISOString(),
   };
 }
 
@@ -160,9 +192,7 @@ export const feedService = {
     if (action === 'report' || action === 'notInterested') return;
     const path = paths[action];
     if (!path) return;
-    await apiClient.post(path).catch(() => {
-      // Non-fatal for demo UX — ignore network errors on actions.
-    });
+    await apiClient.post(path);
   },
 
   getComments: async (
@@ -170,39 +200,48 @@ export const feedService = {
     params?: PaginationParams
   ): Promise<{ comments: Comment[]; hasMore: boolean; cursor: string | null }> => {
     if (USE_DEMO) return { comments: [], hasMore: false, cursor: null };
-    const raw = await apiClient.get<{ comments: any[] }>(`/videos/${videoId}/comments`, {
-      params: { page: 1, limit: params?.limit ?? 20 },
+    const page = Number(params?.cursor ?? 1);
+    const limit = params?.limit ?? 20;
+    const raw = await apiClient.get<{ comments: BackendComment[]; page: number; limit: number }>(`/videos/${videoId}/comments`, {
+      params: { page, limit },
     });
-    const comments: Comment[] = (raw.comments ?? []).map((c) => ({
-      id: c.id,
-      user: mapUser(c.user ?? { id: '', username: 'user', displayName: 'User', avatarUrl: '' }),
-      text: c.text ?? '',
-      likesCount: Number(c.likeCount ?? 0),
-      isLiked: false,
-      repliesCount: c._count?.replies ?? 0,
-      replies: [],
-      createdAt: c.createdAt ?? new Date().toISOString(),
-    }));
-    return { comments, hasMore: comments.length >= 20, cursor: null };
+    const comments = (raw.comments ?? []).map(mapComment);
+    return {
+      comments,
+      hasMore: comments.length >= limit,
+      cursor: comments.length >= limit ? String(page + 1) : null,
+    };
+  },
+
+  getCommentReplies: async (commentId: string, params?: PaginationParams): Promise<Comment[]> => {
+    const page = Number(params?.cursor ?? 1);
+    const limit = params?.limit ?? 50;
+    const raw = await apiClient.get<{ replies: BackendComment[] }>(`/comments/${commentId}/replies`, {
+      params: { page, limit },
+    });
+    return (raw.replies ?? []).map(mapComment);
   },
 
   postComment: async (videoId: string, text: string, parentId?: string): Promise<Comment> => {
     if (USE_DEMO) throw new Error('Demo disabled');
-    const raw = await apiClient.post<{ comment: any }>(`/videos/${videoId}/comments`, {
+    const raw = await apiClient.post<{ comment: BackendComment }>(`/videos/${videoId}/comments`, {
       text,
       parentId: parentId ?? null,
     });
-    const c = raw.comment;
-    return {
-      id: c.id,
-      user: mapUser(c.user ?? { id: '', username: 'user', displayName: 'User', avatarUrl: '' }),
-      text: c.text ?? '',
-      likesCount: 0,
-      isLiked: false,
-      repliesCount: 0,
-      replies: [],
-      createdAt: c.createdAt ?? new Date().toISOString(),
-    };
+    return mapComment(raw.comment);
+  },
+
+  toggleCommentLike: async (commentId: string): Promise<{ liked: boolean; likeCount: number }> => {
+    return apiClient.post(`/comments/${commentId}/like`);
+  },
+
+  getUserVideos: async (username: string, params?: PaginationParams): Promise<Video[]> => {
+    const page = Number(params?.cursor ?? 1);
+    const limit = params?.limit ?? 18;
+    const raw = await apiClient.get<{ videos: BackendVideo[] }>(`/users/${encodeURIComponent(username)}/videos`, {
+      params: { page, limit },
+    });
+    return (raw.videos ?? []).map(mapVideo);
   },
 
   searchVideos: async (query: string, params?: PaginationParams): Promise<FeedResponse> => {

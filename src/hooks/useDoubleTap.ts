@@ -1,11 +1,21 @@
-import { useCallback, useRef } from 'react';
-import { GestureResponderEvent } from 'react-native';
+import { useCallback, useEffect, useRef } from 'react';
+import { Dimensions, GestureResponderEvent } from 'react-native';
 
 interface DoubleTapOptions {
   maxDelay?: number;
   excludeRight?: boolean;
   onSingleTap?: (event: GestureResponderEvent) => void;
   onDoubleTap?: (event: GestureResponderEvent) => void;
+}
+
+function eventSurfaceWidth(event: GestureResponderEvent): number {
+  const nativeWidth = Number((event.nativeEvent as unknown as { width?: number }).width ?? 0);
+  if (nativeWidth > 0) return nativeWidth;
+
+  const targetWidth = Number((event.target as unknown as { offsetWidth?: number } | null)?.offsetWidth ?? 0);
+  if (targetWidth > 0) return targetWidth;
+
+  return Dimensions.get('window').width;
 }
 
 export function useDoubleTap(options: DoubleTapOptions = {}) {
@@ -15,14 +25,15 @@ export function useDoubleTap(options: DoubleTapOptions = {}) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastEventRef = useRef<GestureResponderEvent | null>(null);
 
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
   const handleTap = useCallback(
     (event: GestureResponderEvent) => {
       if (excludeRight) {
-        const { locationX } = event.nativeEvent;
-        const { width } = event.nativeEvent as unknown as { width: number };
-        if (width && locationX > width * 0.7) {
-          return;
-        }
+        const width = eventSurfaceWidth(event);
+        if (width > 0 && event.nativeEvent.locationX > width * 0.7) return;
       }
 
       const now = Date.now();
@@ -34,22 +45,26 @@ export function useDoubleTap(options: DoubleTapOptions = {}) {
           timerRef.current = null;
         }
         lastTapRef.current = 0;
+        lastEventRef.current = null;
         onDoubleTap?.(event);
-      } else {
-        lastTapRef.current = now;
-        lastEventRef.current = event;
-
-        timerRef.current = setTimeout(() => {
-          if (lastEventRef.current) {
-            onSingleTap?.(lastEventRef.current);
-          }
-          lastTapRef.current = 0;
-          timerRef.current = null;
-        }, maxDelay);
+        return;
       }
+
+      lastTapRef.current = now;
+      lastEventRef.current = event;
+      if (timerRef.current) clearTimeout(timerRef.current);
+
+      timerRef.current = setTimeout(() => {
+        if (lastEventRef.current) onSingleTap?.(lastEventRef.current);
+        lastEventRef.current = null;
+        lastTapRef.current = 0;
+        timerRef.current = null;
+      }, maxDelay);
     },
     [maxDelay, excludeRight, onSingleTap, onDoubleTap]
   );
 
-  return { onPress: handleTap };
+  // handlePress is kept as a compatibility alias for older callers/tests while
+  // onPress remains the canonical Pressable/Touchable prop handler.
+  return { onPress: handleTap, handlePress: handleTap };
 }

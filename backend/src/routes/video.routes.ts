@@ -4,6 +4,12 @@ import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { NotificationService } from '../services/notification.service';
 import { RecommendationService } from '../services/recommendation.service';
+import {
+  deleteMediaObjects,
+  deleteMediaUrls,
+  ingestMedia,
+  type MediaFilterSettings,
+} from '../services/video.service';
 
 const updateVideoSchema = z.object({
   title: z.string().trim().max(150).nullable().optional(),
@@ -16,6 +22,69 @@ const updateVideoSchema = z.object({
   locationLng: z.number().min(-180).max(180).nullable().optional(),
   locationName: z.string().trim().max(200).nullable().optional(),
 }).strict();
+
+const uploadMetadataSchema = z.object({
+  title: z.string().trim().max(150).optional(),
+  description: z.string().trim().max(5000).default(''),
+  visibility: z.enum(['public', 'friends', 'private']).default('public'),
+  allowDuet: z.boolean().default(true),
+  allowStitch: z.boolean().default(true),
+  allowComment: z.boolean().default(true),
+  trimStart: z.number().min(0).max(600).default(0),
+  trimEnd: z.number().min(0).max(600).default(0),
+  overlayText: z.string().trim().max(120).default(''),
+  filters: z.object({
+    brightness: z.number().min(50).max(150).optional(),
+    contrast: z.number().min(50).max(150).optional(),
+    saturate: z.number().min(0).max(200).optional(),
+    grayscale: z.number().min(0).max(100).optional(),
+  }).default({}),
+});
+
+function multipartField(fields: Record<string, any>, name: string): string | undefined {
+  const raw = fields?.[name];
+  const field = Array.isArray(raw) ? raw[raw.length - 1] : raw;
+  if (!field || field.type === 'file') return undefined;
+  if (field.value === undefined || field.value === null) return undefined;
+  return String(field.value);
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean) {
+  if (value === undefined) return fallback;
+  return value === 'true' || value === '1';
+}
+
+function parseUploadMetadata(fields: Record<string, any>) {
+  let filters: MediaFilterSettings = {};
+  const filtersRaw = multipartField(fields, 'filters');
+  if (filtersRaw) {
+    try {
+      filters = JSON.parse(filtersRaw) as MediaFilterSettings;
+    } catch {
+      const error = new Error('filters must be valid JSON');
+      (error as any).statusCode = 400;
+      throw error;
+    }
+  }
+
+  return uploadMetadataSchema.parse({
+    title: multipartField(fields, 'title') || undefined,
+    description: multipartField(fields, 'description') ?? '',
+    visibility: multipartField(fields, 'visibility') || 'public',
+    allowDuet: parseBoolean(multipartField(fields, 'allowDuet'), true),
+    allowStitch: parseBoolean(multipartField(fields, 'allowStitch'), true),
+    allowComment: parseBoolean(multipartField(fields, 'allowComment'), true),
+    trimStart: Number(multipartField(fields, 'trimStart') || 0),
+    trimEnd: Number(multipartField(fields, 'trimEnd') || 0),
+    overlayText: multipartField(fields, 'overlayText') ?? '',
+    filters,
+  });
+}
+
+function extractHashtagNames(text: string) {
+  const matches = text.matchAll(/#([\p{L}\p{N}_]{1,64})/gu);
+  return [...new Set(Array.from(matches, (match) => match[1].toLocaleLowerCase()))].slice(0, 20);
+}
 
 async function isBlocked(userId: string, otherUserId: string) {
   return Boolean(await prisma.userBlock.findFirst({
@@ -44,6 +113,8 @@ export async function videoRoutes(app: FastifyInstance) {
       },
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+        hashtags: { include: { hashtag: true } },
+        sound: true,
         _count: { select: { likes: true, comments: true, shares: true, saves: true } },
       },
     });
@@ -51,15 +122,109 @@ export async function videoRoutes(app: FastifyInstance) {
     if (viewerId && viewerId !== video.userId && await isBlocked(viewerId, video.userId)) {
       return reply.status(404).send({ error: 'NOT_FOUND', message: 'Video not found' });
     }
-    return reply.send({ video });
+    return reply.send({
+      video: {
+        ...video,
+        hashtags: video.hashtags.map((link) => link.hashtag),
+      },
+    });
   });
 
-  // Upload is deliberately not faked: the media pipeline must persist a real object
-  // before a Video row is created. A dedicated S3 upload flow is implemented separately.
-  app.post('/', { preHandler: authMiddleware }, async (_req: FastifyRequest, reply: FastifyReply) => {
-    return reply.status(501).send({
-      error: 'UPLOAD_PIPELINE_REQUIRED',
-      message: 'Use the media upload pipeline; this endpoint no longer reports false success.',
+  // Real media publication pipeline: multipart stream -> temporary file -> FFmpeg
+  // normalization/filtering/trim -> thumbnail -> S3/MinIO -> Prisma Video row.
+  app.post('/', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!req.isMultipart()) {
+      return reply.status(415).send({ error: 'UNSUPPORTED_MEDIA_TYPE', message: 'Expected multipart/form-data' });
+    }
+
+    const userId = (req as any).userId as string;
+    const upload = await req.file();
+    if (!upload) {
+      return reply.status(400).send({ error: 'MEDIA_REQUIRED', message: 'A media file is required' });
+    }
+
+    const metadata = parseUploadMetadata(upload.fields as Record<string, any>);
+    const processed = await ingestMedia({
+      stream: upload.file,
+      filename: upload.filename,
+      mimetype: upload.mimetype,
+      trimStart: metadata.trimStart,
+      trimEnd: metadata.trimEnd,
+      overlayText: metadata.overlayText,
+      filters: metadata.filters,
+    });
+
+    if (upload.file.truncated) {
+      await deleteMediaObjects([processed.videoKey, processed.thumbnailKey]);
+      return reply.status(413).send({ error: 'MEDIA_TOO_LARGE', message: 'Media exceeds the upload limit' });
+    }
+
+    const hashtagNames = extractHashtagNames(metadata.description);
+    const title = metadata.title || metadata.description.slice(0, 150) || null;
+    let createdVideoId: string;
+
+    try {
+      createdVideoId = await prisma.$transaction(async (tx) => {
+        const video = await tx.video.create({
+          data: {
+            userId,
+            title,
+            description: metadata.description || null,
+            videoUrl: processed.videoUrl,
+            thumbnailUrl: processed.thumbnailUrl,
+            coverUrl: processed.thumbnailUrl,
+            duration: processed.duration,
+            width: processed.width,
+            height: processed.height,
+            visibility: metadata.visibility,
+            allowDuet: metadata.allowDuet,
+            allowStitch: metadata.allowStitch,
+            allowComment: metadata.allowComment,
+          },
+          select: { id: true },
+        });
+
+        await tx.user.update({ where: { id: userId }, data: { videoCount: { increment: 1 } } });
+
+        for (const name of hashtagNames) {
+          const hashtag = await tx.hashtag.upsert({
+            where: { name },
+            create: { name, videoCount: 1 },
+            update: { videoCount: { increment: 1 } },
+            select: { id: true },
+          });
+          await tx.videoHashtag.create({ data: { videoId: video.id, hashtagId: hashtag.id } });
+        }
+
+        return video.id;
+      });
+    } catch (error) {
+      // Media already exists in object storage at this point. Roll it back if
+      // database persistence fails so a failed publish doesn't leak orphan files.
+      await deleteMediaObjects([processed.videoKey, processed.thumbnailKey]);
+      throw error;
+    }
+
+    const video = await prisma.video.findUniqueOrThrow({
+      where: { id: createdVideoId },
+      include: {
+        user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+        hashtags: { include: { hashtag: true } },
+        sound: true,
+        _count: { select: { likes: true, comments: true, shares: true, saves: true } },
+      },
+    });
+
+    return reply.status(201).send({
+      video: {
+        ...video,
+        hashtags: video.hashtags.map((link) => link.hashtag),
+      },
+      processing: {
+        sourceSizeBytes: processed.sourceSizeBytes,
+        normalized: true,
+        format: 'video/mp4',
+      },
     });
   });
 
@@ -78,11 +243,36 @@ export async function videoRoutes(app: FastifyInstance) {
   app.delete('/:id', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const userId = (req as any).userId as string;
-    const video = await prisma.video.findUnique({ where: { id }, select: { userId: true } });
+    const video = await prisma.video.findUnique({
+      where: { id },
+      select: {
+        userId: true,
+        videoUrl: true,
+        thumbnailUrl: true,
+        hashtags: { select: { hashtagId: true } },
+      },
+    });
     if (!video || video.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized' });
     }
-    await prisma.video.delete({ where: { id } });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.video.delete({ where: { id } });
+      await tx.user.update({
+        where: { id: userId },
+        data: { videoCount: { decrement: 1 } },
+      });
+      for (const link of video.hashtags) {
+        const hashtag = await tx.hashtag.findUnique({ where: { id: link.hashtagId }, select: { videoCount: true } });
+        if (hashtag && hashtag.videoCount > 0n) {
+          await tx.hashtag.update({ where: { id: link.hashtagId }, data: { videoCount: { decrement: 1 } } });
+        }
+      }
+    });
+
+    // DB deletion is authoritative. Object cleanup is best-effort and only
+    // deletes URLs under this deployment's configured CDN prefix.
+    await deleteMediaUrls([video.videoUrl, video.thumbnailUrl]);
     return reply.send({ message: 'Video deleted' });
   });
 
@@ -190,21 +380,51 @@ export async function videoRoutes(app: FastifyInstance) {
 
   app.get('/:id/comments', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const viewerId = (req as any).userId as string | undefined;
     const { page, limit } = z.object({
       page: z.coerce.number().int().min(1).default(1),
       limit: z.coerce.number().int().min(1).max(100).default(20),
     }).parse(req.query);
+
+    let excludedUserIds: string[] = [];
+    if (viewerId) {
+      const blocks = await prisma.userBlock.findMany({
+        where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+        select: { blockerId: true, blockedId: true },
+      });
+      excludedUserIds = blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId);
+    }
+
     const comments = await prisma.comment.findMany({
-      where: { videoId: id, parentId: null, isRemoved: false },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        videoId: id,
+        parentId: null,
+        isRemoved: false,
+        userId: { notIn: excludedUserIds },
+        user: {
+          isBanned: false,
+          OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+        },
+      },
+      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { replies: true } },
+        ...(viewerId ? { likes: { where: { userId: viewerId }, select: { id: true } } } : {}),
       },
     });
-    return reply.send({ comments, page, limit });
+
+    return reply.send({
+      comments: comments.map((comment: any) => ({
+        ...comment,
+        isLiked: Array.isArray(comment.likes) ? comment.likes.length > 0 : false,
+        likes: undefined,
+      })),
+      page,
+      limit,
+    });
   });
 
   app.post('/:id/comments', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -231,6 +451,6 @@ export async function videoRoutes(app: FastifyInstance) {
     await prisma.video.update({ where: { id }, data: { commentCount: { increment: 1 } } });
     await RecommendationService.recordInteraction(userId, id, 'comment', 4);
     await NotificationService.notifyComment(video.userId, userId, id, body.text);
-    return reply.status(201).send({ comment });
+    return reply.status(201).send({ comment: { ...comment, isLiked: false } });
   });
 }
