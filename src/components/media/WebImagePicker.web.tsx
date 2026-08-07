@@ -46,7 +46,7 @@ const S: Record<string, React.CSSProperties> = {
   },
   add: {
     width: 84, height: 110, borderRadius: 10, border: '1px dashed #3a3a3a', background: '#161616',
-    color: '#8A8B91', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    color: '#9A9AA8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     gap: 4, cursor: 'pointer',
   },
 };

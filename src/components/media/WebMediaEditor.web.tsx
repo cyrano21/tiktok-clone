@@ -392,7 +392,7 @@ const Slider: React.FC<{
   </div>
 );
 
-const BRAND = '#FE2C55';
+const BRAND = '#7C3AED';
 const styles: Record<string, React.CSSProperties> = {
   root: { display: 'flex', flexDirection: 'column', gap: 12, width: '100%', color: '#fff' },
   stage: {
@@ -409,7 +409,7 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px solid #232323',
   },
   media: { width: '100%', height: '100%', objectFit: 'cover' },
-  placeholder: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: '#8A8B91', padding: 24, textAlign: 'center' },
+  placeholder: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, color: '#9A9AA8', padding: 24, textAlign: 'center' },
   placeholderMark: { width: 48, height: 48, borderRadius: 24, display: 'grid', placeItems: 'center', background: '#181818', color: '#fff', fontSize: 30, fontWeight: 300 },
   placeholderText: { fontSize: 14, color: '#d5d5d5', fontWeight: 700 },
   placeholderMeta: { fontSize: 11, color: '#707070' },
@@ -441,7 +441,7 @@ const styles: Record<string, React.CSSProperties> = {
   presetBtn: { background: '#1E1E1E', color: '#cfcfcf', border: '1px solid #2A2A2A', borderRadius: 999, padding: '7px 14px', fontSize: 12, cursor: 'pointer' },
   presetActive: { background: BRAND, color: '#fff', borderColor: BRAND },
   sliderRow: { display: 'flex', alignItems: 'center', gap: 10 },
-  sliderLabel: { width: 86, fontSize: 12, color: '#8A8B91' },
+  sliderLabel: { width: 86, fontSize: 12, color: '#9A9AA8' },
   slider: { flex: 1, accentColor: BRAND },
   sliderValue: { width: 44, textAlign: 'right', fontSize: 12, color: '#fff' },
   textInput: { background: '#1E1E1E', color: '#fff', border: '1px solid #2A2A2A', borderRadius: 10, padding: '10px 12px', fontSize: 14, outline: 'none' },

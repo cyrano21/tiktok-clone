@@ -70,11 +70,11 @@ export async function brandingRoutes(app: FastifyInstance) {
       where: { tenant },
       create: {
         tenant,
-        name: body.name ?? 'TikTok',
-        logoUrl: body.logoUrl ?? null,
-        primaryColor: body.primaryColor ?? '#FE2C55',
-        accentColor: body.accentColor ?? '#25F4EE',
-        tagline: body.tagline ?? 'Short videos',
+        name: body.name ?? 'ORKY',
+        logoUrl: body.logoUrl ?? '/logo_orky.png',
+        primaryColor: body.primaryColor ?? '#7C3AED',
+        accentColor: body.accentColor ?? '#F72585',
+        tagline: body.tagline ?? 'La vidéo qui vous ressemble',
         supportEmail: body.supportEmail ?? null,
       },
       update: {
@@ -105,11 +105,11 @@ export async function brandingRoutes(app: FastifyInstance) {
       where: { tenant },
       create: { tenant },
       update: {
-        name: 'TikTok',
-        logoUrl: null,
-        primaryColor: '#FE2C55',
-        accentColor: '#25F4EE',
-        tagline: 'Short videos',
+        name: 'ORKY',
+        logoUrl: '/logo_orky.png',
+        primaryColor: '#7C3AED',
+        accentColor: '#F72585',
+        tagline: 'La vidéo qui vous ressemble',
         supportEmail: null,
       },
     });

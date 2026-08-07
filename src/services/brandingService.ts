@@ -6,11 +6,11 @@ export const brandingService = {
     const raw = await apiClient.get<{ branding: Partial<Branding> }>('/branding');
     const b = raw.branding ?? {};
     return {
-      name: b.name || 'TikTok',
-      logoUrl: b.logoUrl || '',
-      primaryColor: b.primaryColor || '#FE2C55',
-      accentColor: b.accentColor || '#25F4EE',
-      tagline: b.tagline || 'Short videos',
+      name: b.name || 'ORKY',
+      logoUrl: b.logoUrl || '/logo_orky.png',
+      primaryColor: b.primaryColor || '#7C3AED',
+      accentColor: b.accentColor || '#F72585',
+      tagline: b.tagline || 'La vidéo qui vous ressemble',
     };
   },
 

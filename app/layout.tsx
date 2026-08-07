@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3100'),
   title: 'ORKY — plateforme vidéo par Orchidy',
   description:
     'ORKY by Orchidy : feed vidéo, studio de création, live, shop, modération et analytics — plateforme complète.',
@@ -18,7 +19,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#000000',
+  themeColor: '#09090F',
 };
 
 export default function RootLayout({

@@ -20,11 +20,11 @@ interface Template {
 }
 
 const TEMPLATES: Template[] = [
-  { id: 'sunset', label: 'Sunset', colors: ['#FE2C55', '#FF6B81'], text: '#ffffff', accent: '#25F4EE' },
+  { id: 'sunset', label: 'ORKY Glow', colors: ['#5B21B6', '#F72585'], text: '#ffffff', accent: '#FF2D87' },
   { id: 'ocean', label: 'Ocean', colors: ['#0066B3', '#1DC8FF'], text: '#ffffff', accent: '#FFD700' },
-  { id: 'mint', label: 'Mint', colors: ['#11998e', '#38ef7d'], text: '#04261f', accent: '#FE2C55' },
-  { id: 'gold', label: 'Gold', colors: ['#b8860b', '#FFD700'], text: '#1a1400', accent: '#FE2C55' },
-  { id: 'noir', label: 'Noir', colors: ['#111111', '#3a3a3a'], text: '#ffffff', accent: '#25F4EE' },
+  { id: 'mint', label: 'Mint', colors: ['#11998e', '#38ef7d'], text: '#04261f', accent: '#F72585' },
+  { id: 'gold', label: 'Gold', colors: ['#b8860b', '#FFD700'], text: '#1a1400', accent: '#F72585' },
+  { id: 'noir', label: 'Noir', colors: ['#111111', '#3a3a3a'], text: '#ffffff', accent: '#A78BFA' },
   { id: 'grape', label: 'Grape', colors: ['#6a11cb', '#b06ab3'], text: '#ffffff', accent: '#FFD700' },
 ];
 
@@ -273,7 +273,7 @@ function wrapText(ctx: CanvasRenderingContext2D, text: string, x: number, y: num
   shown.forEach((line, i) => ctx.fillText(line, x, startY + i * lineHeight));
 }
 
-const BRAND = '#FE2C55';
+const BRAND = '#7C3AED';
 const S: Record<string, React.CSSProperties> = {
   root: { display: 'flex', flexDirection: 'column', gap: 10, width: '100%', color: '#fff' },
   stage: { width: '100%', display: 'flex', justifyContent: 'center', background: '#000', borderRadius: 14, padding: 12, overflow: 'hidden' },

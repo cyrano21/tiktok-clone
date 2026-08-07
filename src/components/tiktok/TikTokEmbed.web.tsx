@@ -56,7 +56,7 @@ const S: Record<string, React.CSSProperties> = {
     textDecoration: 'none',
   },
   fallbackIcon: { fontSize: 28 },
-  fallbackText: { fontSize: 14, color: '#8A8B91' },
+  fallbackText: { fontSize: 14, color: '#9A9AA8' },
 };
 
 export default TikTokEmbed;

@@ -8,8 +8,8 @@ import { brandingService } from '@/services/brandingService';
 
 const PRESETS: Array<{ label: string; branding: Branding }> = [
   {
-    label: 'TikTok',
-    branding: { name: 'TikTok', logoUrl: '', primaryColor: '#FE2C55', accentColor: '#25F4EE', tagline: 'Short videos' },
+    label: 'ORKY',
+    branding: { name: 'ORKY', logoUrl: '/logo_orky.png', primaryColor: '#7C3AED', accentColor: '#F72585', tagline: 'La vidéo qui vous ressemble' },
   },
   {
     label: 'ÉcolePro',
@@ -30,7 +30,7 @@ const PRESETS: Array<{ label: string; branding: Branding }> = [
 ];
 
 const COLOR_OPTIONS = [
-  '#FE2C55', '#4C6FFF', '#7C3AED', '#10B981', '#FF8C42',
+  '#7C3AED', '#5B21B6', '#F72585', '#FF2D87', '#4C6FFF',
   '#F472B6', '#0EA5E9', '#F59E0B', '#22C55E', '#EF4444',
 ];
 
@@ -55,13 +55,13 @@ export const StudioBrandingScreen: React.FC = () => {
     setMessage(null);
     try {
       await brandingService.update({
-        name: name.trim() || 'TikTok',
+        name: name.trim() || 'ORKY',
         logoUrl: logoUrl.trim(),
         primaryColor,
         accentColor,
         tagline: tagline.trim(),
       });
-      apply({ name: name.trim() || 'TikTok', logoUrl: logoUrl.trim(), primaryColor, accentColor, tagline: tagline.trim() });
+      apply({ name: name.trim() || 'ORKY', logoUrl: logoUrl.trim() || '/logo_orky.png', primaryColor, accentColor, tagline: tagline.trim() });
       setMessage('✓ Branding enregistré — visible sur toute l’app');
     } catch (e: any) {
       setMessage(`Erreur : ${e?.message ?? 'impossible d’enregistrer'}`);
@@ -76,12 +76,12 @@ export const StudioBrandingScreen: React.FC = () => {
     try {
       await brandingService.reset();
       reset();
-      setName('TikTok');
-      setLogoUrl('');
-      setPrimaryColor('#FE2C55');
-      setAccentColor('#25F4EE');
-      setTagline('Short videos');
-      setMessage('✓ Branding réinitialisé (identité TikTok)');
+      setName('ORKY');
+      setLogoUrl('/logo_orky.png');
+      setPrimaryColor('#7C3AED');
+      setAccentColor('#F72585');
+      setTagline('La vidéo qui vous ressemble');
+      setMessage('✓ Branding réinitialisé (identité ORKY)');
     } catch {
       setMessage('Erreur : connexion requise pour réinitialiser');
     } finally {
@@ -195,7 +195,7 @@ export const StudioBrandingScreen: React.FC = () => {
             <Text style={styles.saveText}>{busy ? '…' : '💾 Enregistrer le branding'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.resetBtn} onPress={handleReset} disabled={busy}>
-            <Text style={styles.resetText}>↺ Réinitialiser (retour TikTok)</Text>
+            <Text style={styles.resetText}>↺ Réinitialiser (identité ORKY)</Text>
           </TouchableOpacity>
         </View>
 

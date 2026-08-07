@@ -10,11 +10,11 @@ export interface Branding {
 }
 
 export const DEFAULT_BRANDING: Branding = {
-  name: 'TikTok',
-  logoUrl: '',
-  primaryColor: '#FE2C55',
-  accentColor: '#25F4EE',
-  tagline: 'Short videos',
+  name: 'ORKY',
+  logoUrl: '/logo_orky.png',
+  primaryColor: '#7C3AED',
+  accentColor: '#F72585',
+  tagline: 'La vidéo qui vous ressemble',
 };
 
 interface BrandingState {
