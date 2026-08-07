@@ -4,13 +4,41 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 
-const DEFAULT_SCRAPER_URL = process.env.NEXT_PUBLIC_SCRAPER_URL || 'http://localhost:8501';
+const DEFAULT_SCRAPER_URL = process.env.NEXT_PUBLIC_SCRAPER_URL || '';
+
+/** Detect whether we're running on localhost — allow HTTP for dev. */
+const isLocalDev =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+const AUTO_DETECT_URL = isLocalDev ? 'http://127.0.0.1:8501/' : '';
 
 export const StudioScraperScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const [scraperUrl, setScraperUrl] = useState(DEFAULT_SCRAPER_URL);
   const [isLoaded, setIsLoaded] = useState(false);
+  const configuredOrigin = (() => {
+    try { return DEFAULT_SCRAPER_URL ? new URL(DEFAULT_SCRAPER_URL).origin : ''; } catch { return ''; }
+  })();
+  /** Allow HTTP for local dev, enforce HTTPS for production. */
+  const canLoad = (() => {
+    try {
+      const url = new URL(scraperUrl);
+      if (isLocalDev && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) return true;
+      return url.protocol === 'https:' && !!configuredOrigin && url.origin === configuredOrigin;
+    } catch { return false; }
+  })();
+
+  // Auto-load when a valid URL is detected (Streamlit on 8501, or configured URL).
+  const effectiveUrl = scraperUrl || AUTO_DETECT_URL;
+  const canAutoLoad = (() => {
+    try {
+      const url = new URL(effectiveUrl);
+      if (isLocalDev && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) return true;
+      return url.protocol === 'https:' && !!configuredOrigin && url.origin === configuredOrigin;
+    } catch { return false; }
+  })();
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -41,7 +69,7 @@ export const StudioScraperScreen: React.FC = () => {
         />
         <TouchableOpacity
           style={styles.urlButton}
-          onPress={() => setIsLoaded(false)}
+          onPress={() => { if (canLoad) setIsLoaded(false); }}
         >
           <Text style={styles.urlButtonText}>↻</Text>
         </TouchableOpacity>
@@ -50,9 +78,7 @@ export const StudioScraperScreen: React.FC = () => {
       {/* Info banner */}
       <View style={styles.banner}>
         <Text style={styles.bannerText}>
-          💡 Le dashboard Scraper (Streamlit) doit être lancé séparément. Lancez{' '}
-          <Text style={styles.bannerCode}>streamlit run dashboard.py</Text>{' '}
-          dans le dossier tiktok_scraper pour activer l'analyse.
+          {configuredOrigin ? 'Le dashboard Scraper sécurisé est disponible sur l’origine configurée.' : 'Le dashboard Scraper n’est pas configuré pour cet environnement.'}
         </Text>
       </View>
 
@@ -61,13 +87,23 @@ export const StudioScraperScreen: React.FC = () => {
         {!isLoaded && (
           <View style={styles.loadingOverlay}>
             <Text style={styles.loadingIcon}>📊</Text>
-            <Text style={styles.loadingText}>Chargement du dashboard...</Text>
-            <TouchableOpacity
-              style={styles.loadButton}
-              onPress={() => setIsLoaded(true)}
-            >
-              <Text style={styles.loadButtonText}>Charger le dashboard</Text>
-            </TouchableOpacity>
+            <Text style={styles.loadingText}>Dashboard Scraper TikTok</Text>
+            <Text style={styles.bannerText}>
+              {canAutoLoad
+                ? 'Streamlit détecté sur le port 8501. Prêt à charger.'
+                : configuredOrigin
+                  ? 'Dashboard configuré, prêt à charger.'
+                  : 'Lancez Streamlit (streamlit run dashboard.py) sur le port 8501, ou configurez NEXT_PUBLIC_SCRAPER_URL.'}
+            </Text>
+            {canAutoLoad ? (
+              <TouchableOpacity style={styles.loadButton} onPress={() => { setScraperUrl(effectiveUrl); setIsLoaded(true); }}>
+                <Text style={styles.loadButtonText}>🚀 Charger le dashboard</Text>
+              </TouchableOpacity>
+            ) : canLoad ? (
+              <TouchableOpacity style={styles.loadButton} onPress={() => setIsLoaded(true)}>
+                <Text style={styles.loadButtonText}>Charger le dashboard</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
         {isLoaded && (
@@ -81,7 +117,7 @@ export const StudioScraperScreen: React.FC = () => {
             }}
             title="TikTok Scraper Dashboard"
             onLoad={() => setIsLoaded(true)}
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            sandbox="allow-scripts allow-forms allow-same-origin"
           />
         )}
       </View>
