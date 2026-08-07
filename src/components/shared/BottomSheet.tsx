@@ -77,7 +77,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   return (
     <View style={styles.overlay}>
       <TouchableWithoutFeedback onPress={handleBackdropPress}>
-        <Animated.View style={[styles.backdrop, backdropStyle]} />
+        <Animated.View testID="bottom-sheet-backdrop" style={[styles.backdrop, backdropStyle]} />
       </TouchableWithoutFeedback>
       <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.sheet, { height }, sheetStyle]}>

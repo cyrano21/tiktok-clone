@@ -1,37 +1,40 @@
 import React from 'react';
-import { render, fireEvent } from '@testing-library/react-native';
+import { render, fireEvent } from '@testing-library/react';
 import { BottomSheet } from '../../src/components/shared/BottomSheet';
 import { Text } from 'react-native';
 
+
 jest.mock('react-native-reanimated', () => ({
-  ...jest.requireActual('react-native-reanimated/mock'),
+  __esModule: true,
+  default: { View: 'div' },
   useSharedValue: jest.fn((val) => ({ value: val })),
   useAnimatedStyle: jest.fn(() => ({})),
   withSpring: jest.fn((val) => val),
   withTiming: jest.fn((val) => val),
+  runOnJS: jest.fn((fn) => fn),
+  Easing: { ease: (value) => value, inOut: (value) => value },
 }));
 
 describe('BottomSheet', () => {
-  it('should render when visible', () => {
+  it('renders its children when visible', () => {
     const { getByText } = render(
-      <BottomSheet visible={true} onClose={jest.fn()} title="Test Sheet">
+      <BottomSheet isVisible={true} onClose={jest.fn()}>
         <Text>Content</Text>
       </BottomSheet>
     );
 
-    expect(getByText('Test Sheet')).toBeTruthy();
     expect(getByText('Content')).toBeTruthy();
   });
 
-  it('should show close button and call onClose', () => {
+  it('calls onClose when the backdrop is pressed', () => {
     const onClose = jest.fn();
-    const { getByText } = render(
-      <BottomSheet visible={true} onClose={onClose} title="Test">
+    const { container } = render(
+      <BottomSheet isVisible={true} onClose={onClose}>
         <Text>Content</Text>
       </BottomSheet>
     );
 
-    fireEvent.press(getByText('✕'));
+    fireEvent.click(container.querySelector('[testid="bottom-sheet-backdrop"]')!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -1,7 +1,10 @@
 import { useFeedStore } from '../../src/store/feedStore';
+import { feedService } from '../../src/services/feedService';
 
 describe('feedStore', () => {
   beforeEach(() => {
+    jest.spyOn(feedService, 'performAction').mockResolvedValue(undefined);
+    jest.spyOn(feedService, 'getFeed').mockResolvedValue({ videos: [], cursor: null, hasMore: false });
     useFeedStore.setState({
       videos: [],
       currentIndex: 0,
@@ -10,6 +13,10 @@ describe('feedStore', () => {
       hasMore: true,
       cursor: null,
     });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('should initialize with default values', () => {

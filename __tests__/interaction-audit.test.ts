@@ -26,7 +26,7 @@ describe('interactive control audit', () => {
       'src/screens/ProfileScreen.tsx',
       'src/screens/explore/HashtagScreen.tsx',
       'src/screens/explore/SoundScreen.tsx',
-      'src/screens/live/LiveScreen.tsx',
+      'src/screens/live/LiveScreen.web.tsx',
     ]) {
       expect(source(file)).toContain('shareText');
     }

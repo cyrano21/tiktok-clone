@@ -117,7 +117,7 @@ export const ProfileScreen: React.FC = () => {
           <TouchableOpacity style={styles.studioBtn} onPress={() => nav.push('studio')}>
             <Text style={styles.studioIcon}>🎬</Text>
             <View style={{ flex: 1 }}>
-              <Text style={styles.studioTitle}>TikTok Studio</Text>
+              <Text style={styles.studioTitle}>ORKY Studio</Text>
               <Text style={styles.studioSub}>Analyses, contenu, monétisation</Text>
             </View>
             <Text style={styles.studioChevron}>›</Text>

@@ -38,7 +38,25 @@ export function useCreatorAnalytics(): CreatorAnalyticsView {
           studioService.getAnalytics(),
           studioService.getTopVideos(5),
         ]);
-        if (mounted) setAnalytics({ ...summary, topVideos, live: true });
+        if (mounted) {
+          setAnalytics({
+            ...summary,
+            totalViews: Number(summary.totalViews ?? 0),
+            totalLikes: Number(summary.totalLikes ?? 0),
+            totalComments: Number(summary.totalComments ?? 0),
+            totalShares: Number(summary.totalShares ?? 0),
+            followers: Number(summary.followers ?? 0),
+            followersGained7d: Number(summary.followersGained7d ?? 0),
+            followingCount: Number(summary.followingCount ?? 0),
+            engagementRate: Number(summary.engagementRate ?? 0),
+            dailyViews: Array.isArray(summary.dailyViews)
+              ? Array.from({ length: 7 }, (_, index) => Number(summary.dailyViews[index] ?? 0))
+              : Array(7).fill(0),
+            postsCount: Number(summary.postsCount ?? topVideos.length),
+            topVideos,
+            live: true,
+          });
+        }
       } catch {
         // keep demo fallback
       }

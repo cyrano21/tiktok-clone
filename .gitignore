@@ -27,3 +27,7 @@ web-build/
 *.tsbuildinfo
 .tc.txt
 .build.txt
+
+# test artifacts ignored
+playwright-report/
+test-results/

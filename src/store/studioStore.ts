@@ -101,13 +101,18 @@ function randomBetween(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function seedMetrics(base: number): PostMetrics {
+function deterministicBetween(min: number, max: number, seed: number): number {
+  const normalized = Math.abs(Math.sin(seed * 12.9898) * 43758.5453) % 1;
+  return Math.floor(normalized * (max - min + 1)) + min;
+}
+
+function seedMetrics(base: number, seed: number): PostMetrics {
   const views = base;
-  const likes = Math.round(views * (0.08 + Math.random() * 0.06));
-  const comments = Math.round(likes * (0.04 + Math.random() * 0.05));
-  const shares = Math.round(likes * (0.03 + Math.random() * 0.04));
-  const dailyViews = Array.from({ length: 7 }, () =>
-    randomBetween(Math.round(views * 0.04), Math.round(views * 0.22)),
+  const likes = Math.round(views * (0.09 + deterministicBetween(0, 5, seed) / 100));
+  const comments = Math.round(likes * (0.05 + deterministicBetween(0, 4, seed + 1) / 100));
+  const shares = Math.round(likes * (0.04 + deterministicBetween(0, 3, seed + 2) / 100));
+  const dailyViews = Array.from({ length: 7 }, (_, day) =>
+    deterministicBetween(Math.round(views * 0.08), Math.round(views * 0.18), seed + day + 3),
   );
   return { views, likes, comments, shares, dailyViews };
 }
@@ -162,7 +167,7 @@ function buildSeedPosts(): MediaPost[] {
     trimStart: 0,
     trimEnd: 0,
     createdAt: new Date(Date.now() - s.days * 86_400_000).toISOString(),
-    metrics: seedMetrics(s.base),
+    metrics: seedMetrics(s.base, i + 1),
   }));
 }
 
@@ -176,7 +181,7 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
     const created: MediaPost = {
       id: `media-${mediaSeq++}-${Math.random().toString(36).slice(2, 7)}`,
       createdAt: new Date().toISOString(),
-      metrics: seedMetrics(randomBetween(800, 6400)),
+      metrics: seedMetrics(randomBetween(800, 6400), mediaSeq),
       ...post,
     };
     set(state => ({ posts: [created, ...state.posts] }));
