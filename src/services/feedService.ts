@@ -201,7 +201,20 @@ export const feedService = {
   },
 
   getVideoById: async (videoId: string): Promise<Video> => {
-    if (USE_DEMO) throw new Error('Demo disabled');
+    if (USE_DEMO) {
+      // Try scraper bridge first (real TikTok data)
+      if (await useScraper()) {
+        const { scraperBridge } = await import('./scraperBridge');
+        const videos = await scraperBridge.getVideos(50);
+        const found = videos.find(v => v.id === videoId || v.id === `scraper-${videoId}` || videoId.startsWith('scraper-') && v.id === videoId);
+        if (found) return found;
+      }
+      // Fallback: return a minimal video from demo feed
+      const { getDemoFeed } = await import('./demoFeed');
+      const feed = getDemoFeed(1);
+      if (feed.videos.length > 0) return feed.videos[0];
+      throw new Error('Vidéo introuvable');
+    }
     const raw = await apiClient.get<{ video: BackendVideo }>(`/videos/${videoId}`);
     return mapVideo(raw.video);
   },

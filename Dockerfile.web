@@ -8,6 +8,13 @@ RUN npm ci --legacy-peer-deps
 FROM node:20-alpine AS build
 WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
+# Required at build time for Next.js to inline NEXT_PUBLIC_* vars
+ARG NEXT_PUBLIC_API_BASE_URL
+ARG NEXT_PUBLIC_SCRAPER_URL
+ARG NEXT_PUBLIC_SCRAPER_API_URL
+ENV NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-}
+ENV NEXT_PUBLIC_SCRAPER_URL=${NEXT_PUBLIC_SCRAPER_URL:-}
+ENV NEXT_PUBLIC_SCRAPER_API_URL=${NEXT_PUBLIC_SCRAPER_API_URL:-http://scraper-api:8502}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
