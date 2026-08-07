@@ -1,4 +1,4 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createReadStream, createWriteStream } from 'fs';
 import { mkdtemp, rm, stat, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -34,7 +34,9 @@ export type IngestMediaOptions = {
 };
 
 export type IngestedMedia = {
+  videoKey: string;
   videoUrl: string;
+  thumbnailKey: string;
   thumbnailUrl: string;
   duration: number;
   width: number;
@@ -42,13 +44,13 @@ export type IngestedMedia = {
   sourceSizeBytes: number;
 };
 
-class MediaPipelineError extends Error {
+export class MediaPipelineError extends Error {
   statusCode: number;
   code: string;
 
   constructor(code: string, message: string, statusCode = 400) {
     super(message);
-    this.name = 'MediaPipelineError';
+    this.name = code;
     this.code = code;
     this.statusCode = statusCode;
   }
@@ -68,6 +70,27 @@ function mediaExtension(mimetype: string) {
 
 function publicUrlForKey(key: string) {
   return `${CDN_URL.replace(/\/$/, '')}/${key.replace(/^\//, '')}`;
+}
+
+export function objectKeyFromPublicUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const prefix = `${CDN_URL.replace(/\/$/, '')}/`;
+  if (!url.startsWith(prefix)) return null;
+  const key = url.slice(prefix.length);
+  if (!key || key.includes('..') || key.startsWith('/')) return null;
+  return key;
+}
+
+export async function deleteMediaObjects(keys: Array<string | null | undefined>) {
+  const uniqueKeys = [...new Set(keys.filter((key): key is string => Boolean(key)))];
+  await Promise.allSettled(uniqueKeys.map((key) => s3Client.send(new DeleteObjectCommand({
+    Bucket: S3_BUCKET,
+    Key: key,
+  }))));
+}
+
+export async function deleteMediaUrls(urls: Array<string | null | undefined>) {
+  await deleteMediaObjects(urls.map(objectKeyFromPublicUrl));
 }
 
 async function uploadFileToS3(filePath: string, mimetype: string, folder: string, extension: string) {
@@ -276,6 +299,7 @@ export async function ingestMedia(options: IngestMediaOptions): Promise<Ingested
   const thumbnailPath = join(workspace, 'thumbnail.jpg');
   const overlayText = options.overlayText?.trim().slice(0, 120) ?? '';
   const overlayFile = overlayText ? join(workspace, 'overlay.txt') : null;
+  const uploadedKeys: string[] = [];
 
   try {
     const sourceSizeBytes = await persistInput(options.stream, inputPath);
@@ -300,19 +324,24 @@ export async function ingestMedia(options: IngestMediaOptions): Promise<Ingested
 
     await makeThumbnail(outputPath, thumbnailPath, processed.duration);
 
-    const [video, thumbnail] = await Promise.all([
-      uploadFileToS3(outputPath, 'video/mp4', 'videos', 'mp4'),
-      uploadFileToS3(thumbnailPath, 'image/jpeg', 'thumbnails', 'jpg'),
-    ]);
+    const video = await uploadFileToS3(outputPath, 'video/mp4', 'videos', 'mp4');
+    uploadedKeys.push(video.key);
+    const thumbnail = await uploadFileToS3(thumbnailPath, 'image/jpeg', 'thumbnails', 'jpg');
+    uploadedKeys.push(thumbnail.key);
 
     return {
+      videoKey: video.key,
       videoUrl: video.url,
+      thumbnailKey: thumbnail.key,
       thumbnailUrl: thumbnail.url,
       duration: processed.duration,
       width: processed.width,
       height: processed.height,
       sourceSizeBytes,
     };
+  } catch (error) {
+    await deleteMediaObjects(uploadedKeys);
+    throw error;
   } finally {
     await rm(workspace, { recursive: true, force: true }).catch(() => undefined);
   }
