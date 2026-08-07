@@ -68,7 +68,7 @@ export const ProductScreen: React.FC = () => {
             ))}
           </ScrollView>
 
-          <View style={[styles.topBar, { top: insets.top + 8 }]} pointerEvents="box-none">
+          <View style={[styles.topBar, { top: insets.top + 8 }]}>
             <TouchableOpacity style={styles.circleBtn} onPress={() => nav.back()}>
               <Text style={styles.circleBtnText}>←</Text>
             </TouchableOpacity>

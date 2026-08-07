@@ -15,8 +15,11 @@ const nextConfig = {
     // No backend configured (e.g. demo mode) → no proxy rewrite.
     if (!backendUrl) return [];
     return [{
-      source: '/v1/:path*',
-      destination: `${backendUrl}/v1/:path*`,
+      // Proxy /v1/* to the backend, EXCEPT the local routes served by this app:
+      // - /v1/health (Coolify healthcheck)
+      // - /v1/tiktok/* (OAuth callback, creator info, publish status…)
+      source: '/v1/:path((?!health|tiktok/).*)',
+      destination: `${backendUrl}/v1/:path`,
     }];
   },
   transpilePackages: ['react-native-web'],

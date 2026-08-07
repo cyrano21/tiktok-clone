@@ -1,5 +1,39 @@
 // Keep Jest focused on the web renderer used by this Next.js app.
-jest.mock('react-native', () => require('react-native-web'));
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native-web');
+  const React = jest.requireActual('react');
+  return {
+    ...actual,
+    TouchableOpacity: ({
+      children,
+      onPress,
+      disabled,
+      testID,
+      style,
+      accessibilityRole,
+      accessibilityLabel,
+      accessibilityState,
+      activeOpacity: _activeOpacity,
+      hitSlop: _hitSlop,
+      ...props
+    }: any) => React.createElement(
+      'button',
+      {
+        ...props,
+        type: 'button',
+        disabled,
+        'data-testid': testID,
+        'aria-label': accessibilityLabel,
+        'aria-pressed': accessibilityState?.selected,
+        role: accessibilityRole === 'button' ? 'button' : undefined,
+        onClick: onPress,
+        style,
+      },
+      children
+    ),
+    Dimensions: { get: () => ({ width: 390, height: 844 }) },
+  };
+});
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {

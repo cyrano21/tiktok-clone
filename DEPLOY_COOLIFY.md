@@ -1,260 +1,109 @@
-# 🚀 Déploiement TikTok Clone sur Coolify
+# Déployer ORKY sur Coolify
 
-## Architecture
+Ce dépôt se déploie comme une stack Docker Compose complète :
 
-```
-┌─────────────────────────────────────────────────────┐
-│                   Coolify Server                     │
-│                                                      │
-│  ┌──────────┐  ┌──────────┐  ┌──────────────────┐  │
-│  │ Frontend │  │ Backend  │  │ PostgreSQL       │  │
-│  │ Next.js  │──│ Fastify  │──│ tiktok_clone db  │  │
-│  │ :3000    │  │ :4000    │  │ :5432            │  │
-│  └──────────┘  └──────────┘  └──────────────────┘  │
-│       │              │                               │
-│       │         ┌──────────┐                        │
-│       │         │  Redis   │                        │
-│       │         │  :6379   │                        │
-│       │         └──────────┘                        │
-│       │                                              │
-│  ┌──────────────────────────┐                       │
-│  │     Reverse Proxy        │                       │
-│  │  (Nginx / Traefik)       │                       │
-│  └──────────────────────────┘                       │
-└─────────────────────────────────────────────────────┘
-```
+- `web` : Next.js sur le port 3000 ;
+- `api` : Fastify sur le port 4000 ;
+- PostgreSQL ;
+- Redis ;
+- MinIO pour les médias ;
+- LiveKit pour les directs WebRTC.
 
-## Prérequis
+## 1. Créer l'application Coolify
 
-1. **Serveur Coolify** avec Docker installé
-2. **Domaine** pointing vers ton serveur (optionnel mais recommandé)
-3. **Git repository** GitHub avec le code
+Dans Coolify, crée une ressource **Docker Compose** depuis la branche `main` du dépôt. Le fichier à utiliser est `docker-compose.prod.yml`, avec le contexte du dépôt à sa racine.
 
----
+Expose uniquement les domaines publics nécessaires :
 
-## Étape 1 : Créer l'application PostgreSQL
+- `web` : domaine de l'application ORKY ;
+- `api` : domaine API si l'API n'est pas servie derrière le reverse proxy du frontend ;
+- LiveKit : domaine HTTPS/WSS dédié, avec les ports média TCP/UDP requis par LiveKit.
 
-1. Dans Coolify, va dans **Applications** → **New**
-2. Choisis **Docker Compose**
-3. Nom : `tiktok-db`
-4. Copie ce compose :
+Active HTTPS/Let's Encrypt pour les domaines publics.
 
-```yaml
-version: '3.8'
-services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: tiktok
-      POSTGRES_PASSWORD: CHANGE_ME_STRONG_PASSWORD
-      POSTGRES_DB: tiktok_clone
-    volumes:
-      - pg_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U tiktok -d tiktok_clone']
-      interval: 5s
-      timeout: 5s
-      retries: 5
+## 2. Variables Coolify obligatoires
 
-volumes:
-  pg_data:
-```
-
-5. **Deploy** cette application
-6. Note l'**IP interne** de ce service (ex: `172.19.0.2`)
-
----
-
-## Étape 2 : Créer l'application Backend API
-
-1. Dans Coolify, **Applications** → **New** → **Docker Compose**
-2. Nom : `tiktok-api`
-3. **Source** : Git Repository
-   - URL : `https://github.com/cyrano21/tiktok-clone`
-   - Branch : `main`
-   - Dockerfile Location : `backend/Dockerfile`
-4. **Environment Variables** (dans Coolify) :
+Génère les secrets dans Coolify ou avec un générateur local. Ne les committe jamais.
 
 ```env
 NODE_ENV=production
-PORT=4000
-DATABASE_URL=postgresql://tiktok:CHANGE_ME_STRONG_PASSWORD@tiktok-db:5432/tiktok_clone
-REDIS_URL=redis://tiktok-redis:6379
-JWT_SECRET=GENERATE_RANDOM_32_CHARS
-JWT_REFRESH_SECRET=GENERATE_RANDOM_32_CHARS
-CORS_ORIGIN=https://ton-domaine.com
+POSTGRES_USER=...
+POSTGRES_PASSWORD=...
+POSTGRES_DB=orky
+JWT_SECRET=...
+JWT_REFRESH_SECRET=...
+CORS_ORIGINS=https://orky.example.com
+NEXT_PUBLIC_API_BASE_URL=https://orky.example.com
+
+MINIO_ROOT_USER=...
+MINIO_ROOT_PASSWORD=...
+S3_BUCKET=orky
+CDN_URL=https://cdn.example.com/orky
+
+LIVEKIT_URL=wss://live.example.com
+LIVEKIT_API_KEY=...
+LIVEKIT_API_SECRET=...
+
+STRIPE_SECRET_KEY=...
+STRIPE_WEBHOOK_SECRET=...
+STRIPE_PRICE_PRO=...
+STRIPE_PRICE_BUSINESS=...
+
+TIKTOK_CLIENT_KEY=...
+TIKTOK_CLIENT_SECRET=...
+TIKTOK_REDIRECT_URI=https://orky.example.com/v1/tiktok/callback
+TIKTOK_FRONTEND_RETURN_URL=https://orky.example.com
+
+NEXT_PUBLIC_SCRAPER_URL=https://scraper.example.com
 ```
 
-> ⚠️ **Important** : Remplace `CHANGE_ME_STRONG_PASSWORD` par le mot de passe que tu as mis dans l'étape 1.
-> 
-> Pour générer un JWT_SECRET aléatoire : `openssl rand -hex 32`
+`CORS_ORIGINS` accepte une liste d'origines séparées par des virgules. `NEXT_PUBLIC_API_BASE_URL` doit être une URL HTTPS publique ou l'URL interne appropriée si Coolify sert le frontend et l'API derrière le même proxy.
 
-5. **Ports** : Expose le port `4000`
-6. **Health Check** : `/health`
-7. **Depends On** : `tiktok-db` (dans les settings networking de Coolify)
+Le scraper n'est pas inclus dans cette stack : `NEXT_PUBLIC_SCRAPER_URL` doit pointer vers un dashboard Streamlit réellement déployé en HTTPS. Une URL localhost ou HTTP sera refusée par l'interface ORKY.
 
----
+## 3. Configuration LiveKit
 
-## Étape 3 : Créer l'application Redis
+Copie `livekit.prod.yaml` dans la ressource Compose. Le fichier ne contient pas de secret. Le domaine LiveKit doit être accessible en WSS depuis les navigateurs et les ports média TCP/UDP doivent être ouverts selon la documentation LiveKit/Coolify.
 
-1. **Applications** → **New** → **Docker Compose**
-2. Nom : `tiktok-redis`
+Le webhook LiveKit doit pouvoir joindre :
 
-```yaml
-version: '3.8'
-services:
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-volumes:
-  redis_data:
+```text
+http://api:4000/v1/live/webhook
 ```
 
-3. **Deploy**
+Configure également la signature/webhook selon les variables attendues par le backend.
 
----
+## 4. Déploiement et migrations
 
-## Étape 4 : Créer l'application Frontend
+Déploie la stack depuis Coolify. Le conteneur API exécute `prisma migrate deploy` avant de démarrer le serveur.
 
-1. **Applications** → **New** → **Docker Compose**
-2. Nom : `tiktok-web`
-3. **Source** : Git Repository
-   - URL : `https://github.com/cyrano21/tiktok-clone`
-   - Branch : `main`
-   - Dockerfile Location : `Dockerfile.web`
-4. **Environment Variables** :
+Vérifie ensuite :
 
-```env
-NODE_ENV=production
-NEXT_PUBLIC_API_URL=https://api.ton-domaine.com
+```text
+https://<domaine-api>/health
+https://<domaine-web>/
 ```
 
-5. **Ports** : Expose le port `3000`
-6. **Depends On** : `tiktok-api`
+Ne lance `prisma db seed` en production que si tu souhaites explicitement importer des données initiales et après sauvegarde de la base.
 
----
+## 5. Contrôles post-déploiement
 
-## Étape 5 : Configurer le Reverse Proxy
+1. `GET /health` retourne un statut OK.
+2. L'inscription et la connexion créent une vraie session.
+3. Le profil ne montre pas de métriques inventées en cas d'erreur.
+4. Découvrir interroge `/v1/feed/discover` et affiche un état vide/erreur explicite si aucune donnée n'existe.
+5. Les uploads créent des objets MinIO/CDN et des vidéos persistées.
+6. LiveKit utilise WSS et les événements webhook terminent bien les directs.
+7. Stripe reçoit les webhooks signés sur l'endpoint prévu.
+8. Le branding n'est modifiable que par un compte `admin` ou `moderator`.
+9. Le scraper affiche une origine HTTPS configurée, jamais `localhost` en production.
+10. Le checkout Shop reste indisponible tant qu'un vrai prestataire marchand n'est pas configuré.
 
-### Option A : Avec Coolify (recommandé)
+## 6. Dépannage
 
-Dans chaque application frontend/backend, Coolify crée automatiquement un proxy avec Let's Encrypt.
-
-### Option B : Nginx manuel
-
-```nginx
-# Frontend
-server {
-    listen 80;
-    server_name ton-domaine.com;
-    
-    location / {
-        proxy_pass http://tiktok-web:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-
-# Backend API
-server {
-    listen 80;
-    server_name api.ton-domaine.com;
-    
-    location / {
-        proxy_pass http://tiktok-api:4000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
----
-
-## Étape 6 : Initialiser la base de données
-
-Une fois le backend déployé, exécute les migrations :
-
-1. Dans Coolify, va dans l'app `tiktok-api`
-2. Onglet **Terminal** ou **Exec**
-3. Lance :
-
-```bash
-npx prisma migrate deploy
-npx prisma db seed
-```
-
-Ou utilise le script automatique :
-
-```bash
-npx prisma generate && npx prisma migrate deploy && npm run seed
-```
-
----
-
-## Étape 7 : Vérification
-
-1. **Backend** : `https://api.ton-domaine.com/health` → doit retourner `{"status":"ok"}`
-2. **Frontend** : `https://ton-domaine.com` → doit afficher l'app
-3. **Login** : Utilise les comptes de démo :
-   - `maxence_off@demo.app` / `password123`
-   - `testuser@demo.app` / `password123`
-
----
-
-## Variables d'environnement récapitulatives
-
-| Variable | Description | Valeur par défaut |
-|----------|-------------|-------------------|
-| `POSTGRES_USER` | Utilisateur PostgreSQL | `tiktok` |
-| `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | ⚠️ À changer |
-| `POSTGRES_DB` | Nom de la base | `tiktok_clone` |
-| `DATABASE_URL` | URL de connexion DB | `postgresql://tiktok:...@postgres:5432/tiktok_clone` |
-| `REDIS_URL` | URL Redis | `redis://redis:6379` |
-| `JWT_SECRET` | Secret JWT | ⚠️ À générer |
-| `JWT_REFRESH_SECRET` | Secret refresh JWT | ⚠️ À générer |
-| `CORS_ORIGIN` | Origines CORS autorisées | `*` ou `https://ton-domaine.com` |
-| `NEXT_PUBLIC_API_URL` | URL publique du backend | `https://api.ton-domaine.com` |
-
----
-
-## 🔐 Sécurité en production
-
-1. **Change TOUS les mots de passe** par défaut
-2. **Génère des JWT secrets** aléatoires : `openssl rand -hex 32`
-3. **Configure CORS** avec ton domaine exact (pas de `*`)
-4. **Active HTTPS** via Let's Encrypt dans Coolify
-5. **Limite les connexions** Redis et PostgreSQL
-
----
-
-## 🐛 Dépannage
-
-### "Connection refused" pour la DB
-- Vérifie que le service PostgreSQL tourne
-- Vérifie le mot de passe dans `DATABASE_URL`
-
-### "JWT malformed"
-- Vérifie que `JWT_SECRET` est défini dans les env vars
-
-### CORS errors
-- Vérifie `CORS_ORIGIN` correspond à ton domaine
-- Vérifie que le frontend utilise la bonne `NEXT_PUBLIC_API_URL`
-
-### Le build échoue
-- Vérifie les logs dans Coolify → Onglet "Logs"
-- Assure-toi que le repo GitHub est à jour
+- **CORS** : vérifier `CORS_ORIGINS`, sans `*` en production.
+- **Frontend vers une mauvaise API** : vérifier `NEXT_PUBLIC_API_BASE_URL` et le rewrite `/v1/*`.
+- **Médias inaccessibles** : vérifier `S3_ENDPOINT`, `S3_FORCE_PATH_STYLE`, `S3_BUCKET` et `CDN_URL`.
+- **Live sans vidéo** : vérifier `LIVEKIT_URL`, WSS, ports TCP/UDP et les clés LiveKit.
+- **API qui refuse de démarrer** : vérifier que JWT, Stripe et les variables de stockage obligatoires sont présentes.
+- **Scraper absent** : déployer séparément le dashboard en HTTPS et renseigner `NEXT_PUBLIC_SCRAPER_URL`.

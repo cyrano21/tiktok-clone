@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from './api';
+import { useSessionStore } from '@/store/sessionStore';
 
 const TOKEN_KEY = '@auth_token';
 const REFRESH_TOKEN_KEY = '@refresh_token';
@@ -41,6 +42,7 @@ export const authService = {
     await AsyncStorage.setItem(TOKEN_KEY, res.accessToken);
     if (res.refreshToken) await AsyncStorage.setItem(REFRESH_TOKEN_KEY, res.refreshToken);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(res.user));
+    useSessionStore.getState().setUser(res.user);
   },
 
   async updateProfile(params: {
@@ -51,6 +53,7 @@ export const authService = {
   }): Promise<AuthUser> {
     const raw = await apiClient.patch<{ user: AuthUser }>('/auth/me', params);
     const user = raw.user;
+    useSessionStore.getState().setUser(user);
     // Refresh the cached user so subsequent screens see the changes.
     const cached = await this.getCachedUser();
     await AsyncStorage.setItem(USER_KEY, JSON.stringify({ ...(cached ?? {}), ...user }));
@@ -59,11 +62,22 @@ export const authService = {
 
   async logout(): Promise<void> {
     await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
+    useSessionStore.getState().clearUser();
   },
 
   async isLoggedIn(): Promise<boolean> {
     const token = await AsyncStorage.getItem(TOKEN_KEY);
     return !!token;
+  },
+
+  async hydrateSession(): Promise<void> {
+    const token = await AsyncStorage.getItem(TOKEN_KEY);
+    const cached = await this.getCachedUser();
+    if (token && cached) {
+      useSessionStore.getState().setUser(cached);
+    } else {
+      useSessionStore.getState().clearUser();
+    }
   },
 
   async getCachedUser(): Promise<AuthUser | null> {

@@ -3,21 +3,32 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 import { redis } from '../config/redis';
+import { z } from 'zod';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key';
-const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'super-refresh-secret';
+const JWT_SECRET = process.env.JWT_SECRET ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-change-me');
+const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-refresh-change-me');
+if (!JWT_SECRET || !JWT_REFRESH_SECRET) {
+  throw new Error('JWT_SECRET and JWT_REFRESH_SECRET are required in production');
+}
+const ACCESS_SECRET: string = JWT_SECRET;
+const REFRESH_SECRET: string = JWT_REFRESH_SECRET;
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
 function generateTokens(userId: string) {
-  const accessToken = jwt.sign({ userId }, JWT_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
-  const refreshToken = jwt.sign({ userId }, JWT_REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
+  const accessToken = jwt.sign({ userId }, ACCESS_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
+  const refreshToken = jwt.sign({ userId }, REFRESH_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
   return { accessToken, refreshToken };
 }
 
 export class AuthController {
   static async register(req: FastifyRequest, reply: FastifyReply) {
-    const { email, username, password, displayName } = req.body as any;
+    const { email, username, password, displayName } = z.object({
+      email: z.string().email().max(254),
+      username: z.string().regex(/^[a-zA-Z0-9_.-]{3,32}$/),
+      password: z.string().min(8).max(128),
+      displayName: z.string().trim().max(50).optional(),
+    }).parse(req.body);
 
     const existingUser = await prisma.user.findFirst({
       where: { OR: [{ email }, { username }] },
@@ -46,11 +57,11 @@ export class AuthController {
   }
 
   static async login(req: FastifyRequest, reply: FastifyReply) {
-    const { email, password } = req.body as any;
-    const identifier = String(email ?? '').trim();
-    if (!identifier || !password) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'Identifier and password are required' });
-    }
+    const { email, password } = z.object({
+      email: z.string().trim().min(1).max(254),
+      password: z.string().min(1).max(128),
+    }).parse(req.body);
+    const identifier = email;
 
     // Accepts both email and username ("Email or username" placeholder).
     const user = await prisma.user.findFirst({
@@ -82,10 +93,10 @@ export class AuthController {
   }
 
   static async refresh(req: FastifyRequest, reply: FastifyReply) {
-    const { refreshToken } = req.body as any;
+    const { refreshToken } = z.object({ refreshToken: z.string().min(1) }).parse(req.body);
 
     try {
-      const decoded = jwt.verify(refreshToken, JWT_REFRESH_SECRET) as { userId: string };
+      const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as unknown as { userId: string };
       const storedToken = await redis.get(`refresh:${decoded.userId}`);
 
       if (storedToken !== refreshToken) {

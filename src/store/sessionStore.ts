@@ -1,29 +1,46 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-interface SessionState {
-  userId: string;
+export interface SessionUser {
+  id: string;
   username: string;
-  displayName: string;
-  avatarUrl: string;
+  email?: string | null;
+  displayName: string | null;
+  avatarUrl?: string | null;
+}
+
+interface SessionState extends SessionUser {
+  userId: string;
   isSeller: boolean;
-  sellerId: string; // the shop this user operates as a seller
+  sellerId: string;
+  authenticated: boolean;
+  hydrated: boolean;
 }
 
 interface SessionActions {
+  setUser: (user: SessionUser) => void;
+  clearUser: () => void;
   becomeSeller: () => void;
 }
 
 type SessionStore = SessionState & SessionActions;
 
-// The logged-in demo user. Acts as buyer everywhere, and as seller "Urban Thread"
-// once they open their shop dashboard.
-export const useSessionStore = create<SessionStore>(set => ({
-  userId: "me",
-  username: "mon_compte",
-  displayName: "Mon Compte",
-  avatarUrl: "https://i.pravatar.cc/200?img=5",
-  isSeller: true,
-  sellerId: "seller-urban",
+const GUEST_USER: SessionUser = {
+  id: '',
+  username: '',
+  displayName: null,
+  avatarUrl: null,
+  email: null,
+};
 
+export const useSessionStore = create<SessionStore>((set) => ({
+  ...GUEST_USER,
+  userId: '',
+  isSeller: false,
+  sellerId: '',
+  authenticated: false,
+  hydrated: false,
+
+  setUser: (user) => set({ ...user, userId: user.id, authenticated: true, hydrated: true }),
+  clearUser: () => set({ ...GUEST_USER, userId: '', isSeller: false, sellerId: '', authenticated: false, hydrated: true }),
   becomeSeller: () => set({ isSeller: true }),
 }));

@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, StyleSheet, ActivityIndicator, TouchableWithoutFeedback } from 'react-native';
+import { View, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
 import Video, { OnBufferData, OnLoadData, OnProgressData } from 'react-native-video';
 import { tokens } from '@/theme/tokens';
 
@@ -48,8 +48,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   );
 
   return (
-    <TouchableWithoutFeedback onPress={onPress}>
-      <View style={styles.container}>
+    <Pressable onPress={onPress} style={styles.container}>
         <Video
           ref={videoRef}
           source={{ uri }}
@@ -69,8 +68,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <ActivityIndicator size="large" color={tokens.colors.white} />
           </View>
         )}
-      </View>
-    </TouchableWithoutFeedback>
+    </Pressable>
   );
 };
 

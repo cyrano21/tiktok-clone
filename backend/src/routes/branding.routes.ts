@@ -62,7 +62,7 @@ export async function brandingRoutes(app: FastifyInstance) {
       where: { id: userId },
       select: { role: true },
     });
-    if (tenant !== 'default' && admin?.role !== 'admin') {
+    if (admin?.role !== 'admin' && admin?.role !== 'moderator') {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized for this tenant' });
     }
 
@@ -90,7 +90,7 @@ export async function brandingRoutes(app: FastifyInstance) {
     return reply.send({ branding });
   });
 
-  // Admin: reset to the default TikTok identity.
+  // Admin: reset to the default ORKY identity.
   app.delete('/', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = (req as any).userId;
     const tenant = parseTenant((req.query as { tenant?: string }).tenant);
@@ -98,7 +98,7 @@ export async function brandingRoutes(app: FastifyInstance) {
       where: { id: userId },
       select: { role: true },
     });
-    if (tenant !== 'default' && admin?.role !== 'admin') {
+    if (admin?.role !== 'admin' && admin?.role !== 'moderator') {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized for this tenant' });
     }
     const branding = await prisma.branding.upsert({

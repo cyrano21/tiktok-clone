@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationProvider } from '@/navigation/NavigationContext';
 import { WebAppShell } from '@/navigation/WebAppShell';
 import { useBrandingStore } from '@/store/brandingStore';
+import { authService } from '@/services/authService';
 
 /**
  * Client-only root for the react-native-web app.
@@ -18,6 +19,7 @@ export default function AppClient() {
 
   useEffect(() => {
     loadBranding();
+    void authService.hydrateSession();
   }, [loadBranding]);
 
   return (

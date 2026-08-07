@@ -385,11 +385,11 @@ model Subscription {
 model Branding {
   id           String   @id @default(uuid())
   tenant       String   @unique @default("default")
-  name         String   @default("TikTok")
-  logoUrl      String?  @db.Text
-  primaryColor String   @default("#FE2C55")
-  accentColor  String   @default("#25F4EE")
-  tagline      String?  @default("Short videos")
+  name         String   @default("ORKY")
+  logoUrl      String?  @db.Text @default("/logo_orky.png")
+  primaryColor String   @default("#7C3AED")
+  accentColor  String   @default("#F72585")
+  tagline      String?  @default("La vidéo qui vous ressemble")
   supportEmail String?
 
   createdAt    DateTime @default(now())

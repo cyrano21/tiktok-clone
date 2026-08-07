@@ -25,11 +25,11 @@ export const RecordScreen: React.FC = () => {
         <Text style={styles.cameraPlaceholder}>📷 Camera Preview</Text>
       </View>
 
-      <View style={styles.topControls} pointerEvents="box-none">
+      <View style={styles.topControls}>
         <TouchableOpacity style={styles.topButton} onPress={() => nav.back()}>
           <Text style={styles.topButtonText}>✕</Text>
         </TouchableOpacity>
-        <View style={styles.topCenter} pointerEvents="box-none">
+        <View style={styles.topCenter}>
           <TouchableOpacity style={styles.soundPicker} onPress={() => nav.push('explore.sound')}>
             <Text style={styles.soundPickerText}>♪ Add sound</Text>
           </TouchableOpacity>
@@ -37,7 +37,7 @@ export const RecordScreen: React.FC = () => {
         <View style={styles.topRight} />
       </View>
 
-      <View style={styles.sideControls} pointerEvents="box-none">
+      <View style={styles.sideControls}>
         <TouchableOpacity style={styles.sideButton} onPress={() => setIsFrontCamera(!isFrontCamera)}>
           <Text style={styles.sideIcon}>🔄</Text>
           <Text style={styles.sideLabel}>Flip</Text>
@@ -60,7 +60,7 @@ export const RecordScreen: React.FC = () => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.bottomControls} pointerEvents="box-none">
+      <View style={styles.bottomControls}>
         <View style={styles.durationRow}>
           {DURATIONS.map((dur) => (
             <TouchableOpacity

@@ -321,7 +321,7 @@ export const CommentsScreen: React.FC = () => {
           )}
 
           <View style={[styles.inputBar, { paddingBottom: insets.bottom || tokens.spacing.sm }]}>
-            <Image source={{ uri: session.avatarUrl }} style={styles.inputAvatar} />
+            <Image source={{ uri: session.avatarUrl || undefined }} style={styles.inputAvatar} />
             <View style={styles.inputWrap}>
               {replyTo && (
                 <View style={styles.replyingChip}>

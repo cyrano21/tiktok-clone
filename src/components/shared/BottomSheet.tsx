@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect } from 'react';
-import { View, StyleSheet, Dimensions, TouchableWithoutFeedback, Pressable } from 'react-native';
+import { View, StyleSheet, Dimensions, Pressable } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -76,9 +76,14 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
 
   return (
     <View style={styles.overlay}>
-      <TouchableWithoutFeedback onPress={handleBackdropPress}>
-        <Animated.View testID="bottom-sheet-backdrop" style={[styles.backdrop, backdropStyle]} />
-      </TouchableWithoutFeedback>
+      <Pressable
+        accessibilityRole="button"
+        {...({ 'aria-label': 'Fermer' } as any)}
+        style={StyleSheet.absoluteFillObject}
+        onPress={handleBackdropPress}
+      >
+        <Animated.View style={[styles.backdrop, backdropStyle]} />
+      </Pressable>
       <GestureDetector gesture={gesture}>
         <Animated.View style={[styles.sheet, { height }, sheetStyle]}>
           <View style={styles.handle} />

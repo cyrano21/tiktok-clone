@@ -21,6 +21,14 @@ const disableRemoteMedia = async (page: Page) => {
 
   await page.route('**/v1/**', async (route: Route) => {
     const url = route.request().url();
+    if (url.includes('/feed/discover')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ videos: [], page: 1, limit: 20, category: 'all' }),
+      });
+      return;
+    }
     if (url.includes('/feed/')) {
       await route.fulfill({
         status: 200,
@@ -71,10 +79,8 @@ test.describe('ORKY visual smoke', () => {
     await page.getByText('Scraper Intelligence', { exact: true }).click();
 
     await expect(page.locator('body')).toContainText('Scraper Intelligence');
-    await expect(page.locator('body')).toContainText('Charger le dashboard');
-    await expect(page.locator('input')).toHaveValue(/localhost:8501/);
-    await page.getByText('Charger le dashboard', { exact: true }).click();
-    await expect(page.locator('iframe[title="TikTok Scraper Dashboard"]')).toBeVisible();
+    await expect(page.locator('body')).toContainText(/URL HTTPS autorisée uniquement|Le dashboard Scraper n’est pas configuré pour cet environnement/);
+    await expect(page.locator('iframe[title="TikTok Scraper Dashboard"]')).toHaveCount(0);
     await expect(page).toHaveScreenshot('orky-scraper.png', { fullPage: true });
   });
 });

@@ -12,6 +12,7 @@ module.exports = {
   },
   setupFiles: ['<rootDir>/jest.setup.ts'],
   testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/.next/', '<rootDir>/e2e/'],
+  modulePathIgnorePatterns: ['<rootDir>/.next/'],
   transformIgnorePatterns: ['<rootDir>/node_modules/(?!(react-native|react-native-web)/)'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {

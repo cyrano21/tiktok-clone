@@ -1,11 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
 import { useNavigation, RouteName } from './NavigationContext';
 import { SCREEN_REGISTRY, TAB_ROUTES, ROUTE_TO_TAB } from './screenRegistry';
 import { useBrandingStore } from '@/store/brandingStore';
-
-const { width } = Dimensions.get('window');
-const isMobile = width < 500;
 
 interface TabDef {
   route: RouteName;
@@ -55,6 +52,8 @@ const FULLSCREEN_ROUTES: RouteName[] = [
 ];
 
 export function WebAppShell() {
+  const { width } = useWindowDimensions();
+  const isMobile = width < 500;
   const nav = useNavigation();
   const route = nav.current.name;
   const Screen = SCREEN_REGISTRY[route];
@@ -64,7 +63,7 @@ export function WebAppShell() {
 
   return (
     <View style={styles.outer}>
-      <View style={styles.phone}>
+      <View style={[styles.phone, isMobile ? styles.phoneMobile : styles.phoneDesktop]}>
         <View style={styles.screen}>
           {Screen ? (
             <View style={styles.screenFill}>
@@ -120,14 +119,13 @@ const styles = StyleSheet.create({
   },
   phone: {
     width: '100%',
-    maxWidth: isMobile ? '100%' : 430,
     height: '100%',
-    maxHeight: isMobile ? '100%' : 932,
     backgroundColor: '#000',
-    borderRadius: isMobile ? 0 : 36,
     overflow: 'hidden',
     position: 'relative',
   },
+  phoneMobile: { maxWidth: '100%', maxHeight: '100%', borderRadius: 0 },
+  phoneDesktop: { maxWidth: 430, maxHeight: 932, borderRadius: 36 },
   screen: { flex: 1, position: 'relative' },
   screenFill: { flex: 1, width: '100%', height: '100%' },
   bottomNav: {

@@ -4,12 +4,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { useCartStore } from '@/store/cartStore';
-import { useOrderStore } from '@/store/orderStore';
-import { useSessionStore } from '@/store/sessionStore';
 import { formatPrice } from '@/services/demoShop';
 import {
   PaymentKind,
-  MOMO_OPERATORS,
   COUNTRIES,
   operatorsForCountry,
   operatorById,
@@ -20,19 +17,15 @@ import {
   formatFcfa,
 } from '@/services/payment';
 
-type Step = 'method' | 'momo_form' | 'momo_pending' | 'card_form' | 'done';
+type Step = 'method' | 'momo_form' | 'card_form';
 
 export const CheckoutScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
 
-  const lines = useCartStore((s) => s.lines);
-  const checkout = useCartStore((s) => s.checkout);
   const subtotal = useCartStore((s) => s.subtotal());
   const shipping = useCartStore((s) => s.shippingTotal());
   const total = useCartStore((s) => s.total());
-  const placeOrder = useOrderStore((s) => s.placeOrder);
-  const buyerId = useSessionStore((s) => s.userId);
 
   const [step, setStep] = useState<Step>('method');
   const [method, setMethod] = useState<PaymentKind>('momo');
@@ -41,8 +34,6 @@ export const CheckoutScreen: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [showCountry, setShowCountry] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [orderId, setOrderId] = useState('—');
-  const [paidAmount, setPaidAmount] = useState(0);
   // card
   const [cardNumber, setCardNumber] = useState('');
   const [cardExp, setCardExp] = useState('');
@@ -53,25 +44,13 @@ export const CheckoutScreen: React.FC = () => {
   const operator = operatorById(operatorId) ?? operators[0];
   const fcfa = eurToFcfa(total);
 
-  const finalizeOrder = () => {
-    const amount = total; // snapshot before the cart is cleared
-    const orderLines = lines.map((l) => ({ productId: l.productId, variantLabel: l.variantLabel, quantity: l.quantity }));
-    const order = placeOrder(buyerId, orderLines, shipping);
-    checkout();
-    setOrderId(order?.id ?? '—');
-    setPaidAmount(amount);
-    setStep('done');
-  };
-
   const confirmMomo = () => {
     if (!isValidLocalPhone(phone)) {
       setError('Entre un numéro de téléphone valide.');
       return;
     }
     setError(null);
-    setStep('momo_pending');
-    // Simulated USSD push validation
-    setTimeout(() => finalizeOrder(), 2600);
+    setError('Le paiement Mobile Money sera disponible après configuration du prestataire marchand.');
   };
 
   const confirmCard = () => {
@@ -80,53 +59,8 @@ export const CheckoutScreen: React.FC = () => {
       setError('Vérifie les informations de la carte.');
       return;
     }
-    setError(null);
-    finalizeOrder();
+    setError('Le paiement par carte sera disponible après configuration de Stripe Checkout marchand.');
   };
-
-  // ---- DONE ----
-  if (step === 'done') {
-    return (
-      <View style={[styles.container, styles.center, { paddingTop: insets.top }]}>
-        <View style={styles.successCircle}><Text style={styles.successCheck}>✓</Text></View>
-        <Text style={styles.successTitle}>Paiement réussi !</Text>
-        <Text style={styles.successSub}>
-          {method === 'momo' ? `Payé via ${operator.short}` : method === 'card' ? 'Payé par carte' : 'Paiement à la livraison'}
-        </Text>
-        <Text style={styles.successAmount}>{formatPrice(paidAmount)} · {formatFcfa(eurToFcfa(paidAmount))}</Text>
-        <Text style={styles.successOrderId}>N° {orderId}</Text>
-        <TouchableOpacity style={styles.primaryBtn} onPress={() => nav.push('orders')}>
-          <Text style={styles.primaryBtnText}>Voir mes commandes</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.secondaryBtn} onPress={() => nav.reset('shop')}>
-          <Text style={styles.secondaryBtnText}>Continuer mes achats</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ---- MOMO PENDING ----
-  if (step === 'momo_pending') {
-    return (
-      <View style={[styles.container, styles.center, { paddingTop: insets.top }]}>
-        <View style={[styles.opBubble, { backgroundColor: operator.color + '22' }]}>
-          <Text style={styles.opBubbleEmoji}>{operator.emoji}</Text>
-        </View>
-        <Text style={styles.pendingTitle}>Validation en cours…</Text>
-        <Text style={styles.pendingSub}>
-          Une demande de paiement de {formatFcfa(fcfa)} a été envoyée au {country.dialCode} {formatLocalPhone(phone)}.
-        </Text>
-        <View style={styles.ussdCard}>
-          <Text style={styles.ussdLabel}>Confirme sur ton téléphone</Text>
-          <Text style={styles.ussdCode}>Compose {operator.ussd} puis saisis ton code PIN {operator.short}</Text>
-        </View>
-        <View style={styles.spinnerRow}>
-          <Text style={styles.spinnerDot}>●</Text>
-          <Text style={styles.pendingHint}>En attente de confirmation de l'opérateur…</Text>
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -195,30 +129,11 @@ export const CheckoutScreen: React.FC = () => {
               <View style={[styles.radio, method === 'card' && styles.radioActive]} />
             </TouchableOpacity>
 
-            {/* Cash on delivery */}
-            <TouchableOpacity
-              style={[styles.methodCard, method === 'cod' && styles.methodCardActive]}
-              onPress={() => setMethod('cod')}
-            >
-              <Text style={styles.methodEmoji}>💵</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.methodTitle}>Paiement à la livraison</Text>
-                <Text style={styles.methodSub}>Payez en espèces à réception</Text>
-              </View>
-              <View style={[styles.radio, method === 'cod' && styles.radioActive]} />
-            </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.payBtn}
-              onPress={() => {
-                if (method === 'momo') setStep('momo_form');
-                else if (method === 'card') setStep('card_form');
-                else finalizeOrder();
-              }}
+              onPress={() => setStep(method === 'momo' ? 'momo_form' : 'card_form')}
             >
-              <Text style={styles.payBtnText}>
-                {method === 'momo' ? 'Payer avec Mobile Money' : method === 'card' ? 'Payer par carte' : 'Commander (paiement à la livraison)'}
-              </Text>
+              <Text style={styles.payBtnText}>{method === 'momo' ? 'Continuer avec Mobile Money' : 'Continuer vers le paiement carte'}</Text>
             </TouchableOpacity>
           </>
         )}
@@ -406,26 +321,4 @@ const styles = StyleSheet.create({
   infoBox: { backgroundColor: tokens.colors.brand.secondary + '14', borderRadius: tokens.radius.sm, padding: tokens.spacing.md, marginTop: tokens.spacing.sm },
   infoText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
   error: { color: tokens.colors.semantic.error, fontSize: tokens.typography.body.fontSize, marginTop: tokens.spacing.xs },
-  // pending
-  opBubble: { width: 88, height: 88, borderRadius: 44, justifyContent: 'center', alignItems: 'center' },
-  opBubbleEmoji: { fontSize: 40 },
-  pendingTitle: { color: tokens.colors.white, fontSize: tokens.typography.headline.fontSize, fontWeight: '800', marginTop: tokens.spacing.md },
-  pendingSub: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, textAlign: 'center', lineHeight: 20 },
-  ussdCard: { backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.lg, marginTop: tokens.spacing.md, gap: 6, alignItems: 'center' },
-  ussdLabel: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, textTransform: 'uppercase', fontWeight: '700' },
-  ussdCode: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, textAlign: 'center', lineHeight: 20 },
-  spinnerRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.sm, marginTop: tokens.spacing.lg },
-  spinnerDot: { color: tokens.colors.brand.primary, fontSize: 16 },
-  pendingHint: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize },
-  // done
-  successCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: tokens.colors.semantic.success, justifyContent: 'center', alignItems: 'center' },
-  successCheck: { color: tokens.colors.white, fontSize: 38, fontWeight: '800' },
-  successTitle: { color: tokens.colors.white, fontSize: tokens.typography.headline.fontSize, fontWeight: '800', marginTop: tokens.spacing.md },
-  successSub: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize },
-  successAmount: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700' },
-  successOrderId: { color: tokens.colors.brand.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
-  primaryBtn: { marginTop: tokens.spacing.lg, backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.sm, paddingHorizontal: tokens.spacing.xl, paddingVertical: tokens.spacing.md },
-  primaryBtnText: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
-  secondaryBtn: { marginTop: tokens.spacing.sm, paddingHorizontal: tokens.spacing.xl, paddingVertical: tokens.spacing.sm },
-  secondaryBtnText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
 });

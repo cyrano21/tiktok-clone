@@ -78,7 +78,7 @@ export const DoubleTapHeart: React.FC<DoubleTapHeartProps> = ({
   if (!isVisible) return null;
 
   return (
-    <View style={[styles.container, { left: x - 40, top: y - 40 }]} pointerEvents="none">
+    <View style={[styles.container, { left: x - 40, top: y - 40, pointerEvents: 'none' }]}>
       <Animated.View style={[styles.heartContainer, heartStyle]}>
         <Animated.Text style={styles.heart}>❤️</Animated.Text>
       </Animated.View>

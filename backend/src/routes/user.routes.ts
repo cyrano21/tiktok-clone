@@ -42,6 +42,8 @@ export async function userRoutes(app: FastifyInstance) {
         avatarUrl: true,
         bio: true,
         isVerified: true,
+        isPrivate: true,
+        likeCount: true,
         createdAt: true,
         _count: { select: { followers: true, following: true, videos: true } },
       },
@@ -49,7 +51,75 @@ export async function userRoutes(app: FastifyInstance) {
     if (!user || await blockedBetween(viewerId, user.id)) {
       return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
     }
-    return reply.send({ user });
+    const receivedLikes = await prisma.video.aggregate({
+      where: { userId: user.id },
+      _sum: { likeCount: true },
+    });
+    return reply.send({ user: { ...user, likeCount: receivedLikes._sum.likeCount ?? 0 } });
+  });
+
+  app.get('/:username/likes', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { username } = z.object({ username: z.string().trim().min(1).max(64) }).parse(req.params);
+    const viewerId = (req as any).userId as string | undefined;
+    const { page, limit } = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+    }).parse(req.query);
+    const user = await prisma.user.findFirst({
+      where: {
+        username,
+        isBanned: false,
+        OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+      },
+      select: { id: true, isPrivate: true },
+    });
+    if (!user || await blockedBetween(viewerId, user.id)) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
+    }
+    if (user.isPrivate && viewerId !== user.id) {
+      return reply.status(403).send({ error: 'FORBIDDEN', message: 'Liked videos are private' });
+    }
+
+    const likes = await prisma.like.findMany({
+      where: {
+        userId: user.id,
+        video: {
+          visibility: 'public',
+          user: {
+            isBanned: false,
+            OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+            NOT: viewerId ? {
+              OR: [
+                { blocksReceived: { some: { blockerId: viewerId } } },
+                { blocksInitiated: { some: { blockedId: viewerId } } },
+              ],
+            } : undefined,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+      include: {
+        video: {
+          include: {
+            user: { select: publicUserSelect },
+            sound: true,
+            hashtags: { include: { hashtag: true } },
+            _count: { select: { likes: true, comments: true, shares: true, saves: true } },
+          },
+        },
+      },
+    });
+
+    return reply.send({
+      videos: likes.map(({ video }) => ({
+        ...video,
+        hashtags: video.hashtags.map((link) => link.hashtag),
+      })),
+      page,
+      limit,
+    });
   });
 
   app.get('/:username/videos', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -65,10 +135,13 @@ export async function userRoutes(app: FastifyInstance) {
         isBanned: false,
         OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
       },
-      select: { id: true },
+      select: { id: true, isPrivate: true },
     });
     if (!user || await blockedBetween(viewerId, user.id)) {
       return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
+    }
+    if (user.isPrivate && viewerId !== user.id) {
+      return reply.status(403).send({ error: 'FORBIDDEN', message: 'Profile is private' });
     }
 
     const videos = await prisma.video.findMany({

@@ -1,205 +1,82 @@
-import React from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
-
-interface Conversation {
-  id: string;
-  username: string;
-  avatarUrl: string;
-  lastMessage: string;
-  timestamp: string;
-  unreadCount: number;
-}
-
-const MOCK_CONVERSATIONS: Conversation[] = [
-  { id: '1', username: 'sarah_dance', avatarUrl: 'https://picsum.photos/50/50', lastMessage: 'That video was amazing! 🔥', timestamp: '2m', unreadCount: 2 },
-  { id: '2', username: 'mike_comedy', avatarUrl: 'https://picsum.photos/50/51', lastMessage: 'Let\'s collab!', timestamp: '15m', unreadCount: 0 },
-  { id: '3', username: 'foodie_chef', avatarUrl: 'https://picsum.photos/50/52', lastMessage: 'Thanks for the recipe tip', timestamp: '1h', unreadCount: 1 },
-  { id: '4', username: 'travel_vlog', avatarUrl: 'https://picsum.photos/50/53', lastMessage: 'Where was that filmed?', timestamp: '3h', unreadCount: 0 },
-  { id: '5', username: 'fitness_pro', avatarUrl: 'https://picsum.photos/50/54', lastMessage: 'Great workout routine!', timestamp: '1d', unreadCount: 0 },
-];
+import { useSessionStore } from '@/store/sessionStore';
+import { messageService, type Conversation } from '@/services/messageService';
 
 export const InboxListScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const session = useSessionStore();
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const renderConversation = ({ item }: { item: Conversation }) => (
-    <TouchableOpacity style={styles.conversationItem} onPress={() => nav.push('inbox.chat', { conversationId: item.id, username: item.username })}>
-      <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
-      <View style={styles.conversationContent}>
-        <View style={styles.conversationHeader}>
-          <Text style={styles.username}>{item.username}</Text>
-          <Text style={styles.timestamp}>{item.timestamp}</Text>
+  const load = useCallback(async () => {
+    if (!session.authenticated) {
+      setConversations([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      setConversations(await messageService.listConversations());
+    } catch {
+      setConversations([]);
+      setError('Impossible de charger tes messages.');
+    } finally {
+      setLoading(false);
+    }
+  }, [session.authenticated]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const renderConversation = ({ item }: { item: Conversation }) => {
+    const other = item.participant1Id === session.userId ? item.participant2 : item.participant1;
+    const last = item.messages[0];
+    return (
+      <TouchableOpacity style={styles.conversationItem} onPress={() => nav.push('inbox.chat', { conversationId: item.id, username: other.username })}>
+        <Image source={{ uri: other.avatarUrl ?? 'https://picsum.photos/50/50' }} style={styles.avatar} />
+        <View style={styles.conversationContent}>
+          <View style={styles.conversationHeader}>
+            <Text style={styles.username}>{other.username}</Text>
+            <Text style={styles.timestamp}>{last?.createdAt ? new Date(last.createdAt).toLocaleDateString() : ''}</Text>
+          </View>
+          <Text style={styles.lastMessage} numberOfLines={1}>{last?.content ?? 'Nouvelle conversation'}</Text>
         </View>
-        <View style={styles.messageRow}>
-          <Text style={[styles.lastMessage, item.unreadCount > 0 && styles.unreadMessage]} numberOfLines={1}>
-            {item.lastMessage}
-          </Text>
-          {item.unreadCount > 0 && (
-            <View style={styles.unreadBadge}>
-              <Text style={styles.unreadCount}>{item.unreadCount}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Inbox</Text>
-        <TouchableOpacity onPress={() => nav.push('explore.search')}>
-          <Text style={styles.newMessageIcon}>✏️</Text>
-        </TouchableOpacity>
       </View>
-
-      <TouchableOpacity style={styles.activitySection} onPress={() => nav.push('inbox.activity')}>
-        <View style={styles.activityIcon}>
-          <Text style={styles.activityEmoji}>❤️</Text>
-        </View>
-        <View style={styles.activityContent}>
-          <Text style={styles.activityTitle}>Activity</Text>
-          <Text style={styles.activitySubtitle}>Likes, comments, and more</Text>
-        </View>
-        <Text style={styles.activityArrow}>›</Text>
-      </TouchableOpacity>
-
-      <View style={styles.messagesHeader}>
-        <Text style={styles.messagesTitle}>Messages</Text>
-      </View>
-
-      <FlatList
-        data={MOCK_CONVERSATIONS}
-        renderItem={renderConversation}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-      />
+      {!session.authenticated && <Text style={styles.stateText}>Connecte-toi pour accéder à tes messages.</Text>}
+      {session.authenticated && loading && <View style={styles.state}><ActivityIndicator color={tokens.colors.brand.primary} /><Text style={styles.stateText}>Chargement des messages…</Text></View>}
+      {session.authenticated && !loading && error && <View style={styles.state}><Text style={styles.stateText}>{error}</Text><TouchableOpacity onPress={() => void load()}><Text style={styles.retry}>Réessayer</Text></TouchableOpacity></View>}
+      {session.authenticated && !loading && !error && conversations.length === 0 && <Text style={styles.stateText}>Aucune conversation pour le moment.</Text>}
+      {session.authenticated && !loading && !error && conversations.length > 0 && <FlatList data={conversations} renderItem={renderConversation} keyExtractor={(item) => item.id} showsVerticalScrollIndicator={false} />}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: tokens.colors.bg,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.md,
-  },
-  headerTitle: {
-    color: tokens.colors.white,
-    fontSize: tokens.typography.headline.fontSize,
-    fontWeight: '700',
-  },
-  newMessageIcon: {
-    fontSize: 22,
-  },
-  activitySection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.md,
-    borderBottomWidth: 0.5,
-    borderBottomColor: tokens.colors.surface,
-  },
-  activityIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: tokens.colors.brand.primary + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  activityEmoji: { fontSize: 22 },
-  activityContent: {
-    flex: 1,
-    marginLeft: tokens.spacing.md,
-  },
-  activityTitle: {
-    color: tokens.colors.white,
-    fontSize: tokens.typography.subhead.fontSize,
-    fontWeight: '600',
-  },
-  activitySubtitle: {
-    color: tokens.colors.text.secondary,
-    fontSize: tokens.typography.body.fontSize,
-  },
-  activityArrow: {
-    color: tokens.colors.text.secondary,
-    fontSize: 24,
-  },
-  messagesHeader: {
-    paddingHorizontal: tokens.spacing.md,
-    paddingTop: tokens.spacing.md,
-    paddingBottom: tokens.spacing.sm,
-  },
-  messagesTitle: {
-    color: tokens.colors.white,
-    fontSize: tokens.typography.subhead.fontSize,
-    fontWeight: '600',
-  },
-  conversationItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.sm,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-  },
-  conversationContent: {
-    flex: 1,
-    marginLeft: tokens.spacing.md,
-  },
-  conversationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  username: {
-    color: tokens.colors.white,
-    fontSize: tokens.typography.body.fontSize,
-    fontWeight: '600',
-  },
-  timestamp: {
-    color: tokens.colors.text.tertiary,
-    fontSize: tokens.typography.caption.fontSize,
-  },
-  messageRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 2,
-  },
-  lastMessage: {
-    flex: 1,
-    color: tokens.colors.text.secondary,
-    fontSize: tokens.typography.body.fontSize,
-  },
-  unreadMessage: {
-    color: tokens.colors.white,
-    fontWeight: '500',
-  },
-  unreadBadge: {
-    backgroundColor: tokens.colors.brand.primary,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 6,
-  },
-  unreadCount: {
-    color: tokens.colors.white,
-    fontSize: 11,
-    fontWeight: '700',
-  },
+  container: { flex: 1, backgroundColor: tokens.colors.bg },
+  header: { paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.md },
+  headerTitle: { color: tokens.colors.white, fontSize: tokens.typography.headline.fontSize, fontWeight: '700' },
+  state: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: tokens.spacing.sm, padding: tokens.spacing.lg },
+  stateText: { color: tokens.colors.text.secondary, textAlign: 'center', padding: tokens.spacing.lg },
+  retry: { color: tokens.colors.brand.primary, fontWeight: '700', textAlign: 'center' },
+  conversationItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm },
+  avatar: { width: 48, height: 48, borderRadius: 24 },
+  conversationContent: { flex: 1, marginLeft: tokens.spacing.md },
+  conversationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  username: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
+  timestamp: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize },
+  lastMessage: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, marginTop: 2 },
 });

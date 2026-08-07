@@ -28,13 +28,13 @@ describe('BottomSheet', () => {
 
   it('calls onClose when the backdrop is pressed', () => {
     const onClose = jest.fn();
-    const { container } = render(
+    const { getByLabelText } = render(
       <BottomSheet isVisible={true} onClose={onClose}>
         <Text>Content</Text>
       </BottomSheet>
     );
 
-    fireEvent.click(container.querySelector('[testid="bottom-sheet-backdrop"]')!);
+    fireEvent.click(getByLabelText('Fermer'));
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
