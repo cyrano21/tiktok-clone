@@ -6,6 +6,7 @@ import { useNavigation } from '@/navigation/NavigationContext';
 import { useSessionStore } from '@/store/sessionStore';
 import { useMyProfile } from '@/hooks/useMyProfile';
 import { shareText } from '@/services/share';
+import { authService } from '@/services/authService';
 import { Modal } from 'react-native';
 
 interface VideoGridItem {
@@ -479,7 +480,7 @@ const styles = StyleSheet.create({
   optionItemDanger: {
     marginTop: tokens.spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: tokens.colors.border,
+    borderTopColor: tokens.colors.elevated,
   },
   optionIconDanger: {
     opacity: 0.9,
