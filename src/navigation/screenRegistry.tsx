@@ -31,6 +31,7 @@ import { TikTokVideosScreen } from '@/screens/studio/TikTokVideosScreen';
 import { StudioBillingScreen } from '@/screens/studio/StudioBillingScreen';
 import { StudioCrossPostScreen } from '@/screens/studio/StudioCrossPostScreen';
 import { StudioBrandingScreen } from '@/screens/studio/StudioBrandingScreen';
+import { StudioScraperScreen } from '@/screens/studio/StudioScraperScreen';
 import { CommentsScreen } from '@/screens/video/CommentsScreen';
 import { InboxListScreen } from '@/screens/inbox/InboxListScreen';
 import { ChatScreen } from '@/screens/inbox/ChatScreen';
@@ -78,6 +79,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
   'studio.billing': StudioBillingScreen,
   'studio.crosspost': StudioCrossPostScreen,
   'studio.branding': StudioBrandingScreen,
+  'studio.scraper': StudioScraperScreen,
   'video.comments': CommentsScreen,
   live: LiveScreen,
   'live.broadcast': LiveBroadcastScreen,
@@ -127,6 +129,7 @@ export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
   'studio.billing': 'profile',
   'studio.crosspost': 'profile',
   'studio.branding': 'profile',
+  'studio.scraper': 'profile',
   'video.comments': 'feed.foryou',
   live: 'feed.foryou',
   'live.broadcast': 'create',

@@ -1,5 +1,5 @@
 /**
- * TikTok Clone Color System
+ * ORKY Color System
  * 
  * Organized by semantic purpose with accessibility in mind.
  * All colors meet WCAG 2.1 AA contrast requirements against their intended backgrounds.

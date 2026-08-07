@@ -2,9 +2,15 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'TikTok Clone',
+  title: 'ORKY — plateforme vidéo par Orchidy',
   description:
-    'Full TikTok clone (feed, shop, studio, official TikTok OAuth + Content Posting API) — React Native Web on Next.js.',
+    'ORKY by Orchidy : feed vidéo, studio de création, live, shop, modération et analytics — plateforme complète.',
+  icons: { icon: '/favicon.png' },
+  openGraph: {
+    title: 'ORKY by Orchidy',
+    description: 'Feed vidéo, studio de création, live, shop, modération et analytics.',
+    images: ['/logo_orky.png'],
+  },
 };
 
 export const viewport: Viewport = {

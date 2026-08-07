@@ -30,6 +30,7 @@ export type RouteName =
   | 'studio.billing'
   | 'studio.crosspost'
   | 'studio.branding'
+  | 'studio.scraper'
   | 'video.comments'
   | 'live'
   | 'live.broadcast'

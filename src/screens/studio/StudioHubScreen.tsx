@@ -38,6 +38,7 @@ export const StudioHubScreen: React.FC = () => {
     { icon: '📡', label: 'LIVE', sub: 'Lancer un direct', route: 'live.broadcast', color: tokens.colors.semantic.live },
     { icon: '💎', label: 'Abonnement', sub: analytics.live ? 'Plan Pro & Business' : 'Passe au Pro', route: 'studio.billing', color: tokens.colors.semantic.success },
     { icon: '🚀', label: 'Cross-posting', sub: 'TikTok · Reels · Shorts', route: 'studio.crosspost', color: tokens.colors.brand.primary },
+    { icon: '🔍', label: 'Scraper Intelligence', sub: 'Analytics TikTok en direct', route: 'studio.scraper', color: '#FF6B35' },
   ];
 
   const planBadge = analytics.live
@@ -50,7 +51,7 @@ export const StudioHubScreen: React.FC = () => {
         <TouchableOpacity onPress={() => nav.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>TikTok Studio</Text>
+        <Text style={styles.headerTitle}>ORKY Studio</Text>
         <View style={styles.placeholder} />
       </View>
 

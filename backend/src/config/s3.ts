@@ -14,7 +14,7 @@ export const s3Client = new S3Client({
   maxAttempts: 3,
 });
 
-export const S3_BUCKET = process.env.S3_BUCKET || 'tiktok-clone';
+export const S3_BUCKET = process.env.S3_BUCKET || 'orky';
 
 // Public media URLs should normally point at a CDN or public object-storage hostname.
 // For local MinIO, set CDN_URL explicitly (for example http://localhost:9000/tiktok-clone-videos).

@@ -47,6 +47,7 @@ const FULLSCREEN_ROUTES: RouteName[] = [
   'studio.content',
   'studio.post',
   'studio.tiktok',
+  'studio.scraper',
   'video.comments',
   'profile.settings',
   'profile.settings.detail',

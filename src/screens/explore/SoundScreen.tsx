@@ -42,7 +42,7 @@ export const SoundScreen: React.FC = () => {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Sound</Text>
-        <TouchableOpacity onPress={() => shareText('Découvre ce son original sur TikTok Clone')}>
+        <TouchableOpacity onPress={() => shareText('Découvre ce son original sur ORKY')}>
           <Text style={styles.shareIcon}>↗</Text>
         </TouchableOpacity>
       </View>
