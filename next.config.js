@@ -1,15 +1,19 @@
 /** @type {import('next').NextConfig} */
 const path = require('path');
 
-const isProduction = process.env.NODE_ENV === 'production';
-const backendUrl = process.env.NEXT_PUBLIC_API_BASE_URL || (isProduction ? null : 'http://localhost:4000');
-
-// In production without a backend URL, the app runs in demo mode (no throw).
+// Server-side only: API_BACKEND_URL feeds the /v1 rewrite proxy.
+// The client always calls same-origin /v1 (avoids Mixed Content on HTTPS).
+const backendUrl =
+  process.env.API_BACKEND_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4000');
 
 const nextConfig = {
   reactStrictMode: true,
   output: 'standalone',
   async rewrites() {
+    // No backend configured (e.g. demo mode) → no proxy rewrite.
+    if (!backendUrl) return [];
     return [{
       source: '/v1/:path*',
       destination: `${backendUrl}/v1/:path*`,
