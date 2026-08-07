@@ -55,8 +55,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     origin(origin, callback) {
       // Non-browser clients and same-origin requests may omit Origin.
       if (!origin) return callback(null, true);
-      if (allowedOrigins.has(origin)) return callback(null, true);
-      return callback(new Error('Origin not allowed by CORS'), false);
+      return callback(null, allowedOrigins.has(origin));
     },
   });
 
