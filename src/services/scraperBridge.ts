@@ -76,7 +76,7 @@ async function fetchComments(videoId: string): Promise<ScraperComment[]> {
   try {
     const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
     const res = await fetch(`${SCRAPER_API}/api/videos/${realId}/comments`, {
-      signal: AbortSignal.timeout(3000),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
     const data = await res.json();
