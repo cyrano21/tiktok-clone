@@ -20,6 +20,7 @@ export type MediaFilterSettings = {
   brightness?: number;
   contrast?: number;
   saturate?: number;
+  sepia?: number;
   grayscale?: number;
 };
 
@@ -186,17 +187,35 @@ function escapeFilterPath(path: string) {
     .replace(/'/g, "\\'");
 }
 
+function sepiaFilter(amountPercent: number) {
+  const s = Math.min(1, Math.max(0, amountPercent / 100));
+  const rr = 1 - 0.607 * s;
+  const rg = 0.769 * s;
+  const rb = 0.189 * s;
+  const gr = 0.349 * s;
+  const gg = 1 - 0.314 * s;
+  const gb = 0.168 * s;
+  const br = 0.272 * s;
+  const bg = 0.534 * s;
+  const bb = 1 - 0.869 * s;
+  return `colorchannelmixer=rr=${rr.toFixed(4)}:rg=${rg.toFixed(4)}:rb=${rb.toFixed(4)}:gr=${gr.toFixed(4)}:gg=${gg.toFixed(4)}:gb=${gb.toFixed(4)}:br=${br.toFixed(4)}:bg=${bg.toFixed(4)}:bb=${bb.toFixed(4)}`;
+}
+
 function buildVideoFilters(filters: MediaFilterSettings | undefined, overlayFile: string | null) {
   const brightness = clamp(filters?.brightness, 50, 150, 100);
   const contrast = clamp(filters?.contrast, 50, 150, 100);
   const saturation = clamp(filters?.saturate, 0, 200, 100);
+  const sepia = clamp(filters?.sepia, 0, 100, 0);
   const grayscale = clamp(filters?.grayscale, 0, 100, 0);
 
   const chain = [
     'scale=w=min(1080\\,iw):h=min(1920\\,ih):force_original_aspect_ratio=decrease',
+    // yuv420p/libx264 requires even output dimensions.
+    'scale=trunc(iw/2)*2:trunc(ih/2)*2',
     `eq=brightness=${((brightness - 100) / 200).toFixed(3)}:contrast=${(contrast / 100).toFixed(3)}:saturation=${(saturation / 100).toFixed(3)}`,
   ];
 
+  if (sepia > 0) chain.push(sepiaFilter(sepia));
   if (grayscale >= 50) chain.push('hue=s=0');
 
   if (overlayFile) {
