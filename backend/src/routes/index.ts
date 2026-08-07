@@ -15,6 +15,7 @@ import { analyticsRoutes } from "./analytics.routes";
 import { billingRoutes } from "./billing.routes";
 import { publishRoutes } from "./publish.routes";
 import { brandingRoutes } from "./branding.routes";
+import { moderationRoutes } from "./moderation.routes";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
@@ -33,4 +34,5 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(billingRoutes, { prefix: "/v1/billing" });
   app.register(publishRoutes, { prefix: "/v1/publish" });
   app.register(brandingRoutes, { prefix: "/v1/branding" });
+  app.register(moderationRoutes, { prefix: "/v1/moderation" });
 }
