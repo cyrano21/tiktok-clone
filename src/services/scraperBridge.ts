@@ -13,6 +13,14 @@ import type { Video, User, Sound, Comment } from '@/types';
 // En local : pas besoin de variable, fallback sur 127.0.0.1:8502
 const SCRAPER_API = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8502';
 
+/** Construit une URL compatible avec le proxy same-origin (/api/scraper) ou l'API directe. */
+function scraperUrl(path: string): string {
+  const cleanPath = path.replace(/^\/+/, '').replace(/^api\//, '');
+  return SCRAPER_API.startsWith('/')
+    ? `${SCRAPER_API}/${cleanPath}`
+    : `${SCRAPER_API}/api/${cleanPath}`;
+}
+
 interface ScraperVideo {
   id: string;
   title: string;
@@ -23,6 +31,7 @@ interface ScraperVideo {
   url: string;
   thumbnailUrl: string;
   hashtags?: string[];
+  comments?: ScraperComment[];
 }
 
 interface ScraperComment {
@@ -46,18 +55,19 @@ interface ScraperStats {
 
 let cachedVideos: Video[] | null = null;
 let cachedAt = 0;
+const cachedComments = new Map<string, ScraperComment[]>();
 const CACHE_TTL_MS = 60_000;
 
 async function isAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(`${SCRAPER_API}/api/stats`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(2000) });
     return res.ok;
   } catch { return false; }
 }
 
 async function fetchScraperVideos(): Promise<ScraperVideo[]> {
   try {
-    const res = await fetch(`${SCRAPER_API}/api/videos`, { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(scraperUrl('videos'), { signal: AbortSignal.timeout(3000) });
     if (!res.ok) return [];
     const data = await res.json();
     return data.videos ?? [];
@@ -66,7 +76,7 @@ async function fetchScraperVideos(): Promise<ScraperVideo[]> {
 
 async function fetchScraperStats(): Promise<ScraperStats | null> {
   try {
-    const res = await fetch(`${SCRAPER_API}/api/stats`, { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(2000) });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }
@@ -75,7 +85,7 @@ async function fetchScraperStats(): Promise<ScraperStats | null> {
 async function fetchComments(videoId: string): Promise<ScraperComment[]> {
   try {
     const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
-    const res = await fetch(`${SCRAPER_API}/api/videos/${realId}/comments`, {
+    const res = await fetch(scraperUrl(`videos/${realId}/comments`), {
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return [];
@@ -130,7 +140,7 @@ function toOrkyVideo(sv: ScraperVideo, index: number): Video {
       createdAt: new Date(Date.now()-Math.random()*31536000000).toISOString(),
     },
     // 🎬 Stream/cache depuis l'API scraper
-    videoUrl: `${SCRAPER_API}/api/stream/${sv.id}`,
+    videoUrl: scraperUrl(`stream/${sv.id}`),
     // 🖼️ Miniature TikTok RÉELLE
     thumbnailUrl: sv.thumbnailUrl || `https://picsum.photos/seed/${sv.id}/720/1280`,
     description: sv.title || 'Vidéo scrapée',
@@ -195,19 +205,29 @@ export const scraperBridge = {
     const raw = await fetchScraperVideos();
     if (raw.length === 0) return [];
 
-    const videos = raw.slice(0, limit).map(toOrkyVideo);
+    const selected = raw.slice(0, limit);
+    selected.forEach((video) => {
+      if (Array.isArray(video.comments)) cachedComments.set(video.id, video.comments);
+    });
+    const videos = selected.map(toOrkyVideo);
     setCached(videos);
     return videos;
   },
 
   /** Récupère les vrais commentaires d'une vidéo scrapée. */
   async getComments(videoId: string): Promise<Comment[]> {
-    const raw = await fetchComments(videoId);
+    const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+    const embedded = cachedComments.get(realId);
+    if (embedded) return embedded.map(mapComment);
+    const raw = await fetchComments(realId);
+    if (raw.length > 0) cachedComments.set(realId, raw);
     return raw.map(mapComment);
   },
 
   async refresh(): Promise<void> {
-    try { await fetch(`${SCRAPER_API}/api/reload`, { signal: AbortSignal.timeout(2000) }); } catch {}
-    cachedVideos = null; cachedAt = 0;
+    try { await fetch(scraperUrl('reload'), { signal: AbortSignal.timeout(2000) }); } catch {}
+    cachedVideos = null;
+    cachedAt = 0;
+    cachedComments.clear();
   },
 };

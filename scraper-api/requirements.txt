@@ -1,0 +1,38 @@
+# Dépendances principales (point 4 du plan)
+playwright>=1.57.0
+playwright-stealth>=2.0.0
+yt-dlp>=2026.3.17
+Flask>=3.1.0
+
+# --- Export CSV / Excel ---------------------------------------------------
+# Utilisés pour l'export des commentaires (--csv / --xlsx / export).
+# Le CSV fonctionne aussi sans pandas (fallback stdlib) ; l'Excel les exige.
+pandas>=2.0.0
+openpyxl>=3.1.0
+
+# --- Dashboard d'analyse (streamlit run dashboard.py) --------------------
+# Sans ces paquets, la collecte, l'export CSV/Excel et la détection spam
+# restent pleinement fonctionnels.
+# streamlit>=1.40.0
+# plotly>=5.20.0
+
+# --- Analyse IA des commentaires (onglet Résumé IA du dashboard) -----------
+# groq>=1.1.0
+
+# --- Email du rapport (PDF) : reportlab + markdown -----------------------
+# Utilisés par report_email.py (conversion du rapport_veille.md en PDF + HTML).
+# reportlab>=4.0.0
+# markdown>=3.5.0
+
+# --- Optionnel : anti-détection renforcée (recommandé) -------------------
+
+# --- Optionnel : anti-détection renforcée (recommandé) -------------------
+# Remplace Playwright par Patchright (fork anti-bot, même API).
+# Le code le détecte et bascule automatiquement. Installez puis :
+#   patchright install chrome
+# patchright>=1.57.0
+
+# --- Dev / tests ---------------------------------------------------------
+# pytest>=9.0.0
+# ruff>=0.12.0
+# mypy>=1.15.0

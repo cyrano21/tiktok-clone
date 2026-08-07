@@ -114,7 +114,7 @@ services:
 
   scraper-api:
     build:
-      context: ../tiktok_scraper
+      context: ./scraper-api
       dockerfile: Dockerfile.scraper
     restart: unless-stopped
     environment:
@@ -122,6 +122,12 @@ services:
       APIFY_TOKEN: ${APIFY_TOKEN:-}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      VIDEO_CACHE_DIR: /app/data/video_cache
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8502/api/stats']
+      interval: 10s
+      timeout: 5s
+      retries: 10
     volumes:
       - scraper_data:/app/data
     networks: [orky]
@@ -130,18 +136,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?NEXT_PUBLIC_API_BASE_URL is required}
+        NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
+        NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?NEXT_PUBLIC_API_BASE_URL is required}
       NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
-      # Scraper API bridge (port 8502) — utilisé par scraperBridge.ts pour les données TikTok
-      NEXT_PUBLIC_SCRAPER_API_URL: http://scraper-api:8502
+      # Client uses the same-origin Next.js proxy; the server uses the Docker hostname.
+      NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
+      SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
     depends_on:
       api:
         condition: service_healthy
       scraper-api:
-        condition: service_started
+        condition: service_healthy
     networks: [orky]
 
 volumes:

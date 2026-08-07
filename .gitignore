@@ -24,6 +24,7 @@ web-build/
 
 # Build artifacts / caches
 .temp/
+scraper-api/video_cache/
 *.tsbuildinfo
 .tc.txt
 .build.txt
