@@ -5,8 +5,6 @@ import websocket from '@fastify/websocket';
 import { registerRoutes } from './routes/index';
 import { setupRateLimiter } from './middleware/rateLimiter';
 
-/** Recursively convert BigInt values to numbers so Fastify can serialize payloads.
- *  Date instances pass through untouched (they serialize natively). */
 function convertBigInts(value: unknown): unknown {
   if (typeof value === 'bigint') return Number(value);
   if (value instanceof Date) return value;
@@ -21,6 +19,24 @@ function convertBigInts(value: unknown): unknown {
   return value;
 }
 
+function parseAllowedOrigins() {
+  const configured = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (configured.length > 0) return new Set(configured);
+  if (process.env.NODE_ENV !== 'production') {
+    return new Set([
+      'http://localhost:3000',
+      'http://127.0.0.1:3000',
+      'http://localhost:5173',
+      'http://127.0.0.1:5173',
+    ]);
+  }
+  return new Set<string>();
+}
+
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({
     logger: {
@@ -29,13 +45,21 @@ export async function buildApp(): Promise<FastifyInstance> {
     bodyLimit: 104857600,
   });
 
-  // Prisma returns BigInt for counters (viewCount, likeCount, ...) which Fastify's
-  // JSON serializer can't handle. Convert them to numbers before serialization.
   app.addHook('preSerialization', async (_request, _reply, payload) => {
     return convertBigInts(payload);
   });
 
-  await app.register(cors, { origin: true, credentials: true });
+  const allowedOrigins = parseAllowedOrigins();
+  await app.register(cors, {
+    credentials: true,
+    origin(origin, callback) {
+      // Non-browser clients and same-origin requests may omit Origin.
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error('Origin not allowed by CORS'), false);
+    },
+  });
+
   await app.register(multipart, { limits: { fileSize: 104857600, files: 1 } });
   await app.register(websocket);
   await setupRateLimiter(app);
