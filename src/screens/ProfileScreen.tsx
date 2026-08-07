@@ -156,7 +156,7 @@ export const ProfileScreen: React.FC = () => {
         </View>
 
         <FlatList
-          data={profile.live ? realVideos : []}
+          data={realVideos}
           extraData={activeTab}
           renderItem={renderVideoItem}
           keyExtractor={(item) => item.id}
