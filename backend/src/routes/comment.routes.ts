@@ -1,45 +1,93 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { authMiddleware } from '../middleware/auth';
+import { z } from 'zod';
+import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
 
+async function blockedBetween(userId: string, otherUserId: string) {
+  if (userId === otherUserId) return false;
+  return Boolean(await prisma.userBlock.findFirst({
+    where: {
+      OR: [
+        { blockerId: userId, blockedId: otherUserId },
+        { blockerId: otherUserId, blockedId: userId },
+      ],
+    },
+    select: { id: true },
+  }));
+}
+
 export async function commentRoutes(app: FastifyInstance) {
-  // Like a comment
-  app.post('/:id/like', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { id } = req.params as any;
-    const userId = (req as any).userId;
-    const comment = await prisma.comment.findUnique({ where: { id } });
-    if (!comment) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Comment not found' });
-    await prisma.comment.update({ where: { id }, data: { likeCount: { increment: 1 } } });
-    return reply.send({ liked: true });
+  // The schema does not yet have CommentLike rows, so repeated likes could not be
+  // made idempotent safely. Fail explicitly instead of corrupting likeCount.
+  app.post('/:id/like', { preHandler: authMiddleware }, async (_req: FastifyRequest, reply: FastifyReply) => {
+    return reply.status(501).send({
+      error: 'COMMENT_LIKE_MODEL_REQUIRED',
+      message: 'Comment likes require a per-user CommentLike relation before this endpoint can be enabled safely.',
+    });
   });
 
-  // Delete a comment
   app.delete('/:id', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const { id } = req.params as any;
-    const userId = (req as any).userId;
-    const comment = await prisma.comment.findUnique({ where: { id } });
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const userId = (req as any).userId as string;
+    const comment = await prisma.comment.findUnique({
+      where: { id },
+      select: { userId: true, videoId: true, isRemoved: true },
+    });
     if (!comment || comment.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized' });
     }
-    await prisma.comment.delete({ where: { id } });
+    if (!comment.isRemoved) {
+      await prisma.$transaction([
+        prisma.comment.update({ where: { id }, data: { isRemoved: true } }),
+        prisma.video.update({ where: { id: comment.videoId }, data: { commentCount: { decrement: 1 } } }),
+      ]);
+    }
     return reply.send({ message: 'Comment deleted' });
   });
 
-  // Get replies to a comment
-  app.get('/:id/replies', async (req: FastifyRequest, reply: FastifyReply) => {
-    const { id } = req.params as any;
-    const { page = '1', limit = '20' } = req.query as any;
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+  app.get('/:id/replies', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const viewerId = (req as any).userId as string | undefined;
+    const { page, limit } = z.object({
+      page: z.coerce.number().int().min(1).default(1),
+      limit: z.coerce.number().int().min(1).max(100).default(20),
+    }).parse(req.query);
+
+    const parent = await prisma.comment.findFirst({
+      where: { id, isRemoved: false },
+      select: { id: true, userId: true },
+    });
+    if (!parent || (viewerId && await blockedBetween(viewerId, parent.userId))) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'Comment not found' });
+    }
+
+    let excludedUserIds: string[] = [];
+    if (viewerId) {
+      const blocks = await prisma.userBlock.findMany({
+        where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+        select: { blockerId: true, blockedId: true },
+      });
+      excludedUserIds = blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId);
+    }
+
     const replies = await prisma.comment.findMany({
-      where: { parentId: id },
+      where: {
+        parentId: id,
+        isRemoved: false,
+        userId: { notIn: excludedUserIds },
+        user: {
+          isBanned: false,
+          OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+        },
+      },
       orderBy: { createdAt: 'asc' },
-      skip: offset,
-      take: parseInt(limit),
+      skip: (page - 1) * limit,
+      take: limit,
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { replies: true } },
       },
     });
-    return reply.send({ replies, page: parseInt(page), limit: parseInt(limit) });
+    return reply.send({ replies, page, limit });
   });
 }
