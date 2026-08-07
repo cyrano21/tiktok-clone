@@ -202,14 +202,16 @@ export const feedService = {
 
   getVideoById: async (videoId: string): Promise<Video> => {
     if (USE_DEMO) {
-      // Try scraper bridge first (real TikTok data)
-      if (await useScraper()) {
+      // Try scraper bridge first
+      try {
         const { scraperBridge } = await import('./scraperBridge');
         const videos = await scraperBridge.getVideos(50);
-        const found = videos.find(v => v.id === videoId || v.id === `scraper-${videoId}` || videoId.startsWith('scraper-') && v.id === videoId);
+        // videoId can be "scraper-XXX" or just "XXX"
+        const rawId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+        const found = videos.find(v => v.id === videoId || v.id.endsWith(rawId));
         if (found) return found;
-      }
-      // Fallback: return a minimal video from demo feed
+      } catch { /* fallback */ }
+      // Fallback: demo feed
       const { getDemoFeed } = await import('./demoFeed');
       const feed = getDemoFeed(1);
       if (feed.videos.length > 0) return feed.videos[0];
@@ -239,12 +241,12 @@ export const feedService = {
     params?: PaginationParams
   ): Promise<{ comments: Comment[]; hasMore: boolean; cursor: string | null }> => {
     if (USE_DEMO) {
-      // Try scraper comments first (real data from TikTok scrapes)
-      if (await useScraper()) {
+      // Try scraper comments directly (no extra API call to check availability)
+      try {
         const { scraperBridge } = await import('./scraperBridge');
         const comments = await scraperBridge.getComments(videoId);
         if (comments.length > 0) return { comments, hasMore: false, cursor: null };
-      }
+      } catch { /* fallback to empty */ }
       return { comments: [], hasMore: false, cursor: null };
     }
     const page = Number(params?.cursor ?? 1);
