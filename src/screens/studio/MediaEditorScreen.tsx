@@ -8,6 +8,7 @@ import { useSessionStore } from '@/store/sessionStore';
 import { getProductById } from '@/services/demoShop';
 import { WebMediaEditor, EditorResult } from '@/components/media/WebMediaEditor';
 import { buildCaption, copyToClipboard, openTikTokUpload, downloadMedia } from '@/services/tiktokPublish';
+import { studioService } from '@/services/studioService';
 import { useTikTokConnect } from '@/hooks/useTikTokConnect';
 
 interface Params {
@@ -15,9 +16,19 @@ interface Params {
   sellerId?: string;
 }
 
-/** A blob:/data: URL can't be pulled by TikTok's servers (PULL_FROM_URL needs a public URL). */
+/** TikTok PULL_FROM_URL requires a publicly reachable HTTPS URL. */
 function isPubliclyReachable(url: string | undefined): boolean {
-  return !!url && /^https?:\/\//i.test(url) && !url.startsWith('blob:');
+  return !!url && /^https:\/\//i.test(url) && !url.startsWith('blob:');
+}
+
+function filenameFor(blob: Blob, type: EditorResult['type']) {
+  if (blob.type === 'video/mp4') return `upload-${Date.now()}.mp4`;
+  if (blob.type === 'video/webm') return `upload-${Date.now()}.webm`;
+  if (blob.type === 'video/quicktime') return `upload-${Date.now()}.mov`;
+  if (blob.type === 'image/png') return `upload-${Date.now()}.png`;
+  if (blob.type === 'image/webp') return `upload-${Date.now()}.webp`;
+  if (blob.type === 'image/jpeg') return `upload-${Date.now()}.jpg`;
+  return `upload-${Date.now()}.${type === 'video' ? 'mp4' : 'jpg'}`;
 }
 
 export const MediaEditorScreen: React.FC = () => {
@@ -28,30 +39,70 @@ export const MediaEditorScreen: React.FC = () => {
 
   const addPost = useStudioStore((s) => s.addPost);
   const sessionSellerId = useSessionStore((s) => s.sellerId);
-
   const tiktok = useTikTokConnect();
 
   const [edited, setEdited] = useState<EditorResult | null>(null);
   const [caption, setCaption] = useState(product ? `Découvre ${product.title} 🛍️` : '');
   const [published, setPublished] = useState(false);
+  const [publishedSourceUrl, setPublishedSourceUrl] = useState<string | null>(null);
+  const [publishedThumbnailUrl, setPublishedThumbnailUrl] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishingInApp, setPublishingInApp] = useState(false);
   const [tiktokStatus, setTiktokStatus] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
 
-  const handlePublish = () => {
-    if (!edited) return;
-    addPost({
-      type: edited.type,
-      sourceUrl: edited.sourceUrl,
-      thumbnailUrl: edited.thumbnailUrl,
-      caption,
-      overlayText: edited.overlayText,
-      filters: edited.filters,
-      trimStart: edited.trimStart,
-      trimEnd: edited.trimEnd,
-      productId: productId,
-      sellerId: productId ? (sellerId ?? sessionSellerId) : undefined,
-    });
-    setPublished(true);
+  const handlePublish = async () => {
+    if (!edited || publishingInApp) return;
+    setPublishingInApp(true);
+    setPublishError(null);
+
+    try {
+      // blob:/data: sources are browser-local. Fetching the object URL gives us
+      // the actual bytes so the backend can persist and process them.
+      const sourceResponse = await fetch(edited.sourceUrl);
+      if (!sourceResponse.ok) throw new Error(`Impossible de lire le média (${sourceResponse.status})`);
+      const blob = await sourceResponse.blob();
+      if (!blob.size) throw new Error('Le média exporté est vide.');
+
+      const video = await studioService.publishMedia(blob, {
+        filename: filenameFor(blob, edited.type),
+        description: caption,
+        visibility: 'public',
+        allowComment: true,
+        allowDuet: true,
+        allowStitch: true,
+        trimStart: edited.trimStart,
+        trimEnd: edited.trimEnd,
+        overlayText: edited.overlayText,
+        filters: edited.filters,
+      });
+
+      // Keep the Studio store synchronized with the durable backend resource.
+      addPost({
+        type: 'video',
+        sourceUrl: video.videoUrl,
+        thumbnailUrl: video.thumbnailUrl ?? edited.thumbnailUrl,
+        caption,
+        overlayText: edited.overlayText,
+        filters: edited.filters,
+        trimStart: 0,
+        trimEnd: video.duration,
+        productId,
+        sellerId: productId ? (sellerId ?? sessionSellerId) : undefined,
+      });
+
+      setPublishedSourceUrl(video.videoUrl);
+      setPublishedThumbnailUrl(video.thumbnailUrl ?? null);
+      setPublished(true);
+    } catch (error: any) {
+      setPublishError(
+        error?.response?.data?.message ||
+        error?.message ||
+        'La publication a échoué. Le média n’a pas été marqué comme publié.'
+      );
+    } finally {
+      setPublishingInApp(false);
+    }
   };
 
   const handlePublishTikTok = async () => {
@@ -60,8 +111,9 @@ export const MediaEditorScreen: React.FC = () => {
       hashtags: ['fyp', 'pourtoi', ...(product ? ['tiktokshop', 'tiktokmademebuyit'] : [])],
     });
     const copied = await copyToClipboard(fullCaption);
-    if (edited?.sourceUrl) {
-      downloadMedia(edited.sourceUrl, `tiktok-${Date.now()}.${edited.type === 'video' ? 'webm' : 'jpg'}`);
+    const downloadableUrl = publishedSourceUrl ?? edited?.sourceUrl;
+    if (downloadableUrl) {
+      downloadMedia(downloadableUrl, `tiktok-${Date.now()}.${publishedSourceUrl ? 'mp4' : edited?.type === 'video' ? 'webm' : 'jpg'}`);
     }
     openTikTokUpload();
     setTiktokStatus(
@@ -71,9 +123,9 @@ export const MediaEditorScreen: React.FC = () => {
     );
   };
 
-  // Official Content Posting API publish (requires a public video URL).
   const handleOfficialPublish = async (draftOnly: boolean) => {
-    if (!edited) return;
+    const sourceUrl = publishedSourceUrl ?? edited?.sourceUrl;
+    if (!sourceUrl) return;
     const fullCaption = buildCaption({
       caption,
       hashtags: ['fyp', 'pourtoi', ...(product ? ['tiktokshop'] : [])],
@@ -81,7 +133,7 @@ export const MediaEditorScreen: React.FC = () => {
     setPublishing(true);
     try {
       const res = await tiktok.publish({
-        videoUrl: edited.sourceUrl,
+        videoUrl: sourceUrl,
         title: fullCaption.slice(0, 2200),
         privacyLevel: 'SELF_ONLY',
         draftOnly,
@@ -101,16 +153,19 @@ export const MediaEditorScreen: React.FC = () => {
   };
 
   if (published) {
-    const canOfficialPublish = isPubliclyReachable(edited?.sourceUrl);
+    const durableUrl = publishedSourceUrl ?? undefined;
+    const canOfficialPublish = isPubliclyReachable(durableUrl);
     return (
       <View style={[styles.container, styles.center, { paddingTop: insets.top }]}>
         <View style={styles.successCircle}><Text style={styles.successCheck}>✓</Text></View>
-        <Text style={styles.successTitle}>Vidéo publiée !</Text>
+        <Text style={styles.successTitle}>Vidéo publiée</Text>
         <Text style={styles.successSub}>
-          {productId ? 'Elle est liée à ton produit et visible dans ta boutique.' : 'Retrouve-la sur ton profil.'}
+          {productId
+            ? 'Le média a été traité et enregistré. La liaison produit reste gérée par le Studio.'
+            : 'Le média a été traité par FFmpeg, stocké durablement et ajouté à ton profil.'}
         </Text>
+        {publishedThumbnailUrl ? <Text style={styles.persistedHint}>Miniature serveur générée ✓</Text> : null}
 
-        {/* --- Official TikTok integration --- */}
         <View style={styles.tiktokCard}>
           <Text style={styles.tiktokCardTitle}>Publier sur le vrai TikTok</Text>
 
@@ -118,22 +173,20 @@ export const MediaEditorScreen: React.FC = () => {
             <>
               <Text style={styles.tiktokInfo}>
                 Publication automatique non configurée sur ce serveur. Utilise la publication
-                manuelle ci-dessous (légende copiée + média téléchargé + page upload TikTok ouverte).
+                manuelle ci-dessous.
               </Text>
               <TouchableOpacity style={styles.tiktokBtn} onPress={handlePublishTikTok}>
-                <Text style={styles.tiktokBtnText}>🎵 Publication manuelle</Text>
+                <Text style={styles.tiktokBtnText}>Publication manuelle</Text>
               </TouchableOpacity>
             </>
           ) : !tiktok.connected ? (
             <>
-              <Text style={styles.tiktokInfo}>
-                Connecte ton compte TikTok pour publier directement via l'API officielle.
-              </Text>
+              <Text style={styles.tiktokInfo}>Connecte ton compte TikTok pour utiliser l’API officielle.</Text>
               <TouchableOpacity style={styles.tiktokConnectBtn} onPress={tiktok.connect}>
                 <Text style={styles.tiktokBtnText}>Connecter mon compte TikTok</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.tiktokBtn} onPress={handlePublishTikTok}>
-                <Text style={styles.tiktokBtnText}>🎵 Ou publication manuelle</Text>
+                <Text style={styles.tiktokBtnText}>Ou publication manuelle</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -149,7 +202,7 @@ export const MediaEditorScreen: React.FC = () => {
                       <TouchableOpacity
                         style={[styles.tiktokConnectBtn, publishing && styles.btnDisabled]}
                         disabled={publishing}
-                        onPress={() => handleOfficialPublish(false)}
+                        onPress={() => void handleOfficialPublish(false)}
                       >
                         <Text style={styles.tiktokBtnText}>{publishing ? 'Envoi…' : 'Publier sur mon profil'}</Text>
                       </TouchableOpacity>
@@ -158,7 +211,7 @@ export const MediaEditorScreen: React.FC = () => {
                       <TouchableOpacity
                         style={[styles.tiktokBtn, publishing && styles.btnDisabled]}
                         disabled={publishing}
-                        onPress={() => handleOfficialPublish(true)}
+                        onPress={() => void handleOfficialPublish(true)}
                       >
                         <Text style={styles.tiktokBtnText}>Envoyer dans mes brouillons</Text>
                       </TouchableOpacity>
@@ -166,23 +219,20 @@ export const MediaEditorScreen: React.FC = () => {
                   </>
                 ) : (
                   <Text style={styles.tiktokInfo}>
-                    La publication directe nécessite une vidéo hébergée sur une URL publique
-                    (https). Ce média est local, utilise la publication manuelle.
+                    Le média est bien stocké, mais TikTok exige une URL HTTPS publique pour PULL_FROM_URL.
+                    Configure CDN_URL avec ton domaine HTTPS pour activer la publication directe.
                   </Text>
                 )
               ) : (
                 <Text style={styles.tiktokInfo}>
-                  Cette app TikTok est approuvée pour le profil et la liste de vidéos (Login Kit),
-                  pas encore pour la publication automatique. Ajoute le produit « Content Posting API »
-                  (scopes video.publish / video.upload) puis reconnecte-toi. En attendant, utilise la
-                  publication manuelle.
+                  Cette app TikTok n’a pas encore les scopes video.publish / video.upload. La publication
+                  manuelle reste disponible sans prétendre publier automatiquement.
                 </Text>
               )}
 
-              {/* Manual flow always available as a fallback. */}
               {(!tiktok.capabilities.canPublish && !tiktok.capabilities.canUploadDraft) || !canOfficialPublish ? (
                 <TouchableOpacity style={styles.tiktokBtn} onPress={handlePublishTikTok}>
-                  <Text style={styles.tiktokBtnText}>🎵 Publication manuelle</Text>
+                  <Text style={styles.tiktokBtnText}>Publication manuelle</Text>
                 </TouchableOpacity>
               ) : null}
 
@@ -224,7 +274,6 @@ export const MediaEditorScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Real editor (web) */}
         <WebMediaEditor productMode={!!product} onExport={setEdited} />
 
         {edited && (
@@ -237,10 +286,21 @@ export const MediaEditorScreen: React.FC = () => {
               value={caption}
               onChangeText={setCaption}
               multiline
+              maxLength={5000}
             />
-            <TouchableOpacity style={styles.publishBtn} onPress={handlePublish}>
-              <Text style={styles.publishBtnText}>{product ? 'Publier la vidéo produit' : 'Publier'}</Text>
+            {publishError && <Text style={styles.publishError}>{publishError}</Text>}
+            <TouchableOpacity
+              style={[styles.publishBtn, publishingInApp && styles.btnDisabled]}
+              onPress={() => void handlePublish()}
+              disabled={publishingInApp}
+            >
+              <Text style={styles.publishBtnText}>
+                {publishingInApp ? 'Traitement et envoi…' : product ? 'Publier la vidéo produit' : 'Publier'}
+              </Text>
             </TouchableOpacity>
+            <Text style={styles.processingHint}>
+              La publication applique le découpage et les filtres côté serveur, génère une miniature puis stocke le MP4.
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -282,6 +342,9 @@ const styles = StyleSheet.create({
     minHeight: 60,
     textAlignVertical: 'top',
   },
+  publishError: { color: tokens.colors.semantic.error, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
+  processingHint: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
+  persistedHint: { color: tokens.colors.semantic.success, fontSize: tokens.typography.caption.fontSize },
   publishBtn: {
     height: 50,
     borderRadius: tokens.radius.sm,
@@ -313,17 +376,8 @@ const styles = StyleSheet.create({
     padding: tokens.spacing.md,
     gap: tokens.spacing.xs,
   },
-  tiktokCardTitle: {
-    color: tokens.colors.white,
-    fontSize: tokens.typography.subhead.fontSize,
-    fontWeight: '800',
-    marginBottom: tokens.spacing.xs,
-  },
-  tiktokInfo: {
-    color: tokens.colors.text.secondary,
-    fontSize: tokens.typography.caption.fontSize,
-    lineHeight: 17,
-  },
+  tiktokCardTitle: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800', marginBottom: tokens.spacing.xs },
+  tiktokInfo: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
   tiktokConnectBtn: {
     marginTop: tokens.spacing.sm,
     backgroundColor: tokens.colors.brand.primary,
@@ -332,11 +386,7 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing.md,
     alignItems: 'center',
   },
-  tiktokConnected: {
-    color: tokens.colors.semantic.success,
-    fontSize: tokens.typography.body.fontSize,
-    fontWeight: '700',
-  },
+  tiktokConnected: { color: tokens.colors.semantic.success, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
   tiktokDisconnect: {
     color: tokens.colors.text.tertiary,
     fontSize: tokens.typography.caption.fontSize,
