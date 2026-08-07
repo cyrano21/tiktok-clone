@@ -28,7 +28,7 @@ export const HashtagScreen: React.FC = () => {
   const [isFollowing, setIsFollowing] = useState(false);
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
-    <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('feed.foryou')}>
+    <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('video.detail', { videoId: item.id })}>
 
       <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />
       <View style={styles.videoOverlay}>

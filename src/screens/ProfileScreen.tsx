@@ -42,7 +42,7 @@ export const ProfileScreen: React.FC = () => {
     <TouchableOpacity
       testID={`profile-video-${item.id}`}
       style={[styles.videoItem, { width: videoSize, height: videoSize * 1.3 }]}
-      onPress={() => nav.push('feed.foryou')}
+      onPress={() => nav.push('video.detail', { videoId: item.id })}
     >
 
       <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />

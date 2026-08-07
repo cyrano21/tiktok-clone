@@ -33,6 +33,7 @@ import { StudioCrossPostScreen } from '@/screens/studio/StudioCrossPostScreen';
 import { StudioBrandingScreen } from '@/screens/studio/StudioBrandingScreen';
 import { StudioScraperScreen } from '@/screens/studio/StudioScraperScreen';
 import { CommentsScreen } from '@/screens/video/CommentsScreen';
+import { VideoDetailScreen } from '@/screens/VideoDetailScreen';
 import { InboxListScreen } from '@/screens/inbox/InboxListScreen';
 import { ChatScreen } from '@/screens/inbox/ChatScreen';
 import { ActivityScreen } from '@/screens/inbox/ActivityScreen';
@@ -81,6 +82,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
   'studio.branding': StudioBrandingScreen,
   'studio.scraper': StudioScraperScreen,
   'video.comments': CommentsScreen,
+  'video.detail': VideoDetailScreen,
   live: LiveScreen,
   'live.broadcast': LiveBroadcastScreen,
   inbox: InboxListScreen,
@@ -131,6 +133,7 @@ export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
   'studio.branding': 'profile',
   'studio.scraper': 'profile',
   'video.comments': 'feed.foryou',
+  'video.detail': 'feed.foryou',
   live: 'feed.foryou',
   'live.broadcast': 'create',
   inbox: 'inbox',

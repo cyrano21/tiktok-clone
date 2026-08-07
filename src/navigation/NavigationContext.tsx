@@ -32,6 +32,7 @@ export type RouteName =
   | 'studio.branding'
   | 'studio.scraper'
   | 'video.comments'
+  | 'video.detail'
   | 'live'
   | 'live.broadcast'
   | 'inbox'
