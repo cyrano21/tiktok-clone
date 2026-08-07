@@ -1,4 +1,5 @@
-# Context is repo root. All COPY paths are relative to repo root.
+# Build context is the repository root. This is also how docker-compose/Coolify
+# must invoke this Dockerfile so backend/* paths resolve consistently.
 
 FROM node:20-alpine AS deps
 WORKDIR /app
@@ -17,6 +18,11 @@ RUN npx prisma generate && npm run build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
+
+# Required by the real upload pipeline: ffprobe inspects media and ffmpeg
+# normalizes/transcodes it and produces server-side thumbnails.
+RUN apk add --no-cache ffmpeg font-dejavu
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
