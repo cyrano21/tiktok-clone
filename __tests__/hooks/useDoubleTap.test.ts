@@ -1,49 +1,54 @@
-import { renderHook, act } from '@testing-library/react-native';
+import { act, renderHook } from '@testing-library/react';
 import { useDoubleTap } from '../../src/hooks/useDoubleTap';
 
 describe('useDoubleTap', () => {
-  it('should trigger onDoubleTap on two quick taps', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-08-07T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+  });
+
+  const eventAt = (locationX: number) => ({
+    nativeEvent: { locationX, pageX: locationX, pageY: 200 },
+    target: { offsetWidth: 375 },
+  }) as any;
+
+  it('triggers onDoubleTap on two quick taps', () => {
     const onDoubleTap = jest.fn();
     const { result } = renderHook(() => useDoubleTap({ onDoubleTap, maxDelay: 300 }));
+    const event = eventAt(100);
 
-    const mockEvent = {
-      nativeEvent: { locationX: 100, pageX: 100, pageY: 200 },
-      target: { offsetWidth: 375 },
-    } as any;
-
-    act(() => { result.current.handlePress(mockEvent); });
-    act(() => { result.current.handlePress(mockEvent); });
+    act(() => { result.current.handlePress(event); });
+    act(() => { jest.advanceTimersByTime(100); });
+    act(() => { result.current.handlePress(event); });
 
     expect(onDoubleTap).toHaveBeenCalledTimes(1);
   });
 
-  it('should not trigger onDoubleTap if delay is too long', async () => {
+  it('does not trigger onDoubleTap after maxDelay', () => {
     const onDoubleTap = jest.fn();
     const { result } = renderHook(() => useDoubleTap({ onDoubleTap, maxDelay: 100 }));
+    const event = eventAt(100);
 
-    const mockEvent = {
-      nativeEvent: { locationX: 100, pageX: 100, pageY: 200 },
-      target: { offsetWidth: 375 },
-    } as any;
-
-    act(() => { result.current.handlePress(mockEvent); });
-    await new Promise(r => setTimeout(r, 150));
-    act(() => { result.current.handlePress(mockEvent); });
+    act(() => { result.current.handlePress(event); });
+    act(() => { jest.advanceTimersByTime(150); });
+    act(() => { result.current.handlePress(event); });
 
     expect(onDoubleTap).not.toHaveBeenCalled();
   });
 
-  it('should not trigger onDoubleTap when tapping right side (excludeRight)', () => {
+  it('does not treat taps in the right action area as content taps', () => {
     const onDoubleTap = jest.fn();
     const { result } = renderHook(() => useDoubleTap({ onDoubleTap, excludeRight: true }));
+    const event = eventAt(350);
 
-    const rightSideEvent = {
-      nativeEvent: { locationX: 350, pageX: 350, pageY: 200 },
-      target: { offsetWidth: 375 },
-    } as any;
-
-    act(() => { result.current.handlePress(rightSideEvent); });
-    act(() => { result.current.handlePress(rightSideEvent); });
+    act(() => { result.current.handlePress(event); });
+    act(() => { jest.advanceTimersByTime(100); });
+    act(() => { result.current.handlePress(event); });
 
     expect(onDoubleTap).not.toHaveBeenCalled();
   });
