@@ -17,13 +17,50 @@ async function blockedBetween(userId: string, otherUserId: string) {
 }
 
 export async function commentRoutes(app: FastifyInstance) {
-  // The schema does not yet have CommentLike rows, so repeated likes could not be
-  // made idempotent safely. Fail explicitly instead of corrupting likeCount.
-  app.post('/:id/like', { preHandler: authMiddleware }, async (_req: FastifyRequest, reply: FastifyReply) => {
-    return reply.status(501).send({
-      error: 'COMMENT_LIKE_MODEL_REQUIRED',
-      message: 'Comment likes require a per-user CommentLike relation before this endpoint can be enabled safely.',
+  // Toggle a per-user comment like. The unique (userId, commentId) relation makes
+  // repeated requests idempotent at the data-model level and likeCount is
+  // reconciled from the relation inside the same transaction.
+  app.post('/:id/like', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const userId = (req as any).userId as string;
+
+    const comment = await prisma.comment.findFirst({
+      where: {
+        id,
+        isRemoved: false,
+        user: {
+          isBanned: false,
+          OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+        },
+      },
+      select: { id: true, userId: true },
     });
+
+    if (!comment || await blockedBetween(userId, comment.userId)) {
+      return reply.status(404).send({ error: 'NOT_FOUND', message: 'Comment not found' });
+    }
+
+    const result = await prisma.$transaction(async (tx) => {
+      const existing = await tx.commentLike.findUnique({
+        where: { userId_commentId: { userId, commentId: id } },
+        select: { id: true },
+      });
+
+      let liked: boolean;
+      if (existing) {
+        await tx.commentLike.delete({ where: { id: existing.id } });
+        liked = false;
+      } else {
+        await tx.commentLike.create({ data: { userId, commentId: id } });
+        liked = true;
+      }
+
+      const likeCount = await tx.commentLike.count({ where: { commentId: id } });
+      await tx.comment.update({ where: { id }, data: { likeCount } });
+      return { liked, likeCount };
+    });
+
+    return reply.send(result);
   });
 
   app.delete('/:id', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -86,8 +123,18 @@ export async function commentRoutes(app: FastifyInstance) {
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { replies: true } },
+        ...(viewerId ? { likes: { where: { userId: viewerId }, select: { id: true } } } : {}),
       },
     });
-    return reply.send({ replies, page, limit });
+
+    return reply.send({
+      replies: replies.map((replyItem: any) => ({
+        ...replyItem,
+        isLiked: Array.isArray(replyItem.likes) ? replyItem.likes.length > 0 : false,
+        likes: undefined,
+      })),
+      page,
+      limit,
+    });
   });
 }
