@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Dimensions } from 'react-native';
 import { BottomSheet } from './BottomSheet';
 import { tokens } from '@/theme/tokens';
 import { moderationService, ReportCategory } from '@/services/moderationService';
@@ -43,6 +43,7 @@ export const SafetySheet: React.FC<SafetySheetProps> = ({
   const [message, setMessage] = useState<string | null>(null);
 
   const canReport = useMemo(() => selectedCategory !== null && busy === null, [selectedCategory, busy]);
+  const sheetHeight = Math.min(620, Math.max(420, Dimensions.get('window').height * 0.82));
 
   const resetAndClose = () => {
     setSelectedCategory(null);
@@ -88,10 +89,10 @@ export const SafetySheet: React.FC<SafetySheetProps> = ({
   };
 
   return (
-    <BottomSheet isVisible={isVisible} onClose={resetAndClose} height={620}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <BottomSheet isVisible={isVisible} onClose={resetAndClose} height={sheetHeight}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.headerRow}>
-          <View>
+          <View style={styles.headerText}>
             <Text style={styles.title}>Sécurité et signalement</Text>
             <Text style={styles.subtitle}>Vidéo de @{creatorUsername}</Text>
           </View>
@@ -150,7 +151,8 @@ export const SafetySheet: React.FC<SafetySheetProps> = ({
 const styles = StyleSheet.create({
   container: { flex: 1 },
   content: { paddingHorizontal: tokens.spacing.md, paddingBottom: tokens.spacing.xxl },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: tokens.spacing.md },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: tokens.spacing.md, gap: tokens.spacing.sm },
+  headerText: { flex: 1, minWidth: 0 },
   title: { color: tokens.colors.white, fontSize: tokens.typography.title.fontSize, fontWeight: '800' },
   subtitle: { color: tokens.colors.text.secondary, marginTop: 3 },
   closeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
