@@ -50,6 +50,7 @@ export interface PublishMediaOptions {
     brightness?: number;
     contrast?: number;
     saturate?: number;
+    sepia?: number;
     grayscale?: number;
   };
 }
