@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import jwt from 'jsonwebtoken';
+import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
 import { z } from 'zod';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
@@ -28,42 +28,32 @@ function requireLiveKitConfig() {
   return config;
 }
 
-function createLiveKitToken(input: {
+async function createLiveKitToken(input: {
   userId: string;
   username: string;
   roomName: string;
   canPublish: boolean;
 }) {
   const { apiKey, apiSecret } = requireLiveKitConfig();
-  const videoGrant: Record<string, unknown> = {
+  const token = new AccessToken(apiKey, apiSecret, {
+    identity: input.userId,
+    name: input.username,
+    ttl: '10m',
+    metadata: JSON.stringify({ userId: input.userId, role: input.canPublish ? 'host' : 'viewer' }),
+  });
+
+  token.addGrant({
     room: input.roomName,
     roomJoin: true,
     canPublish: input.canPublish,
     canSubscribe: true,
     canPublishData: true,
-  };
+    ...(input.canPublish
+      ? { canPublishSources: ['camera', 'microphone', 'screen_share', 'screen_share_audio'] }
+      : {}),
+  });
 
-  if (input.canPublish) {
-    videoGrant.canPublishSources = ['camera', 'microphone', 'screen_share', 'screen_share_audio'];
-  }
-
-  // LiveKit access tokens are HS256 JWTs whose issuer is the API key and whose
-  // `video` grant scopes the participant to one room. The API secret never
-  // leaves this backend.
-  return jwt.sign(
-    {
-      name: input.username,
-      metadata: JSON.stringify({ userId: input.userId, role: input.canPublish ? 'host' : 'viewer' }),
-      video: videoGrant,
-    },
-    apiSecret,
-    {
-      algorithm: 'HS256',
-      issuer: apiKey,
-      subject: input.userId,
-      expiresIn: '10m',
-    },
-  );
+  return token.toJwt();
 }
 
 async function blockedBetween(userId: string, otherUserId: string) {
@@ -87,13 +77,61 @@ const publicUserSelect = {
   isVerified: true,
 } as const;
 
+async function adjustViewerCount(roomName: string, delta: 1 | -1, participantIdentity?: string) {
+  const stream = await prisma.liveStream.findUnique({
+    where: { streamKey: roomName },
+    select: { id: true, userId: true, viewerCount: true, status: true },
+  });
+  if (!stream || stream.status !== 'live') return;
+  if (participantIdentity && participantIdentity === stream.userId) return;
+
+  await prisma.liveStream.update({
+    where: { id: stream.id },
+    data: { viewerCount: Math.max(0, stream.viewerCount + delta) },
+  });
+}
+
 export async function liveRoutes(app: FastifyInstance) {
+  // LiveKit webhooks use their own MIME type and signature. Preserve the exact
+  // raw string for WebhookReceiver verification.
+  app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_req, body, done) => {
+    done(null, body);
+  });
+
+  app.post('/webhook', async (req: FastifyRequest, reply: FastifyReply) => {
+    const config = requireLiveKitConfig();
+    const authorization = req.headers.authorization;
+    if (!authorization || Array.isArray(authorization) || typeof req.body !== 'string') {
+      return reply.status(400).send({ error: 'INVALID_LIVEKIT_WEBHOOK' });
+    }
+
+    try {
+      const receiver = new WebhookReceiver(config.apiKey, config.apiSecret);
+      const event = await receiver.receive(req.body, authorization);
+      const roomName = event.room?.name;
+      if (!roomName) return reply.send({ received: true });
+
+      if (event.event === 'participant_joined') {
+        await adjustViewerCount(roomName, 1, event.participant?.identity);
+      } else if (event.event === 'participant_left' || event.event === 'participant_connection_aborted') {
+        await adjustViewerCount(roomName, -1, event.participant?.identity);
+      } else if (event.event === 'room_finished') {
+        await prisma.liveStream.updateMany({
+          where: { streamKey: roomName, status: 'live' },
+          data: { status: 'ended', endedAt: new Date(), viewerCount: 0 },
+        });
+      }
+
+      return reply.send({ received: true });
+    } catch (error) {
+      req.log.warn({ err: error }, 'Rejected invalid LiveKit webhook');
+      return reply.status(401).send({ error: 'INVALID_LIVEKIT_SIGNATURE' });
+    }
+  });
+
   app.get('/config/status', async (_req: FastifyRequest, reply: FastifyReply) => {
     const config = liveKitConfig();
-    return reply.send({
-      configured: Boolean(config),
-      serverUrl: config?.serverUrl ?? null,
-    });
+    return reply.send({ configured: Boolean(config), serverUrl: config?.serverUrl ?? null });
   });
 
   app.post('/start', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -102,11 +140,9 @@ export async function liveRoutes(app: FastifyInstance) {
     const { title } = startSchema.parse(req.body);
     const config = requireLiveKitConfig();
 
-    // A user cannot advertise several simultaneous lives. Stale DB sessions are
-    // closed before the new room is published.
     await prisma.liveStream.updateMany({
       where: { userId, status: 'live' },
-      data: { status: 'ended', endedAt: new Date() },
+      data: { status: 'ended', endedAt: new Date(), viewerCount: 0 },
     });
 
     const roomName = `live_${randomUUID()}`;
@@ -115,22 +151,17 @@ export async function liveRoutes(app: FastifyInstance) {
         userId,
         title,
         status: 'live',
-        // Kept in the existing column for backwards compatibility. It is now a
-        // room identifier, not a secret publishing credential.
+        // Backwards-compatible column. The value is a room identifier, not a
+        // publishing secret; clients only receive it inside authenticated joins.
         streamKey: roomName,
       },
       include: { user: { select: publicUserSelect } },
     });
 
-    const token = createLiveKitToken({ userId, username, roomName, canPublish: true });
+    const token = await createLiveKitToken({ userId, username, roomName, canPublish: true });
     return reply.status(201).send({
       stream,
-      connection: {
-        serverUrl: config.serverUrl,
-        roomName,
-        token,
-        role: 'host',
-      },
+      connection: { serverUrl: config.serverUrl, roomName, token, role: 'host' },
     });
   });
 
@@ -156,7 +187,7 @@ export async function liveRoutes(app: FastifyInstance) {
     }
 
     const isHost = stream.userId === userId;
-    const token = createLiveKitToken({
+    const token = await createLiveKitToken({
       userId,
       username,
       roomName: stream.streamKey,
@@ -206,7 +237,8 @@ export async function liveRoutes(app: FastifyInstance) {
     if (!stream || (viewerId && await blockedBetween(viewerId, stream.userId))) {
       return reply.status(404).send({ error: 'NOT_FOUND', message: 'Stream not found' });
     }
-    return reply.send({ stream });
+    const { streamKey: _roomName, ...publicStream } = stream;
+    return reply.send({ stream: publicStream });
   });
 
   app.get('/', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -240,7 +272,6 @@ export async function liveRoutes(app: FastifyInstance) {
       include: { user: { select: publicUserSelect } },
     });
 
-    // Do not expose the internal LiveKit room name in public discovery payloads.
     return reply.send({
       streams: streams.map(({ streamKey: _roomName, ...stream }) => stream),
       page,
