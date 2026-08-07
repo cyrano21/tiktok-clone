@@ -17,6 +17,7 @@ interface RightActionBarProps {
   onShare: () => void;
   onSave: () => void;
   onAvatarPress: () => void;
+  onMore: () => void;
 }
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -28,6 +29,7 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
   onShare,
   onSave,
   onAvatarPress,
+  onMore,
 }) => {
   const likeScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
@@ -89,6 +91,10 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
         <Text style={styles.actionCount}>{formatCount(video.sharesCount)}</Text>
       </TouchableOpacity>
 
+      <TouchableOpacity style={styles.actionButton} onPress={onMore} accessibilityLabel="Sécurité et signalement">
+        <Text style={styles.moreIcon}>•••</Text>
+      </TouchableOpacity>
+
       {video.sound && (
         <Animated.View style={styles.soundDisc}>
           <Image source={{ uri: video.sound.coverUrl }} style={styles.soundDiscImage} />
@@ -140,6 +146,12 @@ const styles = StyleSheet.create({
   actionIcon: {
     fontSize: tokens.feed.rightBarIconSize,
     color: tokens.colors.white,
+  },
+  moreIcon: {
+    color: tokens.colors.white,
+    fontSize: 22,
+    fontWeight: '900',
+    letterSpacing: 1,
   },
   likedIcon: {
     color: tokens.colors.action.like,

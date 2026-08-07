@@ -1,202 +1,216 @@
-# 🎵 TikTok Clone — Full-Stack React Native + Fastify
+# TikTok Clone — plateforme vidéo verticale + Studio SaaS
 
-Clone fonctionnel de TikTok avec feed vertical, création vidéo, messagerie, live streaming et algorithme de recommandation.
+Le dépôt a commencé comme un clone TikTok, mais son architecture actuelle vise une plateforme vidéo verticale exploitable comme produit : feed personnalisé, création et publication, messagerie/live, modération, white-label, analytics, cross-posting et abonnement SaaS.
 
-## 📁 Structure
+## Architecture réelle
 
-```
+Le frontend n'est plus un projet Expo/React Native natif autonome. L'application web utilise **Next.js 14 + React 18 + react-native-web**, avec des composants écrits dans le style React Native et rendus sur le web. Le backend est une API **Fastify 4 + Prisma 5 + PostgreSQL + Redis**.
+
+```text
 tiktok-clone/
-├── src/                   # React Native (frontend mobile)
-│   ├── components/        # Core (VideoPlayer, FeedItem...) + Shared (BottomSheet)
-│   ├── screens/           # auth, feed, explore, create, inbox, profile, live, call
-│   ├── navigation/        # RootNavigator, MainTabNavigator
-│   ├── hooks/             # useVideoFeed, useDoubleTap, useSwipeNavigation
-│   ├── services/          # api.ts, feedService.ts
-│   ├── store/             # Zustand feedStore
-│   ├── theme/             # tokens, colors
-│   └── types/             # TypeScript types
-├── backend/               # Fastify + Prisma + Redis + S3
+├── app/                     # entrée Next.js / web
+├── src/
+│   ├── components/          # composants vidéo, UI et sécurité
+│   ├── screens/             # feed, explore, studio, inbox, profil, live...
+│   ├── navigation/          # navigation applicative
+│   ├── hooks/
+│   ├── services/            # API, TikTok, SaaS, modération
+│   ├── store/               # Zustand
+│   ├── theme/
+│   └── types/
+├── backend/
 │   ├── src/
-│   │   ├── config/        # database, redis, s3
-│   │   ├── middleware/    # auth, rateLimiter, upload
-│   │   ├── routes/        # 11 route files
-│   │   ├── controllers/   # Auth controller
-│   │   └── services/      # video, recommendation, notification
-│   └── prisma/
-├── __tests__/             # Unit tests
-└── docker-compose.yml
+│   │   ├── config/          # PostgreSQL, Redis, S3, TikTok, Stripe
+│   │   ├── middleware/      # auth, rate-limit, upload
+│   │   ├── routes/          # API v1
+│   │   ├── controllers/
+│   │   └── services/        # recommandation, vidéo, notifications...
+│   └── prisma/              # schéma + migrations
+├── __tests__/
+├── Dockerfile.web
+├── Dockerfile.backend
+└── docker-compose.prod.yml
 ```
 
-## 🚀 Quick Start
+## Stack
 
-### Avec Docker (recommandé)
+- Frontend : Next.js 14.2, React 18, react-native-web, Zustand
+- Backend : Fastify 4, TypeScript, Prisma 5
+- Données : PostgreSQL 16 + Redis 7
+- Médias : stockage S3-compatible / MinIO
+- Temps réel : WebSocket
+- Auth : JWT access + refresh
+- Paiement : Stripe Checkout + Billing Portal + webhooks signés
+- Distribution : API officielles TikTok quand les scopes sont accordés
+- Déploiement : Docker / Coolify
 
-```bash
-docker compose up -d
-```
+## Fonctionnalités principales
 
-L'API sera disponible sur `http://localhost:3000`.
+- Feed vertical « For You » et « Following »
+- Ranking personnalisé utilisant likes, sauvegardes, watch completion, créateurs, hashtags, sons, fraîcheur et diversité
+- Lecture vidéo, double-tap like, commentaires, sauvegarde, partage
+- Profils, follows, recherche, hashtags et sons
+- Messagerie et live
+- Studio de publication et file de cross-posting
+- White-label et plans FREE / PRO / BUSINESS
+- Analytics
+- Blocage utilisateur, signalement vidéo/contenu, file de modération, sanctions et appels
+- Intégration TikTok Login Kit / Content Posting API selon les scopes disponibles
+- Stripe Billing réel : aucun plan payant n'est activé par une simple réponse du navigateur
 
-### Sans Docker
+## API
 
-**Backend :**
+| Prefix | Module |
+|---|---|
+| `/v1/auth` | authentification |
+| `/v1/feed` | For You / Following / trending / live |
+| `/v1/videos` | vidéos, interactions et commentaires |
+| `/v1/users` | profils et follows |
+| `/v1/comments` | commentaires |
+| `/v1/hashtags` | hashtags |
+| `/v1/sounds` | sons |
+| `/v1/search` | recherche |
+| `/v1/messages` | conversations et messages |
+| `/v1/live` | live |
+| `/v1/notifications` | notifications |
+| `/v1/moderation` | reports, blocks, actions et appels |
+| `/v1/analytics` | analytics |
+| `/v1/billing` | Stripe Checkout / Portal / webhook |
+| `/v1/publish` | cross-posting |
+| `/v1/branding` | white-label |
+| `/v1/tiktok` | intégration officielle TikTok |
+
+## Démarrage local
+
+### Backend
+
 ```bash
 cd backend
 npm install
+npx prisma generate
 npx prisma migrate dev
 npm run dev
 ```
 
-**Frontend :**
+### Frontend web
+
 ```bash
 npm install
-npx expo start
+npm run dev
 ```
 
-## 🔌 API Endpoints
+Le frontend Next.js utilise les rewrites `/v1/*` ou `NEXT_PUBLIC_API_BASE_URL` pour joindre le backend.
 
-| Prefix | Module |
-|--------|--------|
-| `/v1/auth` | Authentification (register, login, refresh, logout) |
-| `/v1/feed` | Feed principal (For You / Following) |
-| `/v1/videos` | CRUD vidéos, upload |
-| `/v1/users` | Profils, follow/unfollow |
-| `/v1/comments` | Commentaires sur vidéos |
-| `/v1/hashtags` | Hashtags, trending |
-| `/v1/sounds` | Sons, trending |
-| `/v1/search` | Recherche users/vidéos/hashtags |
-| `/v1/messages` | Messagerie (WebSocket) |
-| `/v1/live` | Live streaming (WebSocket) |
-| `/v1/notifications` | Notifications push |
-| `/v1/tiktok` | Intégration officielle TikTok (Login Kit + Content Posting API) |
+## Stripe Billing
 
-## 🛠 Stack Technique
+Les produits live Stripe associés au projet sont :
 
-- **Frontend** : React Native 0.73, Reanimated 3, Zustand, React Navigation 6
-- **Backend** : Fastify 4, Prisma 5, PostgreSQL 16, Redis 7
-- **Stockage** : MinIO (S3-compatible)
-- **Temps réel** : WebSockets (Fastify)
-- **Auth** : JWT (access + refresh tokens)
+- PRO : 9,99 €/mois — `price_1U1mDNAh4XCbPrbnMiEUNHFJ`
+- BUSINESS : 29,99 €/mois — `price_1U1mDXAh4XCbPrbnJbQxIXPt`
 
-## 📱 Fonctionnalités
+Variables backend requises en production :
 
-- ✅ Feed vertical TikTok-like (For You + Following)
-- ✅ Lecture vidéo avec double-tap like
-- ✅ Création de vidéos (record, edit, publish)
-- ✅ Recherche avec hashtags/sons/users
-- ✅ Profil utilisateur avec grille
-- ✅ Messagerie temps réel
-- ✅ Live streaming
-- ✅ Notifications push
-- ✅ Algorithme de recommandation
-- ✅ Upload S3 avec optimisation d'images
-- ✅ Rate limiting
-- ✅ Authentification JWT
+```env
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+STRIPE_PRICE_PRO=price_1U1mDNAh4XCbPrbnMiEUNHFJ
+STRIPE_PRICE_BUSINESS=price_1U1mDXAh4XCbPrbnJbQxIXPt
+APP_URL=https://ton-domaine
+STRIPE_SUCCESS_URL=https://ton-domaine/studio/billing?checkout=success
+STRIPE_CANCEL_URL=https://ton-domaine/studio/billing?checkout=cancelled
+STRIPE_PORTAL_RETURN_URL=https://ton-domaine/studio/billing
+```
 
-## 🧪 Tests
+Webhook Stripe à enregistrer :
+
+```text
+POST https://<backend>/v1/billing/webhook
+```
+
+Événements minimum :
+
+```text
+customer.subscription.created
+customer.subscription.updated
+customer.subscription.deleted
+checkout.session.completed
+```
+
+Le backend vérifie la signature Stripe sur le corps brut. Les droits PRO/BUSINESS sont synchronisés depuis `customer.subscription.*`; `/checkout` ne modifie jamais directement le plan local.
+
+## Modération et sécurité UGC
+
+La plateforme possède désormais un socle de sécurité serveur :
+
+- signalement de user / video / comment / message / live ;
+- catégories et priorité de traitement ;
+- déduplication des signalements ouverts ;
+- blocage bilatéral dans les feeds et conversations ;
+- rôles `moderator` / `admin` ;
+- avertissement, suspension, bannissement et retrait de contenu ;
+- journal d'actions de modération ;
+- appels utilisateur et décision d'un modérateur ;
+- commentaires retirés exclus des surfaces publiques ;
+- utilisateurs bannis/suspendus exclus des feeds ;
+- contrôle d'appartenance aux conversations avant lecture/écriture.
+
+L'interface du feed expose également un menu de sécurité permettant de signaler une vidéo ou bloquer son créateur.
+
+## Recommandation
+
+Le service `backend/src/services/recommendation.service.ts` ne se contente plus de trier par popularité. Le profil de préférence combine notamment :
+
+- likes ;
+- sauvegardes ;
+- watch completion ;
+- créateurs suivis ;
+- affinité créateur ;
+- hashtags ;
+- sons ;
+- interactions Redis ;
+- fraîcheur ;
+- engagement ;
+- pénalité des vidéos récemment vues ;
+- diversification des créateurs ;
+- exclusion des utilisateurs bloqués/suspendus/bannis.
+
+Le ranking reste une heuristique de première génération : il devra être mesuré avec des métriques de rétention et des expériences contrôlées avant d'être considéré comme un système ML de production.
+
+## Intégration TikTok officielle
+
+Deux niveaux sont gérés selon les scopes réellement accordés :
+
+| Produit | Scopes | Capacités |
+|---|---|---|
+| Login Kit | `user.info.basic`, `video.list` | connexion, profil, vidéos du compte connecté |
+| Content Posting API | `video.publish`, `video.upload` | publication directe / brouillon |
+
+Le backend stocke et rafraîchit les tokens TikTok. Le `client_secret` reste côté serveur. Quand un scope de publication n'est pas disponible, l'UI masque la capacité au lieu de simuler une publication.
+
+Variables principales :
+
+```env
+TIKTOK_CLIENT_KEY=
+TIKTOK_CLIENT_SECRET=
+TIKTOK_REDIRECT_URI=https://<backend>/v1/tiktok/callback
+TIKTOK_FRONTEND_RETURN_URL=https://<frontend>/
+TIKTOK_SCOPES=user.info.basic,video.list
+```
+
+## Validation
 
 ```bash
+npm run typecheck
+npm test
+npm run build
+
+cd backend
+npm run build
 npm test
 ```
 
-## 🎵 Intégration TikTok officielle (Login Kit + Content Posting API)
+Avant un déploiement Coolify, appliquer les migrations Prisma et renseigner les secrets JWT, Stripe, TikTok, PostgreSQL, Redis et stockage objet dans l'environnement Coolify. Aucun secret ne doit être commité dans le dépôt.
 
-L'intégration couvre **deux niveaux** de capacités TikTok, activés
-automatiquement selon les **scopes réellement accordés** par le compte connecté :
-
-| Niveau | Produit TikTok | Scopes | Ce que ça permet |
-|--------|----------------|--------|------------------|
-| **Login Kit** | Login Kit | `user.info.basic`, `video.list` | Connexion, lecture du profil, liste des vidéos de l'utilisateur |
-| **Publication** | Content Posting API | `video.publish`, `video.upload` | Publication directe sur le profil + envoi en brouillon |
-
-> **État de l'app « orchidy pro » (client key `awde225g7m6cz4up`)** : approuvée
-> pour **Login Kit uniquement** (`user.info.basic` + `video.list`). La
-> publication automatique nécessite d'ajouter le produit **Content Posting API**
-> à l'app et de la faire approuver. Tant que ce n'est pas le cas, l'UI masque les
-> boutons de publication directe et propose la publication manuelle — sans jamais
-> prétendre publier.
-
-### Ce qui est implémenté
-
-- **OAuth TikTok** : `GET /v1/tiktok/authorize` → consentement → `GET /v1/tiktok/callback` (échange code → tokens, stockés par utilisateur, profil enrichi via `user.info.basic`).
-- **Statut + capacités** : `GET /v1/tiktok/status` renvoie `configured`, `connected`, le compte, `requestedScopes` et `capabilities` (`canReadProfile` / `canListVideos` / `canPublish` / `canUploadDraft`).
-- **Profil** : `GET /v1/tiktok/user-info` (scope `user.info.basic`).
-- **Vidéos de l'utilisateur** : `GET /v1/tiktok/videos` (scope `video.list`). Surface UI dédiée : écran **« Mes vidéos TikTok »** (`src/screens/studio/TikTokVideosScreen.tsx`, accessible depuis TikTok Studio → tuile « Mes vidéos TikTok », route `studio.tiktok`) qui liste les vidéos du compte connecté (miniature, durée, vues, likes, commentaires, partages) et les joue via l'**embed officiel TikTok** (`src/components/tiktok/TikTokEmbed.web.tsx`, iframe `tiktok.com/embed`). Données chargées par le hook `useTikTokVideos`. ⚠️ Ne permet **pas** de chercher des vidéos publiques d'autres comptes (réservé à la Research API, accès limité aux institutions vérifiées) ni de télécharger le MP4 (TikTok ne fournit que l'embed/share URL).
-- **Creator info** : `GET /v1/tiktok/creator-info` (requiert `video.publish`).
-- **Publication** : `POST /v1/tiktok/publish` (Direct Post ou brouillon `draftOnly`, requiert `video.publish` / `video.upload`).
-- **Suivi** : `GET /v1/tiktok/publish/:publishId/status`.
-- **Déconnexion** : `POST /v1/tiktok/disconnect`.
-- **Gating par scope** : chaque endpoint qui demande un scope non accordé renvoie un `403 TIKTOK_SCOPE_MISSING` clair, au lieu d'une erreur TikTok opaque.
-- Rafraîchissement automatique du token d'accès via le refresh token.
-- Côté UI : carte « Publier sur le vrai TikTok » dans l'éditeur média
-  (`src/screens/studio/MediaEditorScreen.tsx`) avec états non configuré /
-  non connecté / connecté, et **affichage conditionnel des boutons de
-  publication selon les capacités réelles**, pilotée par `useTikTokConnect`
-  (`src/hooks/useTikTokConnect.ts`) + `src/services/tiktokOAuth.ts`.
-
-### Architecture
-
-```
-Frontend                         Backend
-─────────                        ────────
-tiktokOAuth.ts ──┐               routes/tiktok.routes.ts        (thin)
-useTikTokConnect ┘──HTTP──────►  controllers/tiktok.controller  (HTTP boundary, zod, scope gating)
-                                 services/tiktok.service.ts      (OAuth + Display API + Content Posting, zod)
-                                 services/tiktokAccount.repo.ts  (DB + token refresh)
-                                 config/tiktok.ts                (constantes, scopes, capacités, clés)
-```
-
-Le `client_secret` est lu uniquement côté backend (`config/tiktok.ts`) et
-**n'est jamais exposé au frontend**.
-
-> ⚠️ **Sécurité** : si un `client_secret` a été partagé/collé quelque part,
-> régénère-le immédiatement dans le TikTok Developer Portal (App details →
-> Credentials). Ne le mets jamais en dur dans le code ni dans le frontend.
-
-### Activer Login Kit (fonctionne avec l'app actuelle)
-
-1. Dans `backend/.env` (voir `backend/.env.example`) :
-   ```
-   TIKTOK_CLIENT_KEY=awde225g7m6cz4up
-   TIKTOK_CLIENT_SECRET=<régénéré, jamais partagé>
-   TIKTOK_REDIRECT_URI=https://<ton-domaine>/v1/tiktok/callback
-   TIKTOK_FRONTEND_RETURN_URL=https://<ton-app>/
-   TIKTOK_SCOPES=user.info.basic,video.list
-   ```
-   Le `redirect_uri` doit correspondre **exactement** à celui enregistré dans
-   l'app TikTok (Redirect URI / Web).
-2. Régénérer le client Prisma + migrer le modèle `TikTokAccount` :
-   ```bash
-   cd backend
-   npx prisma generate
-   npx prisma migrate dev --name tiktok_account
-   ```
-3. Déployer le backend en **HTTPS public** (TikTok ne redirige pas vers `localhost`).
-
-### Activer la publication directe (Content Posting API)
-
-1. Ajoute le produit **Content Posting API** à l'app sur https://developers.tiktok.com/
-   et fais-la approuver pour les scopes `video.publish` et `video.upload`
-   (review + vidéo démo de bout en bout).
-2. Une fois approuvé, élargis les scopes :
-   ```
-   TIKTOK_SCOPES=user.info.basic,video.list,video.publish,video.upload
-   ```
-3. Le Direct Post via `PULL_FROM_URL` exige une **URL vidéo publique (https)**
-   dont le préfixe de domaine est validé dans les réglages de l'app. Les blobs
-   locaux ne peuvent pas être tirés par TikTok → l'UI bascule alors sur la
-   publication manuelle.
-4. Reconnecte le compte : les nouveaux scopes débloquent automatiquement les
-   boutons « Publier sur mon profil » et « Envoyer dans mes brouillons ».
-
-### Comportement de repli (honnête)
-
-- **Pas de clés / backend injoignable** → publication manuelle (légende copiée +
-  média téléchargé + ouverture de `tiktok.com/upload`).
-- **Connecté en Login Kit seulement** → profil + liste vidéos disponibles, mais
-  publication directe masquée avec un message explicite ; publication manuelle proposée.
-- Aucune publication automatique n'est jamais simulée ou prétendue.
-
-## 📄 Licence
+## Licence
 
 MIT

@@ -5,6 +5,7 @@ import { Video } from '@/types';
 import { VideoPlayer } from './VideoPlayer';
 import { RightActionBar } from './RightActionBar';
 import { DoubleTapHeart } from './DoubleTapHeart';
+import { SafetySheet } from '@/components/shared/SafetySheet';
 import { useDoubleTap } from '@/hooks/useDoubleTap';
 import { useFeedStore } from '@/store/feedStore';
 import { getProductById, formatPrice } from '@/services/demoShop';
@@ -28,10 +29,12 @@ export const FeedItem: React.FC<FeedItemProps> = ({
   onProfilePress,
   onProductPress,
 }) => {
-  const { toggleLike, toggleSave, toggleFollow } = useFeedStore();
+  const { toggleLike, toggleSave } = useFeedStore();
   const [isPaused, setIsPaused] = useState(false);
   const [heartVisible, setHeartVisible] = useState(false);
   const [heartPosition, setHeartPosition] = useState({ x: 0, y: 0 });
+  const [safetyVisible, setSafetyVisible] = useState(false);
+  const [blockedNotice, setBlockedNotice] = useState(false);
 
   const handleDoubleTap = useCallback(
     (event: { nativeEvent: { locationX: number; locationY: number } }) => {
@@ -62,9 +65,17 @@ export const FeedItem: React.FC<FeedItemProps> = ({
 
   const containerStyle = itemHeight ? [styles.container, { height: itemHeight }] : styles.container;
 
+  if (blockedNotice) {
+    return (
+      <View style={[containerStyle, styles.blockedState]}>
+        <Text style={styles.blockedTitle}>Créateur bloqué</Text>
+        <Text style={styles.blockedText}>Cette vidéo ne sera plus proposée après actualisation du fil.</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={containerStyle}>
-      {/* Thumbnail fallback while video loads */}
       {video.thumbnailUrl ? (
         <Image
           source={{ uri: video.thumbnailUrl }}
@@ -74,8 +85,8 @@ export const FeedItem: React.FC<FeedItemProps> = ({
       ) : null}
       <VideoPlayer
         uri={video.videoUrl}
-        isActive={isActive}
-        isPaused={isPaused}
+        isActive={isActive && !safetyVisible}
+        isPaused={isPaused || safetyVisible}
         onPress={onPress}
       />
 
@@ -93,6 +104,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({
         onShare={onSharePress}
         onSave={() => toggleSave(video.id)}
         onAvatarPress={() => onProfilePress(video.user.id)}
+        onMore={() => setSafetyVisible(true)}
       />
 
       <View style={styles.infoOverlay}>
@@ -140,6 +152,18 @@ export const FeedItem: React.FC<FeedItemProps> = ({
           </View>
         )}
       </View>
+
+      <SafetySheet
+        isVisible={safetyVisible}
+        onClose={() => setSafetyVisible(false)}
+        videoId={video.id}
+        creatorId={video.user.id}
+        creatorUsername={video.user.username}
+        onBlocked={() => {
+          setSafetyVisible(false);
+          setBlockedNotice(true);
+        }}
+      />
     </View>
   );
 };
@@ -153,6 +177,14 @@ const styles = StyleSheet.create({
     backgroundColor: tokens.colors.black,
     overflow: 'hidden',
   },
+  blockedState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 8,
+  },
+  blockedTitle: { color: tokens.colors.white, fontSize: 22, fontWeight: '800' },
+  blockedText: { color: tokens.colors.text.secondary, textAlign: 'center', lineHeight: 20 },
   thumbnailBg: {
     ...StyleSheet.absoluteFillObject,
     width: '100%',
