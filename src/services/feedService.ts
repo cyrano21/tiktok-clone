@@ -12,6 +12,18 @@ import { apiClient } from './api';
 
 // Demo mode is ON — uses local demo data (no backend required).
 const USE_DEMO = true;
+// When the scraper API is available, use REAL scraped TikTok videos.
+let _scraperAvailable: boolean | null = null;
+async function useScraper(): Promise<boolean> {
+  if (_scraperAvailable !== null) return _scraperAvailable;
+  try {
+    const { scraperBridge } = await import('./scraperBridge');
+    _scraperAvailable = await scraperBridge.isAvailable();
+  } catch {
+    _scraperAvailable = false;
+  }
+  return _scraperAvailable ?? false;
+}
 
 interface BackendUser {
   id: string;
@@ -157,7 +169,14 @@ function mapFeed(raw: { videos: BackendVideo[]; page?: number; limit?: number })
 
 export const feedService = {
   getFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    if (USE_DEMO) { const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit); }
+    if (USE_DEMO) {
+      if (await useScraper()) {
+        const { scraperBridge } = await import('./scraperBridge');
+        const videos = await scraperBridge.getVideos(params?.limit ?? 10);
+        if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
+      }
+      const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
+    }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/for-you',
       { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }
@@ -166,7 +185,14 @@ export const feedService = {
   },
 
   getFollowingFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    if (USE_DEMO) { const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit); }
+    if (USE_DEMO) {
+      if (await useScraper()) {
+        const { scraperBridge } = await import('./scraperBridge');
+        const videos = await scraperBridge.getVideos(params?.limit ?? 10);
+        if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
+      }
+      const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
+    }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/following',
       { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }

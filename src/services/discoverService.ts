@@ -85,9 +85,38 @@ function generateDiscoverVideos(category: DiscoverCategory, limit: number): Disc
   }));
 }
 
+let _useScraperDiscover: boolean | null = null;
+async function useScraperDiscover(): Promise<boolean> {
+  if (_useScraperDiscover !== null) return _useScraperDiscover;
+  try {
+    const { scraperBridge } = await import('./scraperBridge');
+    _useScraperDiscover = await scraperBridge.isAvailable();
+  } catch {
+    _useScraperDiscover = false;
+  }
+  return _useScraperDiscover ?? false;
+}
+
+function scraperToDiscoverVideos(videos: any[]): DiscoverVideo[] {
+  return videos.map((v: any) => ({
+    id: v.id,
+    title: v.description?.slice(0, 40) || v.user?.displayName || 'Vidéo scrapée',
+    thumbnailUrl: v.thumbnailUrl || '',
+    viewsCount: v.viewsCount >= 1000 ? `${(v.viewsCount / 1000).toFixed(0)}K` : String(v.viewsCount),
+    categories: v.hashtags?.map((h: any) => h.name) || [],
+  }));
+}
+
 export const discoverService = {
   async getVideos(category: DiscoverCategory, page = 1, limit = 20): Promise<DiscoverVideo[]> {
-    if (USE_DEMO) return generateDiscoverVideos(category, limit);
+    if (USE_DEMO) {
+      if (await useScraperDiscover()) {
+        const { scraperBridge } = await import('./scraperBridge');
+        const videos = await scraperBridge.getVideos(limit);
+        if (videos.length > 0) return scraperToDiscoverVideos(videos);
+      }
+      return generateDiscoverVideos(category, limit);
+    }
     const raw = await apiClient.get<{ videos: BackendVideo[] }>('/feed/discover', {
       params: { category, page, limit },
     });
