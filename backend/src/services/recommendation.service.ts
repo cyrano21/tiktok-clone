@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/database';
 import { redis } from '../config/redis';
 
@@ -5,7 +6,13 @@ const CACHE_TTL_SECONDS = 120;
 const MAX_CANDIDATES = 400;
 const RECENT_VIEW_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
 
-type Candidate = Awaited<ReturnType<typeof RecommendationService.loadCandidates>>[number];
+const candidateInclude = {
+  user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+  hashtags: { include: { hashtag: { select: { id: true, name: true } } } },
+  _count: { select: { likes: true, comments: true, shares: true, saves: true } },
+} satisfies Prisma.VideoInclude;
+
+type Candidate = Prisma.VideoGetPayload<{ include: typeof candidateInclude }>;
 
 type PreferenceProfile = {
   followedCreators: Set<string>;
@@ -75,35 +82,29 @@ export class RecommendationService {
     return diversified.slice(offset, offset + limit);
   }
 
-  static async loadCandidates(userId: string, blockedUsers: Set<string>, take: number) {
+  static async loadCandidates(userId: string, blockedUsers: Set<string>, take: number): Promise<Candidate[]> {
     const blockedIds = [...blockedUsers];
-    const where = {
+    const where: Prisma.VideoWhereInput = {
       visibility: 'public',
       userId: { notIn: [userId, ...blockedIds] },
       user: {
         isBanned: false,
         OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
       },
-    } as const;
-
-    const include = {
-      user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
-      hashtags: { include: { hashtag: { select: { id: true, name: true } } } },
-      _count: { select: { likes: true, comments: true, shares: true, saves: true } },
-    } as const;
+    };
 
     const half = Math.ceil(take / 2);
     const [recent, popular] = await Promise.all([
-      prisma.video.findMany({ where, orderBy: { createdAt: 'desc' }, take: half, include }),
+      prisma.video.findMany({ where, orderBy: { createdAt: 'desc' }, take: half, include: candidateInclude }),
       prisma.video.findMany({
         where,
         orderBy: [{ isTrending: 'desc' }, { engagementScore: 'desc' }, { viewCount: 'desc' }, { createdAt: 'desc' }],
         take: half,
-        include,
+        include: candidateInclude,
       }),
     ]);
 
-    const deduped = new Map<string, (typeof recent)[number]>();
+    const deduped = new Map<string, Candidate>();
     for (const video of [...recent, ...popular]) deduped.set(video.id, video);
     return [...deduped.values()];
   }
@@ -289,6 +290,7 @@ export class RecommendationService {
     const key = `interactions:${userId}`;
     await redis.zIncrBy(key, weight, `${type}:${videoId}`);
     await redis.expire(key, 30 * 24 * 60 * 60);
-    await redis.del(Array.from({ length: 5 }, (_, index) => `fyp:v3:${userId}:${index + 1}:20`));
+    const cacheKeys = Array.from({ length: 5 }, (_, index) => `fyp:v3:${userId}:${index + 1}:20`);
+    await redis.del(cacheKeys);
   }
 }
