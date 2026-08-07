@@ -24,10 +24,10 @@ model User {
   videoCount      Int       @default(0)
   likeCount       BigInt    @default(0)
 
-  isVerified       Boolean   @default(false)
-  isPrivate        Boolean   @default(false)
-  isBanned         Boolean   @default(false)
-  suspendedUntil   DateTime?
+  isVerified      Boolean   @default(false)
+  isPrivate       Boolean   @default(false)
+  isBanned        Boolean   @default(false)
+  suspendedUntil  DateTime?
   moderationStrikes Int      @default(0)
   role             String    @default("user")
   plan             String    @default("FREE") // FREE | PRO | BUSINESS
@@ -45,6 +45,7 @@ model User {
   sounds          Sound[]
   likes           Like[]
   comments        Comment[]
+  commentLikes    CommentLike[]
   followers       Follow[]       @relation("following")
   following       Follow[]       @relation("follower")
   messages        Message[]
@@ -77,11 +78,11 @@ model User {
 /// Tokens are obtained via the official OAuth flow and used by the backend
 /// only — never exposed to the frontend.
 model TikTokAccount {
-  id                   String   @id @default(uuid())
-  userId               String   @unique
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  openId               String   @unique
+  openId                String   @unique
   scope                 String
   accessToken           String   @db.Text
   refreshToken          String   @db.Text
@@ -215,9 +216,23 @@ model Comment {
   video     Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
   parent    Comment?  @relation("CommentReplies", fields: [parentId], references: [id])
   replies   Comment[] @relation("CommentReplies")
+  likes     CommentLike[]
 
   @@index([videoId, createdAt])
   @@index([isRemoved])
+}
+
+model CommentLike {
+  id        String   @id @default(uuid())
+  userId    String
+  commentId String
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   Comment  @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, commentId])
+  @@index([commentId])
 }
 
 model Follow {
@@ -349,7 +364,7 @@ model Notification {
 }
 
 /// SaaS subscription: FREE (free), PRO (9.99€/mo), BUSINESS (29.99€/mo).
-/// Payment is mocked in dev; swap for a real Stripe checkout when keys are available.
+/// Paid entitlements are synchronized from signed Stripe subscription webhooks.
 model Subscription {
   id         String   @id @default(uuid())
   userId     String   @unique
@@ -421,20 +436,20 @@ model UserBlock {
 
 /// Generic UGC report. targetType is one of user/video/comment/message/live.
 model Report {
-  id          String   @id @default(uuid())
-  reporterId  String
-  targetType  String
-  targetId    String
-  category    String
-  reason      String?  @db.Text
-  status      String   @default("pending") // pending | reviewing | actioned | dismissed
-  priority    Int      @default(0)
-  resolution  String?
-  actionNote  String?  @db.Text
+  id           String   @id @default(uuid())
+  reporterId   String
+  targetType   String
+  targetId     String
+  category     String
+  reason       String?  @db.Text
+  status       String   @default("pending") // pending | reviewing | actioned | dismissed
+  priority     Int      @default(0)
+  resolution   String?
+  actionNote   String?  @db.Text
   assignedToId String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  resolvedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  resolvedAt   DateTime?
 
   reporter    User     @relation(fields: [reporterId], references: [id], onDelete: Cascade)
 
