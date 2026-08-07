@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { getStripe, PaidPlanId, STRIPE_PRICE_IDS } from '../config/stripe';
@@ -44,6 +45,13 @@ export const PLANS = [
   },
 ] as const;
 
+const checkoutSchema = z.object({ plan: z.enum(['PRO', 'BUSINESS']) }).strict();
+
+function appUrl(path: string) {
+  const base = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 async function getOrCreateCustomer(userId: string) {
   const stripe = getStripe();
   const user = await prisma.user.findUnique({
@@ -56,9 +64,9 @@ async function getOrCreateCustomer(userId: string) {
     throw error;
   }
 
-  const escapedUserId = userId.replace(/'/g, "\\'");
+  // userId is an internal UUID, therefore safe to use in Stripe's metadata search query.
   const existing = await stripe.customers.search({
-    query: `metadata['userId']:'${escapedUserId}'`,
+    query: `metadata['userId']:'${userId}'`,
     limit: 1,
   });
   if (existing.data[0]) return existing.data[0];
@@ -85,13 +93,12 @@ async function findActiveStripeSubscription(userId: string) {
 }
 
 export async function billingRoutes(app: FastifyInstance) {
-  // Public plan catalogue. Prices are informational; Stripe remains the billing source of truth.
   app.get('/plans', async (_req: FastifyRequest, reply: FastifyReply) => {
     return reply.send({ plans: PLANS });
   });
 
   app.get('/current', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
+    const userId = (req as any).userId as string;
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { plan: true, subscription: true },
@@ -102,14 +109,9 @@ export async function billingRoutes(app: FastifyInstance) {
     });
   });
 
-  // Creates a hosted Stripe Checkout session. No local entitlement is granted here:
-  // only signed Stripe webhooks may activate or change a paid plan.
   app.post('/checkout', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
-    const { plan } = (req.body ?? {}) as { plan?: PaidPlanId };
-    if (plan !== 'PRO' && plan !== 'BUSINESS') {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'Paid plan must be PRO or BUSINESS' });
-    }
+    const userId = (req as any).userId as string;
+    const { plan } = checkoutSchema.parse(req.body ?? {}) as { plan: PaidPlanId };
 
     const { stripe, customer, subscription } = await findActiveStripeSubscription(userId);
     if (subscription) {
@@ -119,8 +121,8 @@ export async function billingRoutes(app: FastifyInstance) {
       });
     }
 
-    const successUrl = process.env.STRIPE_SUCCESS_URL || process.env.APP_URL || 'http://localhost:3000/studio/billing?checkout=success';
-    const cancelUrl = process.env.STRIPE_CANCEL_URL || process.env.APP_URL || 'http://localhost:3000/studio/billing?checkout=cancelled';
+    const successUrl = process.env.STRIPE_SUCCESS_URL || appUrl('/studio/billing?checkout=success');
+    const cancelUrl = process.env.STRIPE_CANCEL_URL || appUrl('/studio/billing?checkout=cancelled');
 
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -136,22 +138,23 @@ export async function billingRoutes(app: FastifyInstance) {
       subscription_data: { metadata: { userId, plan } },
     });
 
+    if (!session.url) {
+      return reply.status(502).send({ error: 'STRIPE_CHECKOUT_ERROR', message: 'Stripe did not return a Checkout URL' });
+    }
     return reply.send({ url: session.url, sessionId: session.id });
   });
 
   app.post('/portal', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
+    const userId = (req as any).userId as string;
     const stripe = getStripe();
     const customer = await getOrCreateCustomer(userId);
-    const returnUrl = process.env.STRIPE_PORTAL_RETURN_URL || process.env.APP_URL || 'http://localhost:3000/studio/billing';
+    const returnUrl = process.env.STRIPE_PORTAL_RETURN_URL || appUrl('/studio/billing');
     const session = await stripe.billingPortal.sessions.create({ customer: customer.id, return_url: returnUrl });
     return reply.send({ url: session.url });
   });
 
-  // Server-side cancellation remains available for clients that cannot open the portal.
-  // Entitlements are still changed only after Stripe sends subscription.updated/deleted.
   app.post('/cancel', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
+    const userId = (req as any).userId as string;
     const { stripe, subscription } = await findActiveStripeSubscription(userId);
     if (!subscription) {
       return reply.status(400).send({ error: 'BAD_REQUEST', message: 'No active Stripe subscription' });
