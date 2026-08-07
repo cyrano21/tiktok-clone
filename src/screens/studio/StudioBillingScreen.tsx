@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
@@ -24,13 +24,12 @@ export const StudioBillingScreen: React.FC = () => {
       setPlans(p);
       setCurrent(c);
     } catch {
-      // Unauthenticated — show hardcoded plans so the UI still teaches the model.
       setPlans([
         { id: 'FREE', name: 'Freemium', priceCents: 0, priceLabel: '0€', features: ['50 vidéos', 'Analytics basiques', 'Marque "Powered by"'] },
         { id: 'PRO', name: 'Pro', priceCents: 999, priceLabel: '9,99€/mois', features: ['Vidéos illimitées', 'Analytics avancées', 'Cross-posting TikTok · Reels · Shorts', 'Publication programmée'] },
         { id: 'BUSINESS', name: 'Business', priceCents: 2999, priceLabel: '29,99€/mois', features: ['Tout le plan Pro', 'Multi-comptes (10 membres)', 'Modération d’équipe', 'API + webhooks'] },
       ]);
-      setMessage('Connecte-toi pour t’abonner — les plans sont affichés en démo.');
+      setMessage('Connecte-toi pour gérer un abonnement.');
     } finally {
       setLoading(false);
     }
@@ -40,29 +39,38 @@ export const StudioBillingScreen: React.FC = () => {
     load();
   }, []);
 
-  const subscribe = async (plan: string) => {
-    setBusy(plan);
+  const openPortal = async () => {
+    setBusy('PORTAL');
     setMessage(null);
     try {
-      const res = await saasService.subscribe(plan);
-      await load();
-      setMessage(`✓ ${res.message}`);
+      const { url } = await saasService.createPortal();
+      await Linking.openURL(url);
     } catch (e: any) {
-      setMessage(`Erreur : ${e?.message ?? 'impossible de s’abonner'}`);
+      setMessage(`Erreur : ${e?.message ?? 'impossible d’ouvrir la gestion Stripe'}`);
     } finally {
       setBusy(null);
     }
   };
 
-  const cancel = async () => {
-    setBusy('CANCEL');
+  const selectPlan = async (plan: string) => {
+    const activePlan = current.subscription?.plan ?? current.plan;
+    if (plan === activePlan) return;
+
+    // Existing paid subscriptions must be changed/cancelled in Stripe Portal so
+    // proration and billing state remain Stripe-controlled.
+    if (activePlan !== 'FREE' || plan === 'FREE') {
+      await openPortal();
+      return;
+    }
+
+    if (plan !== 'PRO' && plan !== 'BUSINESS') return;
+    setBusy(plan);
     setMessage(null);
     try {
-      await saasService.cancel();
-      await load();
-      setMessage('✓ Abonnement annulé (reste actif jusqu’à la fin de la période)');
+      const { url } = await saasService.createCheckout(plan);
+      await Linking.openURL(url);
     } catch (e: any) {
-      setMessage(`Erreur : ${e?.message ?? 'impossible d’annuler'}`);
+      setMessage(`Erreur : ${e?.message ?? 'impossible de démarrer le paiement Stripe'}`);
     } finally {
       setBusy(null);
     }
@@ -81,25 +89,22 @@ export const StudioBillingScreen: React.FC = () => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tokens.spacing.xxl }}>
-        {/* Current plan banner */}
         <View style={styles.currentCard}>
           <Text style={styles.currentLabel}>Plan actuel</Text>
           <Text style={styles.currentValue}>{activePlan === 'FREE' ? 'Freemium' : activePlan === 'PRO' ? 'Pro' : 'Business'}</Text>
           {current.subscription?.renewsAt ? (
             <Text style={styles.currentMeta}>
-              Renouvellement : {new Date(current.subscription.renewsAt).toLocaleDateString('fr-FR')}
+              Période en cours jusqu’au {new Date(current.subscription.renewsAt).toLocaleDateString('fr-FR')}
             </Text>
           ) : activePlan === 'FREE' ? (
             <Text style={styles.currentMeta}>Gratuit · aucune carte requise</Text>
           ) : null}
-          {current.subscription?.status === 'canceled' && (
-            <Text style={[styles.currentMeta, { color: tokens.colors.semantic.error }]}>
-              Annulé — actif jusqu’à la fin de la période
-            </Text>
+          {current.subscription?.status && activePlan !== 'FREE' && (
+            <Text style={styles.currentMeta}>Statut Stripe : {current.subscription.status}</Text>
           )}
-          {activePlan !== 'FREE' && current.subscription?.status !== 'canceled' && (
-            <TouchableOpacity style={styles.cancelBtn} onPress={cancel} disabled={busy === 'CANCEL'}>
-              <Text style={styles.cancelText}>{busy === 'CANCEL' ? '…' : 'Annuler l’abonnement'}</Text>
+          {activePlan !== 'FREE' && (
+            <TouchableOpacity style={styles.cancelBtn} onPress={openPortal} disabled={busy !== null}>
+              <Text style={styles.cancelText}>{busy === 'PORTAL' ? '…' : 'Gérer l’abonnement dans Stripe'}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -110,19 +115,27 @@ export const StudioBillingScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Plan cards */}
-        <Text style={styles.sectionTitle}>Choisis ton plan</Text>
+        <Text style={styles.sectionTitle}>{loading ? 'Chargement…' : 'Choisis ton plan'}</Text>
         <View style={styles.section}>
           {plans.map((p) => {
             const isActive = activePlan === p.id;
             const isFree = p.id === 'FREE';
+            const hasPaidPlan = activePlan !== 'FREE';
+            const actionLabel = isActive
+              ? 'Plan actuel'
+              : hasPaidPlan
+                ? (isFree ? 'Gérer / annuler dans Stripe' : `Changer vers ${p.name}`)
+                : isFree
+                  ? 'Plan gratuit'
+                  : `Choisir ${p.name}`;
+
             return (
               <TouchableOpacity
                 key={p.id}
                 style={[styles.planCard, isActive && styles.planCardActive]}
                 activeOpacity={0.9}
-                onPress={() => subscribe(p.id)}
-                disabled={busy !== null || isActive}
+                onPress={() => selectPlan(p.id)}
+                disabled={busy !== null || isActive || (isFree && activePlan === 'FREE')}
               >
                 <View style={styles.planHead}>
                   <Text style={styles.planName}>{p.name}</Text>
@@ -152,7 +165,7 @@ export const StudioBillingScreen: React.FC = () => {
                       isFree && !isActive && styles.subscribeTextFree,
                     ]}
                   >
-                    {isActive ? (isFree ? 'Plan actuel' : 'Actuellement Pro') : busy === p.id ? '…' : isFree ? 'Passer au Freemium' : `Passer au ${p.name}`}
+                    {busy === p.id || (busy === 'PORTAL' && !isActive) ? '…' : actionLabel}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -161,8 +174,8 @@ export const StudioBillingScreen: React.FC = () => {
         </View>
 
         <Text style={styles.disclaimer}>
-          Paiement simulé en mode démo. Pour encaisser de vrais paiements, connecte Stripe via les variables
-          d’environnement — l’API d’abonnement est déjà prête.
+          Paiement sécurisé par Stripe. L’application n’active jamais un plan payant sur la seule réponse du navigateur :
+          l’accès est synchronisé exclusivement à partir des webhooks Stripe signés.
         </Text>
       </ScrollView>
     </View>
