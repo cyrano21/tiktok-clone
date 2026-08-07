@@ -190,21 +190,51 @@ export async function videoRoutes(app: FastifyInstance) {
 
   app.get('/:id/comments', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const viewerId = (req as any).userId as string | undefined;
     const { page, limit } = z.object({
       page: z.coerce.number().int().min(1).default(1),
       limit: z.coerce.number().int().min(1).max(100).default(20),
     }).parse(req.query);
+
+    let excludedUserIds: string[] = [];
+    if (viewerId) {
+      const blocks = await prisma.userBlock.findMany({
+        where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+        select: { blockerId: true, blockedId: true },
+      });
+      excludedUserIds = blocks.map((block) => block.blockerId === viewerId ? block.blockedId : block.blockerId);
+    }
+
     const comments = await prisma.comment.findMany({
-      where: { videoId: id, parentId: null, isRemoved: false },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        videoId: id,
+        parentId: null,
+        isRemoved: false,
+        userId: { notIn: excludedUserIds },
+        user: {
+          isBanned: false,
+          OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
+        },
+      },
+      orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }],
       skip: (page - 1) * limit,
       take: limit,
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         _count: { select: { replies: true } },
+        ...(viewerId ? { likes: { where: { userId: viewerId }, select: { id: true } } } : {}),
       },
     });
-    return reply.send({ comments, page, limit });
+
+    return reply.send({
+      comments: comments.map((comment: any) => ({
+        ...comment,
+        isLiked: Array.isArray(comment.likes) ? comment.likes.length > 0 : false,
+        likes: undefined,
+      })),
+      page,
+      limit,
+    });
   });
 
   app.post('/:id/comments', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
@@ -231,6 +261,6 @@ export async function videoRoutes(app: FastifyInstance) {
     await prisma.video.update({ where: { id }, data: { commentCount: { increment: 1 } } });
     await RecommendationService.recordInteraction(userId, id, 'comment', 4);
     await NotificationService.notifyComment(video.userId, userId, id, body.text);
-    return reply.status(201).send({ comment });
+    return reply.status(201).send({ comment: { ...comment, isLiked: false } });
   });
 }
