@@ -1,10 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, TextInput } from 'react-native';
+import {
+  ActivityIndicator,
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  TextInput,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
-import { useCommentsStore, Comment, Reply, CommentUser } from '@/store/commentsStore';
 import { useSessionStore } from '@/store/sessionStore';
+import { feedService } from '@/services/feedService';
+import type { Comment, Video } from '@/types';
 
 function formatLikes(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.0', '')}M`;
@@ -12,57 +22,133 @@ function formatLikes(n: number): string {
   return String(n);
 }
 
+function formatTime(iso: string): string {
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return '';
+  const seconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return "À l'instant";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Il y a ${days} j`;
+  return new Date(timestamp).toLocaleDateString('fr-FR');
+}
+
 type Tab = 'comments' | 'creator';
+
+type ReplyTarget = { id: string; username: string };
 
 export const CommentsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  const { postId = 'default', count } = useRouteParams<{ postId?: string; count?: number }>();
-
-  const ensureSeed = useCommentsStore((s) => s.ensureSeed);
-  const thread = useCommentsStore((s) => s.getThread(postId));
-  const total = useCommentsStore((s) => s.count(postId));
-  const addComment = useCommentsStore((s) => s.addComment);
-  const addReply = useCommentsStore((s) => s.addReply);
-  const toggleLike = useCommentsStore((s) => s.toggleLike);
-
+  const { postId, count } = useRouteParams<{ postId?: string; count?: number }>();
   const session = useSessionStore((s) => s);
-  const me: CommentUser = { username: session.username, avatarUrl: session.avatarUrl, badge: 'Moi' };
 
   const [tab, setTab] = useState<Tab>('comments');
   const [query, setQuery] = useState('');
   const [text, setText] = useState('');
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [creatorVideos, setCreatorVideos] = useState<Video[]>([]);
+  const [creatorUsername, setCreatorUsername] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [replyTo, setReplyTo] = useState<{ id: string; username: string } | null>(null);
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadingReplies, setLoadingReplies] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<TextInput | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
 
   useEffect(() => {
-    ensureSeed(postId);
-  }, [postId, ensureSeed]);
+    let cancelled = false;
+
+    const load = async () => {
+      if (!postId) {
+        setError('Vidéo introuvable.');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const [commentsResponse, video] = await Promise.all([
+          feedService.getComments(postId, { limit: 50 }),
+          feedService.getVideoById(postId),
+        ]);
+        if (cancelled) return;
+
+        setComments(commentsResponse.comments);
+        setCreatorUsername(video.user.username);
+
+        try {
+          const videos = await feedService.getUserVideos(video.user.username, { limit: 18 });
+          if (!cancelled) setCreatorVideos(videos);
+        } catch {
+          if (!cancelled) setCreatorVideos([]);
+        }
+      } catch (requestError: any) {
+        if (!cancelled) {
+          setError(requestError?.response?.data?.message || requestError?.message || 'Impossible de charger les commentaires.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return thread;
-    return thread.filter(
-      (c) =>
-        c.text.toLowerCase().includes(q) ||
-        c.user.username.toLowerCase().includes(q) ||
-        c.replies.some((r) => r.text.toLowerCase().includes(q) || r.user.username.toLowerCase().includes(q))
+    if (!q) return comments;
+    return comments.filter(
+      (comment) =>
+        comment.text.toLowerCase().includes(q) ||
+        comment.user.username.toLowerCase().includes(q) ||
+        comment.replies.some(
+          (reply) => reply.text.toLowerCase().includes(q) || reply.user.username.toLowerCase().includes(q)
+        )
     );
-  }, [thread, query]);
+  }, [comments, query]);
 
-  const submit = () => {
-    if (!text.trim()) return;
-    if (replyTo) {
-      addReply(postId, replyTo.id, text, me);
-      setExpanded((e) => ({ ...e, [replyTo.id]: true }));
-      setReplyTo(null);
-    } else {
-      addComment(postId, text, me);
-      scrollRef.current?.scrollTo({ y: 0, animated: true });
+  const total = count ?? comments.reduce((sum, comment) => sum + 1 + comment.repliesCount, 0);
+
+  const submit = async () => {
+    const value = text.trim();
+    if (!postId || !value || submitting) return;
+
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await feedService.postComment(postId, value, replyTo?.id);
+      if (replyTo) {
+        setComments((current) => current.map((comment) =>
+          comment.id === replyTo.id
+            ? {
+                ...comment,
+                replies: [...comment.replies, created],
+                repliesCount: comment.repliesCount + 1,
+              }
+            : comment
+        ));
+        setExpanded((state) => ({ ...state, [replyTo.id]: true }));
+        setReplyTo(null);
+      } else {
+        setComments((current) => [created, ...current]);
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+      }
+      setText('');
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.message || requestError?.message || "Impossible d'envoyer le commentaire.");
+    } finally {
+      setSubmitting(false);
     }
-    setText('');
   };
 
   const startReply = (commentId: string, username: string) => {
@@ -70,67 +156,107 @@ export const CommentsScreen: React.FC = () => {
     inputRef.current?.focus();
   };
 
-  const renderReply = (postId2: string, commentId: string, r: Reply) => (
-    <View key={r.id} style={styles.replyRow}>
-      <Image source={{ uri: r.user.avatarUrl }} style={styles.replyAvatar} />
+  const toggleLike = async (commentId: string, replyId?: string) => {
+    const targetId = replyId ?? commentId;
+    try {
+      const result = await feedService.toggleCommentLike(targetId);
+      setComments((current) => current.map((comment) => {
+        if (comment.id !== commentId) return comment;
+        if (replyId) {
+          return {
+            ...comment,
+            replies: comment.replies.map((reply) =>
+              reply.id === replyId
+                ? { ...reply, isLiked: result.liked, likesCount: result.likeCount }
+                : reply
+            ),
+          };
+        }
+        return { ...comment, isLiked: result.liked, likesCount: result.likeCount };
+      }));
+    } catch (requestError: any) {
+      setError(requestError?.response?.data?.message || requestError?.message || 'Impossible de modifier ce like.');
+    }
+  };
+
+  const toggleReplies = async (comment: Comment) => {
+    const isOpen = Boolean(expanded[comment.id]);
+    if (isOpen) {
+      setExpanded((state) => ({ ...state, [comment.id]: false }));
+      return;
+    }
+
+    if (comment.replies.length === 0 && comment.repliesCount > 0) {
+      setLoadingReplies(comment.id);
+      try {
+        const replies = await feedService.getCommentReplies(comment.id, { limit: 100 });
+        setComments((current) => current.map((item) =>
+          item.id === comment.id ? { ...item, replies, repliesCount: replies.length } : item
+        ));
+      } catch (requestError: any) {
+        setError(requestError?.response?.data?.message || requestError?.message || 'Impossible de charger les réponses.');
+        setLoadingReplies(null);
+        return;
+      }
+      setLoadingReplies(null);
+    }
+
+    setExpanded((state) => ({ ...state, [comment.id]: true }));
+  };
+
+  const renderReply = (commentId: string, reply: Comment) => (
+    <View key={reply.id} style={styles.replyRow}>
+      <Image source={{ uri: reply.user.avatarUrl }} style={styles.replyAvatar} />
       <View style={styles.commentBody}>
-        <Text style={styles.username}>
-          {r.user.username}
-          {r.user.badge ? <Text style={styles.badge}>  {r.user.badge}</Text> : null}
-        </Text>
-        <Text style={styles.commentText}>{r.text}</Text>
+        <Text style={styles.username}>@{reply.user.username}</Text>
+        <Text style={styles.commentText}>{reply.text}</Text>
         <View style={styles.metaRow}>
-          <Text style={styles.metaTime}>{r.createdAtLabel}</Text>
-          <TouchableOpacity onPress={() => startReply(commentId, r.user.username)}>
+          <Text style={styles.metaTime}>{formatTime(reply.createdAt)}</Text>
+          <TouchableOpacity onPress={() => startReply(commentId, reply.user.username)}>
             <Text style={styles.metaReply}>Répondre</Text>
           </TouchableOpacity>
         </View>
       </View>
-      <TouchableOpacity style={styles.likeCol} onPress={() => toggleLike(postId2, commentId, r.id)}>
-        <Text style={[styles.heart, r.isLiked && styles.heartActive]}>{r.isLiked ? '♥' : '♡'}</Text>
-        <Text style={styles.likeCount}>{formatLikes(r.likes)}</Text>
+      <TouchableOpacity style={styles.likeCol} onPress={() => void toggleLike(commentId, reply.id)}>
+        <Text style={[styles.heart, reply.isLiked && styles.heartActive]}>{reply.isLiked ? '♥' : '♡'}</Text>
+        <Text style={styles.likeCount}>{formatLikes(reply.likesCount)}</Text>
       </TouchableOpacity>
     </View>
   );
 
-  const renderComment = (c: Comment) => {
-    const isOpen = expanded[c.id];
-    const visibleReplies = isOpen ? c.replies : [];
+  const renderComment = (comment: Comment) => {
+    const isOpen = Boolean(expanded[comment.id]);
     return (
-      <View key={c.id} style={styles.commentRow}>
-        <Image source={{ uri: c.user.avatarUrl }} style={styles.avatar} />
+      <View key={comment.id} style={styles.commentRow}>
+        <Image source={{ uri: comment.user.avatarUrl }} style={styles.avatar} />
         <View style={styles.commentBody}>
-          <Text style={styles.username}>
-            {c.user.username}
-            {c.user.badge ? <Text style={styles.badge}>  {c.user.badge}</Text> : null}
-            {c.pinned ? <Text style={styles.pinned}>  📌 Épinglé</Text> : null}
-          </Text>
-          <Text style={styles.commentText}>{c.text}</Text>
+          <Text style={styles.username}>@{comment.user.username}</Text>
+          <Text style={styles.commentText}>{comment.text}</Text>
           <View style={styles.metaRow}>
-            <Text style={styles.metaTime}>{c.createdAtLabel}</Text>
-            <TouchableOpacity onPress={() => startReply(c.id, c.user.username)}>
+            <Text style={styles.metaTime}>{formatTime(comment.createdAt)}</Text>
+            <TouchableOpacity onPress={() => startReply(comment.id, comment.user.username)}>
               <Text style={styles.metaReply}>Répondre</Text>
             </TouchableOpacity>
           </View>
 
-          {visibleReplies.map((r) => renderReply(postId, c.id, r))}
+          {isOpen && comment.replies.map((reply) => renderReply(comment.id, reply))}
 
-          {c.replies.length > 0 && (
-            <TouchableOpacity
-              style={styles.toggleReplies}
-              onPress={() => setExpanded((e) => ({ ...e, [c.id]: !isOpen }))}
-            >
+          {comment.repliesCount > 0 && (
+            <TouchableOpacity style={styles.toggleReplies} onPress={() => void toggleReplies(comment)}>
               <View style={styles.toggleLine} />
               <Text style={styles.toggleRepliesText}>
-                {isOpen ? 'Masquer' : `Voir ${c.replies.length} réponse${c.replies.length > 1 ? 's' : ''}`}
-                {isOpen ? ' ▲' : ' ▼'}
+                {loadingReplies === comment.id
+                  ? 'Chargement…'
+                  : isOpen
+                    ? 'Masquer les réponses ▲'
+                    : `Voir ${comment.repliesCount} réponse${comment.repliesCount > 1 ? 's' : ''} ▼`}
               </Text>
             </TouchableOpacity>
           )}
         </View>
-        <TouchableOpacity style={styles.likeCol} onPress={() => toggleLike(postId, c.id)}>
-          <Text style={[styles.heart, c.isLiked && styles.heartActive]}>{c.isLiked ? '♥' : '♡'}</Text>
-          <Text style={styles.likeCount}>{formatLikes(c.likes)}</Text>
+        <TouchableOpacity style={styles.likeCol} onPress={() => void toggleLike(comment.id)}>
+          <Text style={[styles.heart, comment.isLiked && styles.heartActive]}>{comment.isLiked ? '♥' : '♡'}</Text>
+          <Text style={styles.likeCount}>{formatLikes(comment.likesCount)}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -138,15 +264,12 @@ export const CommentsScreen: React.FC = () => {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Tabs header */}
       <View style={styles.tabsHeader}>
         <TouchableOpacity onPress={() => nav.back()} style={styles.closeBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
           <Text style={styles.closeText}>✕</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabBtn} onPress={() => setTab('comments')}>
-          <Text style={[styles.tabText, tab === 'comments' && styles.tabTextActive]}>
-            Commentaires ({total || count || 0})
-          </Text>
+          <Text style={[styles.tabText, tab === 'comments' && styles.tabTextActive]}>Commentaires ({total})</Text>
           {tab === 'comments' && <View style={styles.tabUnderline} />}
         </TouchableOpacity>
         <TouchableOpacity style={styles.tabBtn} onPress={() => setTab('creator')}>
@@ -157,9 +280,8 @@ export const CommentsScreen: React.FC = () => {
 
       {tab === 'comments' ? (
         <>
-          {/* Search */}
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔍</Text>
+            <Text style={styles.searchIcon}>⌕</Text>
             <TextInput
               style={styles.searchInput}
               placeholder="Rechercher dans les commentaires"
@@ -174,24 +296,39 @@ export const CommentsScreen: React.FC = () => {
             )}
           </View>
 
-          <ScrollView ref={scrollRef} style={styles.list} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tokens.spacing.lg }}>
-            {filtered.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={styles.emptyText}>Aucun commentaire ne correspond.</Text>
-              </View>
-            ) : (
-              filtered.map(renderComment)
-            )}
-          </ScrollView>
+          {error && <Text style={styles.errorText}>{error}</Text>}
 
-          {/* Input bar */}
+          {loading ? (
+            <View style={styles.loading}>
+              <ActivityIndicator color={tokens.colors.white} />
+              <Text style={styles.emptyText}>Chargement des commentaires…</Text>
+            </View>
+          ) : (
+            <ScrollView
+              ref={scrollRef}
+              style={styles.list}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: tokens.spacing.lg }}
+            >
+              {filtered.length === 0 ? (
+                <View style={styles.empty}>
+                  <Text style={styles.emptyText}>{query ? 'Aucun commentaire ne correspond.' : 'Aucun commentaire pour le moment.'}</Text>
+                </View>
+              ) : (
+                filtered.map(renderComment)
+              )}
+            </ScrollView>
+          )}
+
           <View style={[styles.inputBar, { paddingBottom: insets.bottom || tokens.spacing.sm }]}>
             <Image source={{ uri: session.avatarUrl }} style={styles.inputAvatar} />
             <View style={styles.inputWrap}>
               {replyTo && (
                 <View style={styles.replyingChip}>
                   <Text style={styles.replyingText}>Réponse à @{replyTo.username}</Text>
-                  <TouchableOpacity onPress={() => setReplyTo(null)}><Text style={styles.replyingClose}>✕</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => setReplyTo(null)}>
+                    <Text style={styles.replyingClose}>✕</Text>
+                  </TouchableOpacity>
                 </View>
               )}
               <TextInput
@@ -201,43 +338,47 @@ export const CommentsScreen: React.FC = () => {
                 placeholderTextColor={tokens.colors.text.tertiary}
                 value={text}
                 onChangeText={setText}
-                onSubmitEditing={submit}
+                onSubmitEditing={() => void submit()}
                 returnKeyType="send"
                 blurOnSubmit={false}
+                editable={!submitting}
               />
             </View>
             <TouchableOpacity
               style={[styles.sendBtn, text.trim().length > 0 && styles.sendBtnActive]}
-              onPress={submit}
-              disabled={text.trim().length === 0}
+              onPress={() => void submit()}
+              disabled={text.trim().length === 0 || submitting}
             >
-              <Text style={styles.sendIcon}>➤</Text>
+              <Text style={styles.sendIcon}>{submitting ? '…' : '➤'}</Text>
             </TouchableOpacity>
           </View>
         </>
       ) : (
-        <CreatorVideosTab />
+        <CreatorVideosTab videos={creatorVideos} username={creatorUsername} />
       )}
     </View>
   );
 };
 
-const CreatorVideosTab: React.FC = () => {
-  const nav = useNavigation();
-  const thumbs = Array.from({ length: 9 }, (_, i) => `https://picsum.photos/seed/creatorvid${i}/200/300`);
-  return (
-    <ScrollView contentContainerStyle={styles.creatorGrid} showsVerticalScrollIndicator={false}>
+const CreatorVideosTab: React.FC<{ videos: Video[]; username: string | null }> = ({ videos, username }) => (
+  <ScrollView contentContainerStyle={styles.creatorGrid} showsVerticalScrollIndicator={false}>
+    {username && <Text style={styles.creatorTitle}>@{username}</Text>}
+    {videos.length === 0 ? (
+      <View style={styles.empty}>
+        <Text style={styles.emptyText}>Aucune autre vidéo publique disponible.</Text>
+      </View>
+    ) : (
       <View style={styles.creatorGridInner}>
-        {thumbs.map((t, i) => (
-          <TouchableOpacity key={i} style={styles.creatorCell} onPress={() => nav.back()}>
-            <Image source={{ uri: t }} style={styles.creatorImg} />
-            <Text style={styles.creatorViews}>▶ {(Math.random() * 900 + 100).toFixed(0)}k</Text>
-          </TouchableOpacity>
+        {videos.map((video) => (
+          <View key={video.id} style={styles.creatorCell}>
+            {video.thumbnailUrl ? <Image source={{ uri: video.thumbnailUrl }} style={styles.creatorImg} /> : null}
+            <Text style={styles.creatorViews}>▶ {formatLikes(video.viewsCount)}</Text>
+          </View>
         ))}
       </View>
-    </ScrollView>
-  );
-};
+    )}
+  </ScrollView>
+);
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.colors.bg },
@@ -266,16 +407,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: tokens.spacing.md,
     height: 38,
   },
-  searchIcon: { fontSize: 13 },
+  searchIcon: { color: tokens.colors.text.secondary, fontSize: 18 },
   searchInput: { flex: 1, color: tokens.colors.white, fontSize: tokens.typography.body.fontSize },
   searchClear: { color: tokens.colors.text.tertiary, fontSize: 14 },
+  errorText: { color: tokens.colors.semantic.error, fontSize: tokens.typography.caption.fontSize, paddingHorizontal: tokens.spacing.md, paddingBottom: tokens.spacing.sm },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: tokens.spacing.sm },
   list: { flex: 1, paddingHorizontal: tokens.spacing.md },
   commentRow: { flexDirection: 'row', gap: tokens.spacing.sm, paddingVertical: tokens.spacing.sm },
   avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: tokens.colors.surface },
   commentBody: { flex: 1, gap: 3 },
   username: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },
-  badge: { color: tokens.colors.brand.secondary, fontSize: 10, fontWeight: '700' },
-  pinned: { color: tokens.colors.action.tip, fontSize: 10, fontWeight: '700' },
   commentText: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, lineHeight: 19 },
   metaRow: { flexDirection: 'row', gap: tokens.spacing.lg, marginTop: 2 },
   metaTime: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize },
@@ -310,6 +451,7 @@ const styles = StyleSheet.create({
   sendBtnActive: { backgroundColor: tokens.colors.brand.primary },
   sendIcon: { color: tokens.colors.white, fontSize: 16 },
   creatorGrid: { padding: tokens.spacing.md },
+  creatorTitle: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700', marginBottom: tokens.spacing.md },
   creatorGridInner: { flexDirection: 'row', flexWrap: 'wrap', gap: 2 },
   creatorCell: { width: '33%', flexGrow: 1, aspectRatio: 9 / 16, backgroundColor: tokens.colors.surface, borderRadius: tokens.radius.xs, overflow: 'hidden', justifyContent: 'flex-end' },
   creatorImg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
