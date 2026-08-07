@@ -2,12 +2,13 @@ import { FastifyRequest, FastifyReply } from 'fastify';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database';
 
-const JWT_SECRET = process.env.JWT_SECRET
+const _jwtSecret = process.env.JWT_SECRET
   ?? (process.env.NODE_ENV === 'production' ? undefined : 'dev-only-change-me');
 
-if (!JWT_SECRET) {
+if (!_jwtSecret) {
   throw new Error('JWT_SECRET is required in production');
 }
+const JWT_SECRET: string = _jwtSecret;
 
 type AuthenticatedUser = {
   id: string;
@@ -43,7 +44,7 @@ export async function authMiddleware(req: FastifyRequest, reply: FastifyReply) {
   }
 
   try {
-    const decoded = jwt.verify(authHeader.substring(7), JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(authHeader.substring(7), JWT_SECRET) as unknown as { userId: string };
     const user = await loadActiveUser(decoded.userId);
 
     if (!user) {
@@ -72,7 +73,7 @@ export async function optionalAuth(req: FastifyRequest, _reply: FastifyReply) {
   if (!authHeader?.startsWith('Bearer ')) return;
 
   try {
-    const decoded = jwt.verify(authHeader.substring(7), JWT_SECRET) as { userId: string };
+    const decoded = jwt.verify(authHeader.substring(7), JWT_SECRET) as unknown as { userId: string };
     const user = await loadActiveUser(decoded.userId);
     if (!user || user.isBanned) return;
     if (user.suspendedUntil && user.suspendedUntil.getTime() > Date.now()) return;
