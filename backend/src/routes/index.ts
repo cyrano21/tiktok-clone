@@ -13,6 +13,7 @@ import { notificationRoutes } from "./notification.routes";
 import { tiktokRoutes } from "./tiktok.routes";
 import { analyticsRoutes } from "./analytics.routes";
 import { billingRoutes } from "./billing.routes";
+import { stripeWebhookRoutes } from "./stripe-webhook.routes";
 import { publishRoutes } from "./publish.routes";
 import { brandingRoutes } from "./branding.routes";
 import { moderationRoutes } from "./moderation.routes";
@@ -31,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(notificationRoutes, { prefix: "/v1/notifications" });
   app.register(tiktokRoutes, { prefix: "/v1/tiktok" });
   app.register(analyticsRoutes, { prefix: "/v1/analytics" });
+  app.register(stripeWebhookRoutes, { prefix: "/v1/billing" });
   app.register(billingRoutes, { prefix: "/v1/billing" });
   app.register(publishRoutes, { prefix: "/v1/publish" });
   app.register(brandingRoutes, { prefix: "/v1/branding" });
