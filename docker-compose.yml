@@ -57,6 +57,8 @@ services:
       # Browser-facing URL. Override with an HTTPS CDN/domain in production.
       CDN_URL: ${CDN_URL:-http://localhost:9000/tiktok-clone-videos}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      # LIVEKIT_URL is returned to browsers, so localhost is correct for local
+      # desktop development but must become wss://live.<domain> in production.
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
@@ -107,19 +109,22 @@ services:
       exit 0;
       "
 
-  # Open-source SFU for actual WebRTC live audio/video. In production expose
-  # 7880 through HTTPS/WSS and the UDP media port range required by LiveKit.
+  # Local WebRTC SFU. Production needs real secrets, TLS/WSS and network ports
+  # configured for the public host; livekit.dev.yaml is intentionally dev-only.
   livekit:
-    image: livekit/livekit-server:v1.12.0
+    image: livekit/livekit-server:v1.13.4
     container_name: tiktok-livekit
     restart: unless-stopped
-    command: --dev --bind 0.0.0.0
-    environment:
-      LIVEKIT_KEYS: "${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-secret}"
+    command: --config /etc/livekit.yaml --bind 0.0.0.0
+    volumes:
+      - ./livekit.dev.yaml:/etc/livekit.yaml:ro
     ports:
       - '7880:7880'
       - '7881:7881'
       - '7882:7882/udp'
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   postgres_data:
