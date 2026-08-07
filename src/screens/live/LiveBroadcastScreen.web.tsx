@@ -25,8 +25,10 @@ export const LiveBroadcastScreen: React.FC = () => {
 
   useEffect(() => {
     return () => {
+      const session = sessionRef.current;
+      if (session) void liveService.end(session.stream.id).catch(() => undefined);
       const room = roomRef.current;
-      if (room) room.disconnect(true);
+      if (room) void room.disconnect(true);
       removeAttachedTracks(mediaRef.current);
     };
   }, []);
@@ -63,16 +65,12 @@ export const LiveBroadcastScreen: React.FC = () => {
 
       room.on(RoomEvent.ParticipantConnected, () => syncViewerCount(room));
       room.on(RoomEvent.ParticipantDisconnected, () => syncViewerCount(room));
-      room.on(RoomEvent.Disconnected, () => {
-        if (state !== 'ending') setViewerCount(0);
-      });
+      room.on(RoomEvent.Disconnected, () => setViewerCount(0));
       room.on(RoomEvent.MediaDevicesError, (mediaError) => {
         setError(`Accès caméra/micro impossible : ${mediaError.message}`);
       });
 
       await room.connect(session.connection.serverUrl, session.connection.token);
-      // This prompts once for both permissions when supported, then publishes the
-      // actual camera + microphone tracks to the LiveKit SFU.
       await room.localParticipant.enableCameraAndMicrophone();
       attachLocalCamera(room);
       syncViewerCount(room);
@@ -80,10 +78,16 @@ export const LiveBroadcastScreen: React.FC = () => {
       setCameraEnabled(room.localParticipant.isCameraEnabled);
       setState('live');
     } catch (requestError: any) {
+      // /live/start creates the durable LiveStream record before the browser asks
+      // for media permissions. If camera/room setup then fails, close that row so
+      // discovery never contains a ghost live.
+      const pendingSession = sessionRef.current;
+      if (pendingSession) await liveService.end(pendingSession.stream.id).catch(() => undefined);
       const room = roomRef.current;
-      if (room) room.disconnect(true);
+      if (room) await room.disconnect(true).catch(() => undefined);
       roomRef.current = null;
       sessionRef.current = null;
+      removeAttachedTracks(mediaRef.current);
       setState('setup');
       setError(
         requestError?.response?.data?.message ||
@@ -123,14 +127,16 @@ export const LiveBroadcastScreen: React.FC = () => {
     if (state === 'ending') return;
     setState('ending');
     const session = sessionRef.current;
+    // Clear first so the unmount cleanup cannot send a duplicate end request.
+    sessionRef.current = null;
     try {
       if (session) await liveService.end(session.stream.id);
     } catch (requestError: any) {
       setError(requestError?.response?.data?.message || requestError?.message || 'Le live a été coupé localement, mais sa clôture serveur a échoué.');
     } finally {
-      roomRef.current?.disconnect(true);
+      const room = roomRef.current;
       roomRef.current = null;
-      sessionRef.current = null;
+      if (room) await room.disconnect(true).catch(() => undefined);
       removeAttachedTracks(mediaRef.current);
       nav.back();
     }
