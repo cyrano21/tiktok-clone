@@ -4,7 +4,12 @@ import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
 import { NotificationService } from '../services/notification.service';
 import { RecommendationService } from '../services/recommendation.service';
-import { ingestMedia, MediaFilterSettings } from '../services/video.service';
+import {
+  deleteMediaObjects,
+  deleteMediaUrls,
+  ingestMedia,
+  type MediaFilterSettings,
+} from '../services/video.service';
 
 const updateVideoSchema = z.object({
   title: z.string().trim().max(150).nullable().optional(),
@@ -138,8 +143,6 @@ export async function videoRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'MEDIA_REQUIRED', message: 'A media file is required' });
     }
 
-    // Browser clients append metadata before the file, so these fields are
-    // available when req.file() resolves. Missing fields safely fall back to defaults.
     const metadata = parseUploadMetadata(upload.fields as Record<string, any>);
     const processed = await ingestMedia({
       stream: upload.file,
@@ -152,46 +155,55 @@ export async function videoRoutes(app: FastifyInstance) {
     });
 
     if (upload.file.truncated) {
+      await deleteMediaObjects([processed.videoKey, processed.thumbnailKey]);
       return reply.status(413).send({ error: 'MEDIA_TOO_LARGE', message: 'Media exceeds the upload limit' });
     }
 
     const hashtagNames = extractHashtagNames(metadata.description);
     const title = metadata.title || metadata.description.slice(0, 150) || null;
+    let createdVideoId: string;
 
-    const createdVideoId = await prisma.$transaction(async (tx) => {
-      const video = await tx.video.create({
-        data: {
-          userId,
-          title,
-          description: metadata.description || null,
-          videoUrl: processed.videoUrl,
-          thumbnailUrl: processed.thumbnailUrl,
-          coverUrl: processed.thumbnailUrl,
-          duration: processed.duration,
-          width: processed.width,
-          height: processed.height,
-          visibility: metadata.visibility,
-          allowDuet: metadata.allowDuet,
-          allowStitch: metadata.allowStitch,
-          allowComment: metadata.allowComment,
-        },
-        select: { id: true },
-      });
-
-      await tx.user.update({ where: { id: userId }, data: { videoCount: { increment: 1 } } });
-
-      for (const name of hashtagNames) {
-        const hashtag = await tx.hashtag.upsert({
-          where: { name },
-          create: { name, videoCount: 1 },
-          update: { videoCount: { increment: 1 } },
+    try {
+      createdVideoId = await prisma.$transaction(async (tx) => {
+        const video = await tx.video.create({
+          data: {
+            userId,
+            title,
+            description: metadata.description || null,
+            videoUrl: processed.videoUrl,
+            thumbnailUrl: processed.thumbnailUrl,
+            coverUrl: processed.thumbnailUrl,
+            duration: processed.duration,
+            width: processed.width,
+            height: processed.height,
+            visibility: metadata.visibility,
+            allowDuet: metadata.allowDuet,
+            allowStitch: metadata.allowStitch,
+            allowComment: metadata.allowComment,
+          },
           select: { id: true },
         });
-        await tx.videoHashtag.create({ data: { videoId: video.id, hashtagId: hashtag.id } });
-      }
 
-      return video.id;
-    });
+        await tx.user.update({ where: { id: userId }, data: { videoCount: { increment: 1 } } });
+
+        for (const name of hashtagNames) {
+          const hashtag = await tx.hashtag.upsert({
+            where: { name },
+            create: { name, videoCount: 1 },
+            update: { videoCount: { increment: 1 } },
+            select: { id: true },
+          });
+          await tx.videoHashtag.create({ data: { videoId: video.id, hashtagId: hashtag.id } });
+        }
+
+        return video.id;
+      });
+    } catch (error) {
+      // Media already exists in object storage at this point. Roll it back if
+      // database persistence fails so a failed publish doesn't leak orphan files.
+      await deleteMediaObjects([processed.videoKey, processed.thumbnailKey]);
+      throw error;
+    }
 
     const video = await prisma.video.findUniqueOrThrow({
       where: { id: createdVideoId },
@@ -233,7 +245,12 @@ export async function videoRoutes(app: FastifyInstance) {
     const userId = (req as any).userId as string;
     const video = await prisma.video.findUnique({
       where: { id },
-      select: { userId: true, hashtags: { select: { hashtagId: true } } },
+      select: {
+        userId: true,
+        videoUrl: true,
+        thumbnailUrl: true,
+        hashtags: { select: { hashtagId: true } },
+      },
     });
     if (!video || video.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized' });
@@ -247,12 +264,15 @@ export async function videoRoutes(app: FastifyInstance) {
       });
       for (const link of video.hashtags) {
         const hashtag = await tx.hashtag.findUnique({ where: { id: link.hashtagId }, select: { videoCount: true } });
-        if (hashtag && hashtag.videoCount > 0) {
+        if (hashtag && hashtag.videoCount > 0n) {
           await tx.hashtag.update({ where: { id: link.hashtagId }, data: { videoCount: { decrement: 1 } } });
         }
       }
     });
 
+    // DB deletion is authoritative. Object cleanup is best-effort and only
+    // deletes URLs under this deployment's configured CDN prefix.
+    await deleteMediaUrls([video.videoUrl, video.thumbnailUrl]);
     return reply.send({ message: 'Video deleted' });
   });
 
