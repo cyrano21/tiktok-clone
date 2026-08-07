@@ -49,11 +49,15 @@ export const saasService = {
     return apiClient.get('/billing/current');
   },
 
-  subscribe: async (plan: string): Promise<{ plan: string; message: string }> => {
-    return apiClient.post('/billing/subscribe', { plan });
+  createCheckout: async (plan: 'PRO' | 'BUSINESS'): Promise<{ url: string; sessionId: string }> => {
+    return apiClient.post('/billing/checkout', { plan });
   },
 
-  cancel: async (): Promise<{ message: string }> => {
+  createPortal: async (): Promise<{ url: string }> => {
+    return apiClient.post('/billing/portal');
+  },
+
+  cancel: async (): Promise<{ message: string; cancelAtPeriodEnd?: boolean }> => {
     return apiClient.post('/billing/cancel');
   },
 
