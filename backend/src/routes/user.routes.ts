@@ -17,6 +17,14 @@ async function blockedBetween(userId: string | undefined, otherUserId: string) {
   }));
 }
 
+const publicUserSelect = {
+  id: true,
+  username: true,
+  displayName: true,
+  avatarUrl: true,
+  isVerified: true,
+} as const;
+
 export async function userRoutes(app: FastifyInstance) {
   app.get('/:username', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { username } = z.object({ username: z.string().trim().min(1).max(64) }).parse(req.params);
@@ -62,13 +70,20 @@ export async function userRoutes(app: FastifyInstance) {
     if (!user || await blockedBetween(viewerId, user.id)) {
       return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
     }
+
     const videos = await prisma.video.findMany({
       where: { userId: user.id, visibility: 'public' },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * limit,
       take: limit,
-      include: { _count: { select: { likes: true, comments: true, shares: true, saves: true } } },
+      include: {
+        user: { select: publicUserSelect },
+        sound: true,
+        hashtags: { include: { hashtag: true } },
+        _count: { select: { likes: true, comments: true, shares: true, saves: true } },
+      },
     });
+
     return reply.send({ videos, page, limit });
   });
 
