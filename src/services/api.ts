@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // API base URL resolution:
 // 1. window.__TIKTOK_API_BASE__ set at runtime (highest priority)
 // 2. NEXT_PUBLIC_API_BASE_URL env var (set in .env.local)
-// 3. Default: http://localhost:4000/v1 in dev, /v1 (same-origin) otherwise
+// 3. Default: /v1 (same-origin / Next.js rewrite)
 function resolveBaseUrl(): string {
   const runtimeOverride =
     typeof globalThis !== 'undefined' && (globalThis as any).__TIKTOK_API_BASE__;
@@ -47,6 +47,15 @@ class ApiClient {
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+
+        // Never force application/json or a boundary-less multipart content type
+        // for native/browser FormData. Axios/browser must generate the boundary.
+        if (typeof FormData !== 'undefined' && config.data instanceof FormData && config.headers) {
+          const headers = config.headers as any;
+          if (typeof headers.set === 'function') headers.set('Content-Type', undefined);
+          else delete headers['Content-Type'];
+        }
+
         return config;
       },
       (error) => Promise.reject(error)
@@ -103,11 +112,8 @@ class ApiClient {
 
   private processQueue(error: unknown, token: string | null): void {
     this.failedQueue.forEach(({ resolve, reject }) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve(token);
-      }
+      if (error) reject(error);
+      else resolve(token);
     });
     this.failedQueue = [];
   }
@@ -139,7 +145,8 @@ class ApiClient {
 
   async upload<T>(url: string, formData: FormData, onProgress?: (progress: number) => void): Promise<T> {
     const response: AxiosResponse<T> = await this.client.post(url, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      // Upload + FFmpeg processing can legitimately exceed the normal 30s API timeout.
+      timeout: 5 * 60 * 1000,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
