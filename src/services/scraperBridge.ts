@@ -1,10 +1,13 @@
 /** Pont entre ORKY et l'API du scraper TikTok.
  *
- * Les vidéos sont streamées DIRECTEMENT par le scraper (yt-dlp -o - → stdout,
- * AUCUN fichier téléchargé). L'API scraper (port 8502) sert les octets vidéo.
+ * Les vidéos sont streamées DIRECTEMENT par le scraper (cache local 24h,
+ * puis yt-dlp si absent). L'API scraper (port 8502) sert tout.
+ *
+ * Données enrichies : hashtags réels du scraper, commentaires par vidéo,
+ * miniatures TikTok CDN, stats réelles (likes, vues, durée).
  */
 
-import type { Video, User, Sound } from '@/types';
+import type { Video, User, Sound, Comment } from '@/types';
 
 const SCRAPER_API = 'http://127.0.0.1:8502';
 
@@ -17,6 +20,18 @@ interface ScraperVideo {
   commentCount: number;
   url: string;
   thumbnailUrl: string;
+  hashtags?: string[];
+}
+
+interface ScraperComment {
+  id: string;
+  text: string;
+  username: string;
+  nickname: string;
+  likes: number;
+  replyCount: number;
+  createdAt: string;
+  replies?: any[];
 }
 
 interface ScraperStats {
@@ -29,7 +44,7 @@ interface ScraperStats {
 
 let cachedVideos: Video[] | null = null;
 let cachedAt = 0;
-const CACHE_TTL_MS = 60_000; // 1 minute (les stats peuvent changer)
+const CACHE_TTL_MS = 60_000;
 
 async function isAvailable(): Promise<boolean> {
   try {
@@ -55,6 +70,18 @@ async function fetchScraperStats(): Promise<ScraperStats | null> {
   } catch { return null; }
 }
 
+async function fetchComments(videoId: string): Promise<ScraperComment[]> {
+  try {
+    const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+    const res = await fetch(`${SCRAPER_API}/api/videos/${realId}/comments`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.comments ?? [];
+  } catch { return []; }
+}
+
 // ── Pools ───────────────────────────────────────────────────────────────
 
 const CREATORS: Array<{id:string;username:string;displayName:string;avatarUrl:string;isVerified:boolean;bio:string}> = [
@@ -73,13 +100,13 @@ const SOUNDS: Sound[] = [
   { id:'s5', title:'Mon Amour', artist:'Slimane', coverUrl:'https://picsum.photos/seed/ss5/100', audioUrl:'', duration:27, usageCount:980000, isOriginal:false },
 ];
 
-function extractHashtags(title: string) {
-  const m = title.match(/#[\w\u00C0-\u017F]+/g);
-  if (!m) return [];
-  return [...new Set(m.map(t => t.toLowerCase().slice(1)))].map(name => ({
-    id: `h-${name}`, name,
-    viewsCount: Math.floor(Math.random()*50000000)+1000000,
-    videosCount: Math.floor(Math.random()*500000)+10000,
+function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
+  if (!hashtags || hashtags.length === 0) return [];
+  return hashtags.map((name) => ({
+    id: `h-scraper-${name}`,
+    name,
+    viewsCount: Math.floor(Math.random() * 50000000) + 1000000,
+    videosCount: Math.floor(Math.random() * 500000) + 10000,
     isFollowing: false,
   }));
 }
@@ -100,7 +127,7 @@ function toOrkyVideo(sv: ScraperVideo, index: number): Video {
       isVerified: c.isVerified, isFollowing: false, isFollowedBy: false,
       createdAt: new Date(Date.now()-Math.random()*31536000000).toISOString(),
     },
-    // 🎬 Stream direct depuis l'API scraper (yt-dlp stdout, 0 octet disque)
+    // 🎬 Stream/cache depuis l'API scraper
     videoUrl: `${SCRAPER_API}/api/stream/${sv.id}`,
     // 🖼️ Miniature TikTok RÉELLE
     thumbnailUrl: sv.thumbnailUrl || `https://picsum.photos/seed/${sv.id}/720/1280`,
@@ -109,11 +136,39 @@ function toOrkyVideo(sv: ScraperVideo, index: number): Video {
     sharesCount: Math.floor(sv.likes*0.3), savesCount: Math.floor(sv.likes*0.15),
     viewsCount: sv.views, duration: Math.round(dur),
     isLiked: false, isSaved: false,
-    hashtags: extractHashtags(sv.title || ''),
+    // 🏷️ Hashtags enrichis du scraper
+    hashtags: mapHashtags(sv.hashtags),
     sound: SOUNDS[index % SOUNDS.length],
     location: null,
     createdAt: new Date(Date.now()-index*3600000).toISOString(),
     allowComments: true, allowDuet: true, allowStitch: true,
+  };
+}
+
+function mapComment(sc: ScraperComment, index: number): Comment {
+  return {
+    id: sc.id || `sc-${index}`,
+    user: {
+      id: `scr-user-${sc.username}`,
+      username: sc.username,
+      displayName: sc.nickname || sc.username,
+      avatarUrl: `https://i.pravatar.cc/200?u=${encodeURIComponent(sc.username)}`,
+      bio: '',
+      followersCount: Math.floor(Math.random() * 10000) + 100,
+      followingCount: Math.floor(Math.random() * 500) + 10,
+      likesCount: Math.floor(Math.random() * 50000),
+      videosCount: Math.floor(Math.random() * 100),
+      isVerified: false,
+      isFollowing: false,
+      isFollowedBy: false,
+      createdAt: sc.createdAt || new Date().toISOString(),
+    },
+    text: sc.text,
+    likesCount: sc.likes || 0,
+    isLiked: false,
+    repliesCount: sc.replyCount || 0,
+    replies: (sc.replies || []).map((r: any, ri: number) => mapComment(r, ri)),
+    createdAt: sc.createdAt || new Date().toISOString(),
   };
 }
 
@@ -141,6 +196,12 @@ export const scraperBridge = {
     const videos = raw.slice(0, limit).map(toOrkyVideo);
     setCached(videos);
     return videos;
+  },
+
+  /** Récupère les vrais commentaires d'une vidéo scrapée. */
+  async getComments(videoId: string): Promise<Comment[]> {
+    const raw = await fetchComments(videoId);
+    return raw.map(mapComment);
   },
 
   async refresh(): Promise<void> {
