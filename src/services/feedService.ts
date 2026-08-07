@@ -225,7 +225,15 @@ export const feedService = {
     videoId: string,
     params?: PaginationParams
   ): Promise<{ comments: Comment[]; hasMore: boolean; cursor: string | null }> => {
-    if (USE_DEMO) return { comments: [], hasMore: false, cursor: null };
+    if (USE_DEMO) {
+      // Try scraper comments first (real data from TikTok scrapes)
+      if (await useScraper()) {
+        const { scraperBridge } = await import('./scraperBridge');
+        const comments = await scraperBridge.getComments(videoId);
+        if (comments.length > 0) return { comments, hasMore: false, cursor: null };
+      }
+      return { comments: [], hasMore: false, cursor: null };
+    }
     const page = Number(params?.cursor ?? 1);
     const limit = params?.limit ?? 20;
     const raw = await apiClient.get<{ comments: BackendComment[]; page: number; limit: number }>(`/videos/${videoId}/comments`, {

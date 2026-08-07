@@ -9,7 +9,9 @@
 
 import type { Video, User, Sound, Comment } from '@/types';
 
-const SCRAPER_API = 'http://127.0.0.1:8502';
+// En prod : NEXT_PUBLIC_SCRAPER_API_URL=http://scraper-api:8502 (nom du service Docker)
+// En local : pas besoin de variable, fallback sur 127.0.0.1:8502
+const SCRAPER_API = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8502';
 
 interface ScraperVideo {
   id: string;
