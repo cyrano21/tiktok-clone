@@ -28,6 +28,10 @@ interface BackendUser {
   createdAt?: string;
 }
 
+type BackendHashtag =
+  | { id: string; name: string }
+  | { hashtag: { id: string; name: string } };
+
 interface BackendVideo {
   id: string;
   user: BackendUser;
@@ -48,7 +52,7 @@ interface BackendVideo {
   allowStitch?: boolean;
   sound?: { id: string; title: string; artist?: string | null; coverUrl?: string | null } | null;
   soundId?: string | null;
-  hashtags?: Array<{ id: string; name: string }>;
+  hashtags?: BackendHashtag[];
 }
 
 interface BackendComment {
@@ -79,6 +83,10 @@ function mapUser(u: BackendUser): User {
   };
 }
 
+function unwrapHashtag(input: BackendHashtag) {
+  return 'hashtag' in input ? input.hashtag : input;
+}
+
 function mapVideo(v: BackendVideo): Video {
   const sound = v.sound
     ? {
@@ -107,13 +115,16 @@ function mapVideo(v: BackendVideo): Video {
     duration: v.duration ?? 0,
     isLiked: false,
     isSaved: false,
-    hashtags: (v.hashtags ?? []).map((h) => ({
-      id: h.id,
-      name: h.name,
-      viewsCount: 0,
-      videosCount: 0,
-      isFollowing: false,
-    })),
+    hashtags: (v.hashtags ?? []).map((input) => {
+      const hashtag = unwrapHashtag(input);
+      return {
+        id: hashtag.id,
+        name: hashtag.name,
+        viewsCount: 0,
+        videosCount: 0,
+        isFollowing: false,
+      };
+    }),
     sound,
     location: null,
     createdAt: v.createdAt ?? new Date().toISOString(),
