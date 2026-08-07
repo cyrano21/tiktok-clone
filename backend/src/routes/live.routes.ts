@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { AccessToken, WebhookReceiver } from 'livekit-server-sdk';
+import { AccessToken, TrackSource, WebhookReceiver } from 'livekit-server-sdk';
 import { z } from 'zod';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
@@ -49,7 +49,14 @@ async function createLiveKitToken(input: {
     canSubscribe: true,
     canPublishData: true,
     ...(input.canPublish
-      ? { canPublishSources: ['camera', 'microphone', 'screen_share', 'screen_share_audio'] }
+      ? {
+          canPublishSources: [
+            TrackSource.CAMERA,
+            TrackSource.MICROPHONE,
+            TrackSource.SCREEN_SHARE,
+            TrackSource.SCREEN_SHARE_AUDIO,
+          ],
+        }
       : {}),
   });
 
@@ -78,22 +85,24 @@ const publicUserSelect = {
 } as const;
 
 async function adjustViewerCount(roomName: string, delta: 1 | -1, participantIdentity?: string) {
-  const stream = await prisma.liveStream.findUnique({
-    where: { streamKey: roomName },
-    select: { id: true, userId: true, viewerCount: true, status: true },
-  });
-  if (!stream || stream.status !== 'live') return;
-  if (participantIdentity && participantIdentity === stream.userId) return;
+  await prisma.$transaction(async (tx) => {
+    const stream = await tx.liveStream.findUnique({
+      where: { streamKey: roomName },
+      select: { id: true, userId: true, viewerCount: true, status: true },
+    });
+    if (!stream || stream.status !== 'live') return;
+    if (participantIdentity && participantIdentity === stream.userId) return;
 
-  await prisma.liveStream.update({
-    where: { id: stream.id },
-    data: { viewerCount: Math.max(0, stream.viewerCount + delta) },
+    await tx.liveStream.update({
+      where: { id: stream.id },
+      data: { viewerCount: Math.max(0, stream.viewerCount + delta) },
+    });
   });
 }
 
 export async function liveRoutes(app: FastifyInstance) {
-  // LiveKit webhooks use their own MIME type and signature. Preserve the exact
-  // raw string for WebhookReceiver verification.
+  // LiveKit signs webhook requests and sends application/webhook+json. Keeping
+  // the exact raw string is mandatory for signature verification.
   app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_req, body, done) => {
     done(null, body);
   });
@@ -152,7 +161,7 @@ export async function liveRoutes(app: FastifyInstance) {
         title,
         status: 'live',
         // Backwards-compatible column. The value is a room identifier, not a
-        // publishing secret; clients only receive it inside authenticated joins.
+        // publishing secret; clients receive it only inside authenticated joins.
         streamKey: roomName,
       },
       include: { user: { select: publicUserSelect } },
