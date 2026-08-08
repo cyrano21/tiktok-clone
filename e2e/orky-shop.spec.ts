@@ -18,6 +18,10 @@ const product = {
     logo: 'https://cdn.example/orchidy-home.png',
     isVerified: true,
   },
+  variants: [
+    { id: 'black', name: 'Noir', stock: 8 },
+    { id: 'red', name: 'Rouge', stock: 5, selectedOptions: { color: 'Rouge' } },
+  ],
   rating: 4.8,
   reviewCount: 128,
   soldCount: 640,
@@ -75,23 +79,56 @@ test.describe('ORKY Shop visual flow', () => {
     await expect(page).toHaveScreenshot('orky-shop-orchidy.png', { fullPage: true });
   });
 
-  test('opens the Orchidy product page and preserves the product in the cart', async ({ page }) => {
+  test('preserves variant and quantity in the secure Orchidy handoff', async ({ page }) => {
     await mockOrchidyCatalog(page);
-    await page.goto('/');
+    let handoffBody: any = null;
 
+    await page.route('**/api/orchidy/checkout-handoff', async (route: Route) => {
+      handoffBody = route.request().postDataJSON();
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          checkoutUrl: 'http://127.0.0.1:3100/handoff-test',
+          expiresAt: new Date(Date.now() + 600_000).toISOString(),
+          currency: 'EUR',
+          total: 59.8,
+          validatedLines: [],
+          clientPricesIgnored: true,
+        }),
+      });
+    });
+    await page.route('**/handoff-test', async (route: Route) => {
+      await route.fulfill({ status: 200, contentType: 'text/html', body: '<h1>Orchidy handoff</h1>' });
+    });
+
+    await page.goto('/');
     await page.getByText('Shop', { exact: true }).last().click();
     await page.getByText('Lampe Sunset', { exact: true }).click();
 
     await expect(page.getByText('Produit Orchidy réel', { exact: true })).toBeVisible();
-    await expect(page.getByText('Vidéo optionnelle', { exact: true })).toBeVisible();
-    await expect(page.getByText('Acheter sur Orchidy', { exact: true })).toBeVisible();
+    await expect(page.getByText('Rouge', { exact: true })).toBeVisible();
+    await page.getByText('Rouge', { exact: true }).click();
+    await page.getByText('+', { exact: true }).click();
     await page.getByText('Ajouter au panier', { exact: true }).click();
     await expect(page.getByText('✓ Ajouté', { exact: true })).toBeVisible();
 
     await page.getByText('🛒').last().click();
-    await expect(page.getByText('Produits Orchidy réels', { exact: true })).toBeVisible();
-    await expect(page.getByText('Le panier ORKY conserve la sélection.', { exact: false })).toBeVisible();
-    await expect(page.getByText('Finaliser sur Orchidy', { exact: true })).toBeVisible();
-    await expect(page).toHaveScreenshot('orky-cart-orchidy.png', { fullPage: true });
+    await expect(page.getByText('Checkout sécurisé par Orchidy', { exact: true })).toBeVisible();
+    await expect(page.getByText('Continuer vers le paiement Orchidy', { exact: true })).toBeVisible();
+    await page.getByText('Continuer vers le paiement Orchidy', { exact: true }).click();
+    await expect(page).toHaveURL(/\/handoff-test$/);
+
+    expect(handoffBody).toEqual(expect.objectContaining({
+      items: [
+        expect.objectContaining({
+          productId: 'product-42',
+          variantKey: 'red',
+          quantity: 2,
+          selectedOptions: { color: 'Rouge' },
+        }),
+      ],
+    }));
   });
 });
