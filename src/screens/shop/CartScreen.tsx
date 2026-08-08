@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
@@ -6,11 +6,7 @@ import { useNavigation } from '@/navigation/NavigationContext';
 import { useCartStore, CartLine } from '@/store/cartStore';
 import { formatPrice } from '@/services/demoShop';
 import { getCachedCommerceProduct } from '@/services/orchidyProducts';
-
-function openExternalProduct(url?: string) {
-  if (!url || typeof window === 'undefined') return;
-  window.open(url, '_blank', 'noopener,noreferrer');
-}
+import { createOrchidyCheckoutHandoff } from '@/services/orchidyCheckout';
 
 export const CartScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
@@ -22,11 +18,33 @@ export const CartScreen: React.FC = () => {
   const subtotal = useCartStore((s) => s.subtotal());
   const shipping = useCartStore((s) => s.shippingTotal());
   const total = useCartStore((s) => s.total());
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
   const orchidyLines = lines.filter((line) => line.productSnapshot.source === 'orchidy');
   const hasOrchidyProducts = orchidyLines.length > 0;
-  const canFinalizeOnOrchidy = orchidyLines.length === lines.length && orchidyLines.length === 1;
-  const firstOrchidyUrl = orchidyLines[0]?.productSnapshot.externalUrl;
+  const hasDemoProducts = lines.some((line) => line.productSnapshot.source !== 'orchidy');
+  const canFinalizeOnOrchidy =
+    lines.length > 0 &&
+    orchidyLines.length === lines.length &&
+    orchidyLines.every((line) => line.productSnapshot.orderable !== false);
+
+  const startOrchidyCheckout = async () => {
+    if (!canFinalizeOnOrchidy || checkoutBusy) return;
+    setCheckoutBusy(true);
+    setCheckoutError(null);
+    try {
+      const handoff = await createOrchidyCheckoutHandoff(orchidyLines);
+      if (typeof window === 'undefined') throw new Error('Redirection indisponible dans cet environnement.');
+      // Never clear the ORKY cart here. Orchidy first validates and creates a one-time
+      // authenticated handoff. Keeping the cart allows retrying a stock/price correction.
+      window.location.assign(handoff.checkoutUrl);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Le checkout Orchidy est indisponible.';
+      setCheckoutError(message);
+      setCheckoutBusy(false);
+    }
+  };
 
   const renderLine = (line: CartLine) => {
     const product = getCachedCommerceProduct(line.productId) || line.productSnapshot;
@@ -36,7 +54,9 @@ export const CartScreen: React.FC = () => {
         <Image source={{ uri: product.images[0] }} style={styles.lineImage} />
         <View style={styles.lineBody}>
           <Text style={styles.lineTitle} numberOfLines={2}>{product.title}</Text>
-          <Text style={styles.lineVariant}>{line.variantLabel}{product.source === 'orchidy' ? ' · Orchidy' : ''}</Text>
+          <Text style={styles.lineVariant}>
+            {line.variantLabel}{product.source === 'orchidy' ? ' · Orchidy' : ' · Démo'}
+          </Text>
           <View style={styles.lineBottom}>
             <Text style={styles.linePrice}>{formatPrice(product.price, product.currency)}</Text>
             <View style={styles.qtyRow}>
@@ -81,9 +101,17 @@ export const CartScreen: React.FC = () => {
           <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
             {hasOrchidyProducts && (
               <View style={styles.orchidyNotice}>
-                <Text style={styles.orchidyNoticeTitle}>Produits Orchidy réels</Text>
+                <Text style={styles.orchidyNoticeTitle}>Checkout sécurisé par Orchidy</Text>
                 <Text style={styles.orchidyNoticeText}>
-                  Le panier ORKY conserve la sélection. Le paiement réel reste côté Orchidy jusqu’au branchement complet du checkout partagé.
+                  ORKY transmet uniquement les identifiants, variantes, options et quantités. Orchidy recalcule prix, stock, devise et livraison avant tout paiement.
+                </Text>
+              </View>
+            )}
+            {hasDemoProducts && (
+              <View style={styles.demoNotice}>
+                <Text style={styles.demoNoticeTitle}>Contenu de démonstration</Text>
+                <Text style={styles.orchidyNoticeText}>
+                  Les produits démo ne peuvent jamais être envoyés au checkout Orchidy. Retire-les du panier pour continuer avec des produits réels.
                 </Text>
               </View>
             )}
@@ -92,32 +120,39 @@ export const CartScreen: React.FC = () => {
 
           <View style={[styles.summary, { paddingBottom: Math.max(insets.bottom, tokens.spacing.md) }]}>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Sous-total</Text>
+              <Text style={styles.summaryLabel}>Sous-total estimé dans ORKY</Text>
               <Text style={styles.summaryValue}>{formatPrice(subtotal)}</Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Livraison</Text>
+              <Text style={styles.summaryLabel}>Livraison estimée</Text>
               <Text style={[styles.summaryValue, shipping === 0 && styles.freeShip]}>
                 {shipping === 0 ? 'Offerte' : formatPrice(shipping)}
               </Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.summaryRow}>
-              <Text style={styles.totalLabel}>Total</Text>
+              <Text style={styles.totalLabel}>Estimation ORKY</Text>
               <Text style={styles.totalValue}>{formatPrice(total)}</Text>
             </View>
-            {hasOrchidyProducts && !canFinalizeOnOrchidy && (
+            {hasOrchidyProducts && (
               <Text style={styles.checkoutHint}>
-                Finalisation groupée indisponible : ouvre chaque fiche produit Orchidy séparément.
+                Le montant final affiché par Orchidy fait foi après revalidation du catalogue et de la livraison.
               </Text>
             )}
+            {checkoutError ? <Text style={styles.checkoutError}>{checkoutError}</Text> : null}
             <TouchableOpacity
-              style={[styles.checkoutBtn, hasOrchidyProducts && !canFinalizeOnOrchidy && styles.checkoutDisabled]}
-              disabled={hasOrchidyProducts && !canFinalizeOnOrchidy}
-              onPress={() => canFinalizeOnOrchidy ? openExternalProduct(firstOrchidyUrl) : nav.push('shop.checkout')}
+              style={[styles.checkoutBtn, (!canFinalizeOnOrchidy || checkoutBusy) && styles.checkoutDisabled]}
+              disabled={!canFinalizeOnOrchidy || checkoutBusy}
+              onPress={canFinalizeOnOrchidy ? startOrchidyCheckout : () => nav.push('shop.checkout')}
             >
               <Text style={styles.checkoutText}>
-                {canFinalizeOnOrchidy ? 'Finaliser sur Orchidy' : hasOrchidyProducts ? 'Checkout groupé indisponible' : 'Passer la commande'}
+                {checkoutBusy
+                  ? 'Vérification Orchidy…'
+                  : canFinalizeOnOrchidy
+                    ? 'Continuer vers le paiement Orchidy'
+                    : hasOrchidyProducts
+                      ? 'Retirer les lignes non éligibles'
+                      : 'Passer la commande démo'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -129,7 +164,6 @@ export const CartScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.colors.bg },
-  center: { justifyContent: 'center', alignItems: 'center', paddingHorizontal: tokens.spacing.xl, gap: tokens.spacing.sm },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -142,10 +176,12 @@ const styles = StyleSheet.create({
   backIcon: { color: tokens.colors.white, fontSize: 24, width: 28 },
   headerTitle: { color: tokens.colors.white, fontSize: tokens.typography.title.fontSize, fontWeight: '700' },
   placeholder: { width: 28 },
-  list: { padding: tokens.spacing.md, gap: tokens.spacing.md, paddingBottom: 120 },
+  list: { padding: tokens.spacing.md, gap: tokens.spacing.md, paddingBottom: 150 },
   orchidyNotice: { backgroundColor: tokens.colors.brand.primary + '18', borderRadius: tokens.radius.md, padding: tokens.spacing.md, gap: 4 },
   orchidyNoticeTitle: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '800' },
   orchidyNoticeText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
+  demoNotice: { backgroundColor: tokens.colors.semantic.warning + '18', borderRadius: tokens.radius.md, padding: tokens.spacing.md, gap: 4 },
+  demoNoticeTitle: { color: tokens.colors.semantic.warning, fontSize: tokens.typography.body.fontSize, fontWeight: '800' },
   line: { flexDirection: 'row', gap: tokens.spacing.sm, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.sm },
   lineImage: { width: 84, height: 84, borderRadius: tokens.radius.sm, backgroundColor: tokens.colors.surface },
   lineBody: { flex: 1, justifyContent: 'space-between' },
@@ -167,7 +203,8 @@ const styles = StyleSheet.create({
   divider: { height: 0.5, backgroundColor: tokens.colors.surface, marginVertical: tokens.spacing.xs },
   totalLabel: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700' },
   totalValue: { color: tokens.colors.brand.primary, fontSize: tokens.typography.title.fontSize, fontWeight: '800' },
-  checkoutHint: { color: tokens.colors.semantic.warning, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
+  checkoutHint: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
+  checkoutError: { color: tokens.colors.semantic.error, fontSize: tokens.typography.caption.fontSize, lineHeight: 17, fontWeight: '700' },
   checkoutBtn: { height: 50, borderRadius: tokens.radius.sm, backgroundColor: tokens.colors.brand.primary, justifyContent: 'center', alignItems: 'center', marginTop: tokens.spacing.sm },
   checkoutDisabled: { opacity: 0.45 },
   checkoutText: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800' },
