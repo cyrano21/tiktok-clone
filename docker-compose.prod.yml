@@ -151,6 +151,7 @@ services:
       NEXT_PUBLIC_ORCHIDY_BASE_URL: ${NEXT_PUBLIC_ORCHIDY_BASE_URL:-https://orchidy.fr}
       NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-false}
       ORCHIDY_API_BASE_URL: ${ORCHIDY_API_BASE_URL:-https://orchidy.fr}
+      ORKY_CHECKOUT_HANDOFF_SECRET: ${ORKY_CHECKOUT_HANDOFF_SECRET:?ORKY_CHECKOUT_HANDOFF_SECRET is required}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
     depends_on:
       api:
