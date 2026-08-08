@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { Product, getProductById } from "@/services/demoShop";
-import { CommerceProduct, getCachedCommerceProduct } from "@/services/orchidyProducts";
+import { CommerceProduct, CommerceVariant, getCachedCommerceProduct } from "@/services/orchidyProducts";
 
 export interface CartLine {
   key: string; // productId + variantId
@@ -44,7 +44,8 @@ export const useCartStore = create<CartStore>((set, get) => ({
   addToCart: (product, variantId, quantity = 1) => {
     const variant = product.variants.find(v => v.id === variantId) ?? product.variants[0] ?? { id: 'default', label: 'Standard' };
     const key = `${product.id}__${variant.id}`;
-    const selectedOptions = 'selectedOptions' in variant ? variant.selectedOptions : undefined;
+    const selectedOptions: Record<string, string> | undefined =
+      (variant as CommerceVariant).selectedOptions;
     set(state => {
       const existing = state.lines.find(l => l.key === key);
       if (existing) {

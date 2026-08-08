@@ -76,11 +76,11 @@ function variantOptions(variant: any): Record<string, string> | undefined {
       ? variant.optionValues
       : [];
   const entries = attributes
-    .map((entry: any) => [
+    .map((entry: any): readonly [string, string] => [
       asText(entry?.name || entry?.key || entry?.option || entry?.label),
       asText(entry?.value || entry?.valueName || entry?.selection),
-    ] as const)
-    .filter(([key, value]) => key && value)
+    ])
+    .filter(([key, value]: readonly [string, string]) => Boolean(key && value))
     .slice(0, 20);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
