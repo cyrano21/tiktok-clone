@@ -24,6 +24,10 @@ interface FeedActions {
 
 type FeedStore = FeedState & FeedActions;
 
+function isReadOnly(video: Video | undefined) {
+  return video?.interactionMode === 'read_only' || video?.sourceType === 'external_reference';
+}
+
 export const useFeedStore = create<FeedStore>((set, get) => ({
   videos: [],
   currentIndex: 0,
@@ -97,49 +101,69 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
     set({ currentIndex: index });
     const { videos } = get();
     if (index >= videos.length - 3) {
-      get().loadMore();
+      void get().loadMore();
     }
   },
 
   performAction: async (videoId: string, action: FeedAction) => {
-    try {
-      await feedService.performAction(videoId, action);
-    } catch (error) {
-      console.error(`Failed to perform action ${action}:`, error);
-    }
+    await feedService.performAction(videoId, action);
   },
 
   toggleLike: (videoId: string) => {
+    const before = get().videos.find((video) => video.id === videoId);
+    if (!before || isReadOnly(before)) return;
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
           ? {
               ...video,
               isLiked: !video.isLiked,
-              likesCount: video.isLiked ? video.likesCount - 1 : video.likesCount + 1,
+              likesCount: Math.max(0, video.isLiked ? video.likesCount - 1 : video.likesCount + 1),
             }
-          : video
+          : video,
       ),
     }));
-    get().performAction(videoId, 'like');
+    void get().performAction(videoId, 'like').catch(() => {
+      set((state) => ({
+        videos: state.videos.map((video) =>
+          video.id === videoId
+            ? { ...video, isLiked: before.isLiked, likesCount: before.likesCount }
+            : video,
+        ),
+      }));
+    });
   },
 
   toggleSave: (videoId: string) => {
+    const before = get().videos.find((video) => video.id === videoId);
+    if (!before || isReadOnly(before)) return;
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
           ? {
               ...video,
               isSaved: !video.isSaved,
-              savesCount: video.isSaved ? video.savesCount - 1 : video.savesCount + 1,
+              savesCount: Math.max(0, video.isSaved ? video.savesCount - 1 : video.savesCount + 1),
             }
-          : video
+          : video,
       ),
     }));
-    get().performAction(videoId, 'save');
+    void get().performAction(videoId, 'save').catch(() => {
+      set((state) => ({
+        videos: state.videos.map((video) =>
+          video.id === videoId
+            ? { ...video, isSaved: before.isSaved, savesCount: before.savesCount }
+            : video,
+        ),
+      }));
+    });
   },
 
   toggleFollow: (userId: string) => {
+    const related = get().videos.find((video) => video.user.id === userId);
+    if (!related || isReadOnly(related)) return;
+    const beforeFollowing = related.user.isFollowing;
+    const beforeFollowers = related.user.followersCount;
     set((state) => ({
       videos: state.videos.map((video) =>
         video.user.id === userId
@@ -148,14 +172,25 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
               user: {
                 ...video.user,
                 isFollowing: !video.user.isFollowing,
-                followersCount: video.user.isFollowing
+                followersCount: Math.max(0, video.user.isFollowing
                   ? video.user.followersCount - 1
-                  : video.user.followersCount + 1,
+                  : video.user.followersCount + 1),
               },
             }
-          : video
+          : video,
       ),
     }));
-    get().performAction(userId, 'follow');
+    void get().performAction(userId, 'follow').catch(() => {
+      set((state) => ({
+        videos: state.videos.map((video) =>
+          video.user.id === userId
+            ? {
+                ...video,
+                user: { ...video.user, isFollowing: beforeFollowing, followersCount: beforeFollowers },
+              }
+            : video,
+        ),
+      }));
+    });
   },
 }));
