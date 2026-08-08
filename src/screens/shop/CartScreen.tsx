@@ -109,9 +109,9 @@ export const CartScreen: React.FC = () => {
             )}
             {hasDemoProducts && (
               <View style={styles.demoNotice}>
-                <Text style={styles.demoNoticeTitle}>Contenu de démonstration</Text>
+                <Text style={styles.demoNoticeTitle}>Contenu de démonstration — aucun paiement</Text>
                 <Text style={styles.orchidyNoticeText}>
-                  Les produits démo ne peuvent jamais être envoyés au checkout Orchidy. Retire-les du panier pour continuer avec des produits réels.
+                  Les produits démo sont uniquement destinés à explorer l’interface. Ils ne peuvent jamais être commandés ni envoyés au checkout Orchidy.
                 </Text>
               </View>
             )}
@@ -143,7 +143,7 @@ export const CartScreen: React.FC = () => {
             <TouchableOpacity
               style={[styles.checkoutBtn, (!canFinalizeOnOrchidy || checkoutBusy) && styles.checkoutDisabled]}
               disabled={!canFinalizeOnOrchidy || checkoutBusy}
-              onPress={canFinalizeOnOrchidy ? startOrchidyCheckout : () => nav.push('shop.checkout')}
+              onPress={startOrchidyCheckout}
             >
               <Text style={styles.checkoutText}>
                 {checkoutBusy
@@ -152,7 +152,7 @@ export const CartScreen: React.FC = () => {
                     ? 'Continuer vers le paiement Orchidy'
                     : hasOrchidyProducts
                       ? 'Retirer les lignes non éligibles'
-                      : 'Passer la commande démo'}
+                      : 'Paiement indisponible en mode démo'}
               </Text>
             </TouchableOpacity>
           </View>
