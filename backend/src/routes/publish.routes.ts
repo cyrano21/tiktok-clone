@@ -1,109 +1,81 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { authMiddleware } from '../middleware/auth';
+import { capabilitiesFromScopes } from '../config/tiktok';
+import { getSummary } from '../services/tiktokAccount.repository';
 import { prisma } from '../config/database';
-
-const PLATFORMS = [
-  {
-    id: 'tiktok',
-    name: 'TikTok',
-    icon: '🎵',
-    connected: false, // true when user has a TikTokAccount
-  },
-  { id: 'reels', name: 'Instagram Reels', icon: '📸', connected: false },
-  { id: 'shorts', name: 'YouTube Shorts', icon: '▶️', connected: false },
-];
 
 export async function publishRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
-  // Platform connection status (tiktok is real via TikTokAccount; others need setup)
+  // This endpoint now reports actual delivery capability, not planned product scope.
   app.get('/platforms', async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
-    const tiktok = await prisma.tikTokAccount.findUnique({ where: { userId } });
+    const userId = (req as any).userId as string;
+    const tiktok = await getSummary(userId);
+    const capabilities = capabilitiesFromScopes(tiktok?.scope ?? '');
     return reply.send({
-      platforms: PLATFORMS.map((p) =>
-        p.id === 'tiktok' ? { ...p, connected: !!tiktok } : p
-      ),
+      platforms: [
+        {
+          id: 'tiktok',
+          name: 'TikTok',
+          icon: '🎵',
+          connected: Boolean(tiktok),
+          available: Boolean(tiktok && (capabilities.canPublish || capabilities.canUploadDraft)),
+          capability: tiktok && (capabilities.canPublish || capabilities.canUploadDraft) ? 'direct_post' : 'connection_only',
+          message: !tiktok
+            ? 'Connectez TikTok.'
+            : capabilities.canPublish || capabilities.canUploadDraft
+              ? 'La publication immédiate passe par l’API officielle TikTok.'
+              : 'Le compte est connecté en lecture, mais les scopes Content Posting ne sont pas approuvés.',
+        },
+        {
+          id: 'reels',
+          name: 'Instagram Reels',
+          icon: '📸',
+          connected: false,
+          available: false,
+          capability: 'unavailable',
+          message: 'Connecteur de publication non implémenté.',
+        },
+        {
+          id: 'shorts',
+          name: 'YouTube Shorts',
+          icon: '▶️',
+          connected: false,
+          available: false,
+          capability: 'unavailable',
+          message: 'Connecteur de publication non implémenté.',
+        },
+      ],
     });
   });
 
-  // List the user's publish jobs
+  // Historical jobs remain visible so old records are not lost. New fake
+  // scheduling is disabled until a delivery worker exists.
   app.get('/', async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
-    const { page = '1', limit = '20' } = req.query as any;
+    const userId = (req as any).userId as string;
+    const query = req.query as { page?: string; limit?: string };
+    const page = Math.max(1, Number.parseInt(query.page || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(query.limit || '20', 10) || 20));
     const jobs = await prisma.publishJob.findMany({
       where: { userId },
       orderBy: { createdAt: 'desc' },
-      skip: (parseInt(page) - 1) * parseInt(limit),
-      take: parseInt(limit),
+      skip: (page - 1) * limit,
+      take: limit,
     });
-    return reply.send({ jobs, page: parseInt(page), limit: parseInt(limit) });
+    return reply.send({ jobs, page, limit, schedulingAvailable: false });
   });
 
-  // Schedule a cross-post
-  app.post('/', async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
-    const body = req.body as {
-      videoId?: string;
-      videoUrl?: string;
-      caption?: string;
-      platforms: string[];
-      scheduledAt?: string;
-    };
-    if (!Array.isArray(body.platforms) || body.platforms.length === 0) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'platforms[] is required' });
-    }
-    if (!body.videoId && !body.videoUrl) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'videoId or videoUrl is required' });
-    }
-
-    const scheduledAt = body.scheduledAt ? new Date(body.scheduledAt) : new Date();
-    if (isNaN(scheduledAt.getTime())) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'Invalid scheduledAt date' });
-    }
-    if (scheduledAt.getTime() < Date.now() - 60_000) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'scheduledAt cannot be in the past' });
-    }
-
-    const valid = new Set(PLATFORMS.map((p) => p.id));
-    const platforms = body.platforms.filter((p) => valid.has(p));
-    if (platforms.length === 0) {
-      return reply.status(400).send({ error: 'BAD_REQUEST', message: 'No valid platforms provided' });
-    }
-
-    // Plan gating: cross-posting multi-platform is a PRO/BUSINESS feature.
-    const user = await prisma.user.findUnique({ where: { id: userId }, select: { plan: true } });
-    const plan = user?.plan ?? 'FREE';
-    if (plan === 'FREE' && platforms.length > 1) {
-      return reply.status(403).send({
-        error: 'PLAN_LIMIT',
-        message: 'Le plan Freemium permet 1 plateforme par publication. Passe au Pro (9,99€/mois) pour le cross-posting multi-plateformes.',
-      });
-    }
-
-    const jobs = [];
-    for (const platform of platforms) {
-      jobs.push(
-        await prisma.publishJob.create({
-          data: {
-            userId,
-            videoId: body.videoId ?? null,
-            videoUrl: body.videoUrl ?? null,
-            caption: body.caption ?? null,
-            platform,
-            status: 'scheduled',
-            scheduledAt,
-          },
-        })
-      );
-    }
-    return reply.status(201).send({ jobs });
+  app.post('/', async (_req: FastifyRequest, reply: FastifyReply) => {
+    return reply.status(501).send({
+      error: 'PUBLISH_WORKER_NOT_AVAILABLE',
+      message: 'La publication programmée multi-plateformes n’est pas encore disponible. Aucun job fictif n’a été créé.',
+      availableAlternative: '/v1/tiktok/publish',
+    });
   });
 
-  // Cancel a scheduled job
   app.post('/:id/cancel', async (req: FastifyRequest, reply: FastifyReply) => {
-    const userId = (req as any).userId;
-    const { id } = req.params as any;
+    const userId = (req as any).userId as string;
+    const { id } = req.params as { id: string };
     const job = await prisma.publishJob.findFirst({ where: { id, userId } });
     if (!job) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Job not found' });
     if (job.status !== 'scheduled') {
