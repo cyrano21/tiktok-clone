@@ -140,13 +140,17 @@ services:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?NEXT_PUBLIC_API_BASE_URL is required}
         NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
         NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
+        NEXT_PUBLIC_ORCHIDY_BASE_URL: ${NEXT_PUBLIC_ORCHIDY_BASE_URL:-https://orchidy.fr}
+        NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-true}
     restart: unless-stopped
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:?NEXT_PUBLIC_API_BASE_URL is required}
       NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
-      # Client uses the same-origin Next.js proxy; the server uses the Docker hostname.
       NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
+      NEXT_PUBLIC_ORCHIDY_BASE_URL: ${NEXT_PUBLIC_ORCHIDY_BASE_URL:-https://orchidy.fr}
+      NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-true}
+      ORCHIDY_API_BASE_URL: ${ORCHIDY_API_BASE_URL:-https://orchidy.fr}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
     depends_on:
       api:
