@@ -1,4 +1,4 @@
-import type { CartLine } from '@/store/cartStore';
+import { useCartStore, type CartLine } from '@/store/cartStore';
 
 export type OrchidyHandoffValidatedLine = {
   productId: string | null;
@@ -74,5 +74,9 @@ export async function createOrchidyCheckoutHandoff(
     (error as any).details = payload;
     throw error;
   }
+
+  // Persist exactly the quantities that left ORKY. A later signed receipt removes
+  // only these quantities, never a new item the user may have added in another tab.
+  useCartStore.getState().markHandoff(String(payload.handoffId), lines);
   return payload as OrchidyHandoffResponse;
 }
