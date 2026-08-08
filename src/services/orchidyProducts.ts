@@ -1,6 +1,11 @@
-import { Product, ProductCategory, getProductById, getProducts } from './demoShop';
+import { Product, ProductCategory, ProductVariant, getProductById, getProducts } from './demoShop';
 
-export type CommerceProduct = Product & {
+export type CommerceVariant = ProductVariant & {
+  selectedOptions?: Record<string, string>;
+};
+
+export type CommerceProduct = Omit<Product, 'variants'> & {
+  variants: CommerceVariant[];
   source?: 'demo' | 'orchidy';
   externalId?: string;
   externalSlug?: string;
@@ -32,6 +37,7 @@ export interface ProductQuery {
 
 const productCache = new Map<string, CommerceProduct>();
 const ORCHIDY_SOURCE = 'orchidy' as const;
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 
 function asNumber(value: unknown, fallback = 0): number {
   const number = Number(value);
@@ -49,7 +55,48 @@ function firstImage(product: any): string[] {
     : [];
   const image = asText(product?.image || product?.thumbnailUrl || product?.coverUrl);
   if (image && !images.includes(image)) images.unshift(image);
-  return images.length > 0 ? images : ['https://picsum.photos/seed/orchidy-product/600/800'];
+  return images.length > 0 ? images : ['/logo_orky.png'];
+}
+
+function normalizeSelectedOptions(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([key, raw]) => [String(key).trim(), String(raw).trim()] as const)
+    .filter(([key, raw]) => key && raw)
+    .slice(0, 20);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function variantOptions(variant: any): Record<string, string> | undefined {
+  const direct = normalizeSelectedOptions(variant?.selectedOptions || variant?.options);
+  if (direct) return direct;
+  const attributes = Array.isArray(variant?.attributes)
+    ? variant.attributes
+    : Array.isArray(variant?.optionValues)
+      ? variant.optionValues
+      : [];
+  const entries = attributes
+    .map((entry: any) => [
+      asText(entry?.name || entry?.key || entry?.option || entry?.label),
+      asText(entry?.value || entry?.valueName || entry?.selection),
+    ] as const)
+    .filter(([key, value]) => key && value)
+    .slice(0, 20);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function resolveVariants(product: any): CommerceVariant[] {
+  const raw = Array.isArray(product?.variants) ? product.variants : [];
+  const variants = raw.flatMap((variant: any, index: number) => {
+    const id = asText(variant?.id || variant?._id || variant?.sku || variant?.externalId);
+    if (!id) return [];
+    const label = asText(
+      variant?.title || variant?.name || variant?.label || variant?.sku,
+      `Variante ${index + 1}`,
+    );
+    return [{ id, label, selectedOptions: variantOptions(variant) }];
+  });
+  return variants.length ? variants : [{ id: 'default', label: 'Standard' }];
 }
 
 function resolveStore(product: any) {
@@ -78,7 +125,6 @@ function buildExternalUrl(product: any): string {
   const base = (process.env.NEXT_PUBLIC_ORCHIDY_BASE_URL || 'https://orchidy.fr').replace(/\/$/, '');
   const slug = asText(product?.slug || product?.seo?.slug || product?._id || product?.id);
   if (!slug) return base;
-  // Orchidy's canonical public product page is singular /product/[slug].
   return `${base}/product/${encodeURIComponent(slug)}`;
 }
 
@@ -109,7 +155,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     shopAvatar: store.avatar,
     category: resolveCategory(product),
     freeShipping: Boolean(product?.freeShipping || product?.readyToShip || product?.delivery === 'fast'),
-    variants: [{ id: 'default', label: 'Standard' }],
+    variants: resolveVariants(product),
     badges: [
       ORCHIDY_SOURCE.toUpperCase(),
       ...(orderable ? ['Achetable'] : ['Indisponible']),
@@ -131,6 +177,10 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
   return mapped;
 }
 
+function demoProducts(category: ProductCategory): CommerceProduct[] {
+  return USE_DEMO ? getProducts(category).map((product) => ({ ...product, source: 'demo' as const })) : [];
+}
+
 export async function getCommerceProducts(query: ProductQuery = {}): Promise<CommerceProduct[]> {
   const params = new URLSearchParams();
   params.set('limit', String(query.limit ?? 24));
@@ -147,9 +197,9 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
     if (!response.ok) throw new Error(`Orchidy products unavailable (${response.status})`);
     const payload = await response.json() as OrchidySearchResponse;
     const products = Array.isArray(payload.products) ? payload.products.map(mapOrchidyProduct) : [];
-    return products.length > 0 ? products : getProducts(query.category ?? 'all').map((product) => ({ ...product, source: 'demo' }));
+    return products.length > 0 ? products : demoProducts(query.category ?? 'all');
   } catch {
-    return getProducts(query.category ?? 'all').map((product) => ({ ...product, source: 'demo' }));
+    return demoProducts(query.category ?? 'all');
   }
 }
 
@@ -157,8 +207,10 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
   const cached = productCache.get(productId);
   if (cached) return cached;
 
-  const demo = getProductById(productId);
-  if (demo) return { ...demo, source: 'demo' };
+  if (USE_DEMO) {
+    const demo = getProductById(productId);
+    if (demo) return { ...demo, source: 'demo' };
+  }
 
   if (productId.startsWith('orchidy:')) {
     const rawId = productId.slice('orchidy:'.length);
@@ -172,7 +224,7 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
         if (payload.product) return mapOrchidyProduct(payload.product);
       }
     } catch {
-      // Fall through to a bounded search for older Orchidy deployments.
+      // Fall through to bounded search.
     }
 
     const products = await getCommerceProducts({ query: rawId, limit: 20, sort: 'relevance' });
@@ -187,5 +239,5 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
 }
 
 export function getCachedCommerceProduct(productId: string): CommerceProduct | undefined {
-  return productCache.get(productId) || getProductById(productId);
+  return productCache.get(productId) || (USE_DEMO ? getProductById(productId) : undefined);
 }
