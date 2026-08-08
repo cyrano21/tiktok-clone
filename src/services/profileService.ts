@@ -1,7 +1,8 @@
 import { apiClient } from './api';
 
-// Demo mode is ON — uses local demo data (no backend required).
-const USE_DEMO = true;
+// Local development keeps the demo catalog unless explicitly disabled.
+// Production sets NEXT_PUBLIC_USE_DEMO=false so account data comes from the API.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 
 export interface ProfileUser {
   id: string;

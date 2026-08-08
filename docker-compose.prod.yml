@@ -141,7 +141,7 @@ services:
         NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
         NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
         NEXT_PUBLIC_ORCHIDY_BASE_URL: ${NEXT_PUBLIC_ORCHIDY_BASE_URL:-https://orchidy.fr}
-        NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-true}
+        NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-false}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -149,7 +149,7 @@ services:
       NEXT_PUBLIC_SCRAPER_URL: ${NEXT_PUBLIC_SCRAPER_URL:-}
       NEXT_PUBLIC_SCRAPER_API_URL: ${NEXT_PUBLIC_SCRAPER_API_URL:-/api/scraper}
       NEXT_PUBLIC_ORCHIDY_BASE_URL: ${NEXT_PUBLIC_ORCHIDY_BASE_URL:-https://orchidy.fr}
-      NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-true}
+      NEXT_PUBLIC_USE_DEMO: ${NEXT_PUBLIC_USE_DEMO:-false}
       ORCHIDY_API_BASE_URL: ${ORCHIDY_API_BASE_URL:-https://orchidy.fr}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
     depends_on:

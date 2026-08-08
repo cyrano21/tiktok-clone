@@ -23,8 +23,10 @@ export const CartScreen: React.FC = () => {
   const shipping = useCartStore((s) => s.shippingTotal());
   const total = useCartStore((s) => s.total());
 
-  const hasOrchidyProducts = lines.some((line) => line.productSnapshot.source === 'orchidy');
-  const firstOrchidyUrl = lines.find((line) => line.productSnapshot.source === 'orchidy')?.productSnapshot.externalUrl;
+  const orchidyLines = lines.filter((line) => line.productSnapshot.source === 'orchidy');
+  const hasOrchidyProducts = orchidyLines.length > 0;
+  const canFinalizeOnOrchidy = orchidyLines.length === lines.length && orchidyLines.length === 1;
+  const firstOrchidyUrl = orchidyLines[0]?.productSnapshot.externalUrl;
 
   const renderLine = (line: CartLine) => {
     const product = getCachedCommerceProduct(line.productId) || line.productSnapshot;
@@ -104,11 +106,19 @@ export const CartScreen: React.FC = () => {
               <Text style={styles.totalLabel}>Total</Text>
               <Text style={styles.totalValue}>{formatPrice(total)}</Text>
             </View>
+            {hasOrchidyProducts && !canFinalizeOnOrchidy && (
+              <Text style={styles.checkoutHint}>
+                Finalisation groupée indisponible : ouvre chaque fiche produit Orchidy séparément.
+              </Text>
+            )}
             <TouchableOpacity
-              style={styles.checkoutBtn}
-              onPress={() => hasOrchidyProducts ? openExternalProduct(firstOrchidyUrl) : nav.push('shop.checkout')}
+              style={[styles.checkoutBtn, hasOrchidyProducts && !canFinalizeOnOrchidy && styles.checkoutDisabled]}
+              disabled={hasOrchidyProducts && !canFinalizeOnOrchidy}
+              onPress={() => canFinalizeOnOrchidy ? openExternalProduct(firstOrchidyUrl) : nav.push('shop.checkout')}
             >
-              <Text style={styles.checkoutText}>{hasOrchidyProducts ? 'Finaliser sur Orchidy' : 'Passer la commande'}</Text>
+              <Text style={styles.checkoutText}>
+                {canFinalizeOnOrchidy ? 'Finaliser sur Orchidy' : hasOrchidyProducts ? 'Checkout groupé indisponible' : 'Passer la commande'}
+              </Text>
             </TouchableOpacity>
           </View>
         </>
@@ -157,7 +167,9 @@ const styles = StyleSheet.create({
   divider: { height: 0.5, backgroundColor: tokens.colors.surface, marginVertical: tokens.spacing.xs },
   totalLabel: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700' },
   totalValue: { color: tokens.colors.brand.primary, fontSize: tokens.typography.title.fontSize, fontWeight: '800' },
+  checkoutHint: { color: tokens.colors.semantic.warning, fontSize: tokens.typography.caption.fontSize, lineHeight: 17 },
   checkoutBtn: { height: 50, borderRadius: tokens.radius.sm, backgroundColor: tokens.colors.brand.primary, justifyContent: 'center', alignItems: 'center', marginTop: tokens.spacing.sm },
+  checkoutDisabled: { opacity: 0.45 },
   checkoutText: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800' },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: tokens.spacing.sm, paddingHorizontal: tokens.spacing.xl },
   emptyEmoji: { fontSize: 56 },

@@ -21,5 +21,7 @@ export default defineConfig({
     url: 'http://127.0.0.1:3100',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // Exercise the real API code paths; individual specs provide deterministic API fixtures.
+    env: { NEXT_PUBLIC_USE_DEMO: 'false' },
   },
 });

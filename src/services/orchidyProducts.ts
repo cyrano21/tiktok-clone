@@ -78,7 +78,8 @@ function buildExternalUrl(product: any): string {
   const base = (process.env.NEXT_PUBLIC_ORCHIDY_BASE_URL || 'https://orchidy.fr').replace(/\/$/, '');
   const slug = asText(product?.slug || product?.seo?.slug || product?._id || product?.id);
   if (!slug) return base;
-  return `${base}/products/${encodeURIComponent(slug)}`;
+  // Orchidy's canonical public product page is singular /product/[slug].
+  return `${base}/product/${encodeURIComponent(slug)}`;
 }
 
 export function mapOrchidyProduct(product: any): CommerceProduct {
@@ -161,6 +162,19 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
 
   if (productId.startsWith('orchidy:')) {
     const rawId = productId.slice('orchidy:'.length);
+    try {
+      const response = await fetch(`/api/orchidy/products/${encodeURIComponent(rawId)}`, {
+        headers: { accept: 'application/json' },
+        cache: 'no-store',
+      });
+      if (response.ok) {
+        const payload = await response.json() as { product?: unknown };
+        if (payload.product) return mapOrchidyProduct(payload.product);
+      }
+    } catch {
+      // Fall through to a bounded search for older Orchidy deployments.
+    }
+
     const products = await getCommerceProducts({ query: rawId, limit: 20, sort: 'relevance' });
     return products.find((product) =>
       product.id === productId ||
