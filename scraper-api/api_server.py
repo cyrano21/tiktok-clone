@@ -278,8 +278,14 @@ class ScraperAPI(BaseHTTPRequestHandler):
             self._serve_file(cached, "video/mp4")
             return
 
-        # 2) Télécharger dans le cache puis servir
-        downloaded = _download_to_cache(video_id, tiktok_url)
+        # 2) Télécharger dans le cache puis servir. Un seul téléchargement par vidéo.
+        lock = _cache_lock(video_id)
+        with lock:
+            cached = _get_cached_video(video_id)
+            if cached:
+                self._serve_file(cached, "video/mp4")
+                return
+            downloaded = _download_to_cache(video_id, tiktok_url)
         if downloaded:
             self._serve_file(downloaded, "video/mp4")
             return

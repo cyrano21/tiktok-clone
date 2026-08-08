@@ -25,6 +25,8 @@ web-build/
 # Build artifacts / caches
 .temp/
 scraper-api/video_cache/
+__pycache__/
+*.pyc
 *.tsbuildinfo
 .tc.txt
 .build.txt
