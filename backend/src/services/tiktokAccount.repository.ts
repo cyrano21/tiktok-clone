@@ -52,6 +52,14 @@ async function getStoredAccount(userId: string) {
   return prisma.tikTokAccount.findUnique({ where: { userId } });
 }
 
+/** Capability lookup deliberately excludes OAuth token columns. */
+export async function getAccount(userId: string) {
+  return prisma.tikTokAccount.findUnique({
+    where: { userId },
+    select: { scope: true },
+  });
+}
+
 export async function getSummary(
   userId: string,
 ): Promise<ConnectedAccountSummary | null> {
