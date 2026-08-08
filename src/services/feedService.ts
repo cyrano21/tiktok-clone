@@ -14,15 +14,21 @@ import { apiClient } from './api';
 const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 // When the scraper API is available, use REAL scraped TikTok videos.
 let _scraperAvailable: boolean | null = null;
+let _scraperCheckedAt = 0;
+const SCRAPER_CHECK_TTL_MS = 15_000;
+
 async function useScraper(): Promise<boolean> {
-  if (_scraperAvailable !== null) return _scraperAvailable;
+  if (_scraperAvailable !== null && Date.now() - _scraperCheckedAt < SCRAPER_CHECK_TTL_MS) {
+    return _scraperAvailable;
+  }
   try {
     const { scraperBridge } = await import('./scraperBridge');
     _scraperAvailable = await scraperBridge.isAvailable();
   } catch {
     _scraperAvailable = false;
   }
-  return _scraperAvailable ?? false;
+  _scraperCheckedAt = Date.now();
+  return _scraperAvailable;
 }
 
 interface BackendUser {
@@ -169,12 +175,14 @@ function mapFeed(raw: { videos: BackendVideo[]; page?: number; limit?: number })
 
 export const feedService = {
   getFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
+    // Scraper data is real content, not demo data: prefer it whenever the
+    // scraper API is reachable, even when the local demo flag is enabled.
+    if (await useScraper()) {
+      const { scraperBridge } = await import('./scraperBridge');
+      const videos = await scraperBridge.getVideos(params?.limit ?? 10);
+      if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
+    }
     if (USE_DEMO) {
-      if (await useScraper()) {
-        const { scraperBridge } = await import('./scraperBridge');
-        const videos = await scraperBridge.getVideos(params?.limit ?? 10);
-        if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
-      }
       const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
     }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
@@ -185,12 +193,12 @@ export const feedService = {
   },
 
   getFollowingFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
+    if (await useScraper()) {
+      const { scraperBridge } = await import('./scraperBridge');
+      const videos = await scraperBridge.getVideos(params?.limit ?? 10);
+      if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
+    }
     if (USE_DEMO) {
-      if (await useScraper()) {
-        const { scraperBridge } = await import('./scraperBridge');
-        const videos = await scraperBridge.getVideos(params?.limit ?? 10);
-        if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
-      }
       const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
     }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
@@ -201,17 +209,17 @@ export const feedService = {
   },
 
   getVideoById: async (videoId: string): Promise<Video> => {
-    if (USE_DEMO) {
-      // Try scraper bridge first
+    // A scraper id must resolve against the scraper, regardless of demo mode.
+    if (videoId.startsWith('scraper-') || await useScraper()) {
       try {
         const { scraperBridge } = await import('./scraperBridge');
         const videos = await scraperBridge.getVideos(50);
-        // videoId can be "scraper-XXX" or just "XXX"
         const rawId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
         const found = videos.find(v => v.id === videoId || v.id.endsWith(rawId));
         if (found) return found;
-      } catch { /* fallback */ }
-      // Fallback: demo feed
+      } catch { /* fall through to the configured source */ }
+    }
+    if (USE_DEMO) {
       const { getDemoFeed } = await import('./demoFeed');
       const feed = getDemoFeed(1);
       if (feed.videos.length > 0) return feed.videos[0];
@@ -240,15 +248,14 @@ export const feedService = {
     videoId: string,
     params?: PaginationParams
   ): Promise<{ comments: Comment[]; hasMore: boolean; cursor: string | null }> => {
-    if (USE_DEMO) {
-      // Try scraper comments directly (no extra API call to check availability)
-      try {
-        const { scraperBridge } = await import('./scraperBridge');
-        const comments = await scraperBridge.getComments(videoId);
-        if (comments.length > 0) return { comments, hasMore: false, cursor: null };
-      } catch { /* fallback to empty */ }
-      return { comments: [], hasMore: false, cursor: null };
+    // Scraped comments are read-only but real. Do not replace them with demo
+    // content when the backend is unavailable.
+    if (videoId.startsWith('scraper-')) {
+      const { scraperBridge } = await import('./scraperBridge');
+      const comments = await scraperBridge.getComments(videoId);
+      return { comments, hasMore: false, cursor: null };
     }
+    if (USE_DEMO) return { comments: [], hasMore: false, cursor: null };
     const page = Number(params?.cursor ?? 1);
     const limit = params?.limit ?? 20;
     const raw = await apiClient.get<{ comments: BackendComment[]; page: number; limit: number }>(`/videos/${videoId}/comments`, {

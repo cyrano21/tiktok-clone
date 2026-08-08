@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { Video } from '@/types';
 import { FeedItem } from '@/components/core/FeedItem';
+import { CommentSheet } from '@/components/video/CommentSheet';
 import { feedService } from '@/services/feedService';
 import { useNavigation } from '@/navigation/NavigationContext';
 
@@ -16,6 +17,7 @@ export const FollowingScreen: React.FC = () => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [commentsVideo, setCommentsVideo] = useState<Video | null>(null);
 
   const loadFeed = useCallback(async () => {
     try {
@@ -70,7 +72,8 @@ export const FollowingScreen: React.FC = () => {
         video={item}
         isActive={index === currentIndex}
         itemHeight={containerHeight}
-        onCommentPress={() => nav.push('video.comments', { postId: item.id, count: item.commentsCount })}
+        externalPause={commentsVideo !== null}
+        onCommentPress={() => setCommentsVideo(item)}
         onSharePress={() => nav.push('inbox')}
         onProfilePress={() => nav.push('profile')}
         onProductPress={(productId) => nav.push('shop.product', { productId })}
@@ -134,6 +137,8 @@ export const FollowingScreen: React.FC = () => {
         maxToRenderPerBatch={3}
         windowSize={5}
       />
+
+      {commentsVideo && <CommentSheet video={commentsVideo} onClose={() => setCommentsVideo(null)} />}
     </View>
   );
 };

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
 import { FeedItem } from '@/components/core/FeedItem';
+import { CommentSheet } from '@/components/video/CommentSheet';
 import { feedService } from '@/services/feedService';
 import { getDemoFeed } from '@/services/demoFeed';
 import type { Video } from '@/types';
@@ -25,6 +26,7 @@ export const VideoDetailScreen: React.FC = () => {
   const { videoId } = useRouteParams<{ videoId?: string }>();
 
   const [video, setVideo] = useState<Video | null>(null);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,9 +100,8 @@ export const VideoDetailScreen: React.FC = () => {
         video={video}
         isActive
         itemHeight={SCREEN_HEIGHT}
-        onCommentPress={() =>
-          nav.push('video.comments', { postId: video.id, count: video.commentsCount })
-        }
+        externalPause={commentsOpen}
+        onCommentPress={() => setCommentsOpen(true)}
         onSharePress={() => nav.push('inbox')}
         onProfilePress={() => nav.push('profile')}
         onProductPress={(productId) => nav.push('shop.product', { productId })}
@@ -114,6 +115,8 @@ export const VideoDetailScreen: React.FC = () => {
       >
         <Text style={styles.closeIcon}>✕</Text>
       </TouchableOpacity>
+
+      {commentsOpen && video && <CommentSheet video={video} onClose={() => setCommentsOpen(false)} />}
     </View>
   );
 };

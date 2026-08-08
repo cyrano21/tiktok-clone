@@ -7,7 +7,7 @@
  * miniatures TikTok CDN, stats réelles (likes, vues, durée).
  */
 
-import type { Video, User, Sound, Comment } from '@/types';
+import type { Video, User, Comment } from '@/types';
 
 // En prod : NEXT_PUBLIC_SCRAPER_API_URL=http://scraper-api:8502 (nom du service Docker)
 // En local : pas besoin de variable, fallback sur 127.0.0.1:8502
@@ -31,6 +31,10 @@ interface ScraperVideo {
   url: string;
   thumbnailUrl: string;
   hashtags?: string[];
+  creatorUsername?: string;
+  creatorDisplayName?: string;
+  creatorAvatarUrl?: string;
+  createdAt?: string;
   comments?: ScraperComment[];
 }
 
@@ -83,76 +87,67 @@ async function fetchScraperStats(): Promise<ScraperStats | null> {
 }
 
 async function fetchComments(videoId: string): Promise<ScraperComment[]> {
-  try {
-    const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
-    const res = await fetch(scraperUrl(`videos/${realId}/comments`), {
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.comments ?? [];
-  } catch { return []; }
+  const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+  const res = await fetch(scraperUrl(`videos/${realId}/comments`), {
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`Commentaires indisponibles (${res.status})`);
+  const data = await res.json();
+  return data.comments ?? [];
 }
 
-// ── Pools ───────────────────────────────────────────────────────────────
-
-const CREATORS: Array<{id:string;username:string;displayName:string;avatarUrl:string;isVerified:boolean;bio:string}> = [
-  { id:'u0', username:'scraped_tiktok', displayName:'TikTok Scrapé', avatarUrl:'https://i.pravatar.cc/200?img=1', isVerified:false, bio:'Contenu tendance 📈' },
-  { id:'u1', username:'trend_video', displayName:'Trend Video', avatarUrl:'https://i.pravatar.cc/200?img=2', isVerified:true, bio:'Vidéos virales 🔥' },
-  { id:'u2', username:'viral_feed', displayName:'Viral Feed', avatarUrl:'https://i.pravatar.cc/200?img=3', isVerified:false, bio:'Feed quotidien 📱' },
-  { id:'u3', username:'content_fr', displayName:'Content FR', avatarUrl:'https://i.pravatar.cc/200?img=4', isVerified:true, bio:'Créateur français 🇫🇷' },
-  { id:'u4', username:'top_creators', displayName:'Top Creators', avatarUrl:'https://i.pravatar.cc/200?img=5', isVerified:false, bio:'Best of TikTok ⭐' },
-];
-
-const SOUNDS: Sound[] = [
-  { id:'s1', title:'Son original', artist:'scraped_tiktok', coverUrl:'https://picsum.photos/seed/ss1/100', audioUrl:'', duration:30, usageCount:524000, isOriginal:true },
-  { id:'s2', title:'Viral Sound', artist:'trend_video', coverUrl:'https://picsum.photos/seed/ss2/100', audioUrl:'', duration:28, usageCount:1240000, isOriginal:true },
-  { id:'s3', title:'Espresso', artist:'Sabrina Carpenter', coverUrl:'https://picsum.photos/seed/ss3/100', audioUrl:'', duration:30, usageCount:2310000, isOriginal:false },
-  { id:'s4', title:'Flowers', artist:'Miley Cyrus', coverUrl:'https://picsum.photos/seed/ss4/100', audioUrl:'', duration:26, usageCount:1820000, isOriginal:false },
-  { id:'s5', title:'Mon Amour', artist:'Slimane', coverUrl:'https://picsum.photos/seed/ss5/100', audioUrl:'', duration:27, usageCount:980000, isOriginal:false },
-];
 
 function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
   if (!hashtags || hashtags.length === 0) return [];
   return hashtags.map((name) => ({
     id: `h-scraper-${name}`,
     name,
-    viewsCount: Math.floor(Math.random() * 50000000) + 1000000,
-    videosCount: Math.floor(Math.random() * 500000) + 10000,
+    // The scraper does not expose aggregate hashtag counters. Never invent them.
+    viewsCount: 0,
+    videosCount: 0,
     isFollowing: false,
   }));
 }
 
-function toOrkyVideo(sv: ScraperVideo, index: number): Video {
-  const c = CREATORS[index % CREATORS.length];
-  const dur = sv.duration > 0 ? sv.duration : Math.min(Math.max((sv.title||'').length/2, 15), 90);
+function toOrkyVideo(sv: ScraperVideo): Video {
+  const creatorFromUrl = sv.url.match(/\/@@?([^/]+)/)?.[1] || '';
+  const creatorUsername = sv.creatorUsername || creatorFromUrl || 'tiktok';
+  const creatorDisplayName = sv.creatorDisplayName || creatorUsername;
+  const creatorAvatarUrl = sv.creatorAvatarUrl || '';
+  const dur = sv.duration > 0 ? sv.duration : 0;
 
   return {
     id: `scraper-${sv.id}`,
     user: {
-      id: c.id, username: c.username, displayName: c.displayName,
-      avatarUrl: c.avatarUrl, bio: c.bio,
-      followersCount: Math.floor(Math.random()*50000)+1000,
-      followingCount: Math.floor(Math.random()*500)+50,
-      likesCount: Math.floor(Math.random()*100000)+5000,
-      videosCount: Math.floor(Math.random()*200)+10,
-      isVerified: c.isVerified, isFollowing: false, isFollowedBy: false,
-      createdAt: new Date(Date.now()-Math.random()*31536000000).toISOString(),
+      id: `scr-creator-${creatorUsername}`,
+      username: creatorUsername,
+      displayName: creatorDisplayName,
+      avatarUrl: creatorAvatarUrl,
+      bio: '',
+      followersCount: 0,
+      followingCount: 0,
+      likesCount: sv.likes,
+      videosCount: 0,
+      isVerified: false,
+      isFollowing: false,
+      isFollowedBy: false,
+      createdAt: sv.createdAt || new Date(0).toISOString(),
     },
     // 🎬 Stream/cache depuis l'API scraper
     videoUrl: scraperUrl(`stream/${sv.id}`),
     // 🖼️ Miniature TikTok RÉELLE
-    thumbnailUrl: sv.thumbnailUrl || `https://picsum.photos/seed/${sv.id}/720/1280`,
+    thumbnailUrl: sv.thumbnailUrl || '',
     description: sv.title || 'Vidéo scrapée',
     likesCount: sv.likes, commentsCount: sv.commentCount,
-    sharesCount: Math.floor(sv.likes*0.3), savesCount: Math.floor(sv.likes*0.15),
+    // The scraper does not expose share/save counters. Never fabricate them.
+    sharesCount: 0, savesCount: 0,
     viewsCount: sv.views, duration: Math.round(dur),
     isLiked: false, isSaved: false,
     // 🏷️ Hashtags enrichis du scraper
     hashtags: mapHashtags(sv.hashtags),
-    sound: SOUNDS[index % SOUNDS.length],
+    sound: null,
     location: null,
-    createdAt: new Date(Date.now()-index*3600000).toISOString(),
+    createdAt: sv.createdAt || new Date(0).toISOString(),
     allowComments: true, allowDuet: true, allowStitch: true,
   };
 }
@@ -166,14 +161,14 @@ function mapComment(sc: ScraperComment, index: number): Comment {
       displayName: sc.nickname || sc.username,
       avatarUrl: `https://i.pravatar.cc/200?u=${encodeURIComponent(sc.username)}`,
       bio: '',
-      followersCount: Math.floor(Math.random() * 10000) + 100,
-      followingCount: Math.floor(Math.random() * 500) + 10,
-      likesCount: Math.floor(Math.random() * 50000),
-      videosCount: Math.floor(Math.random() * 100),
+      followersCount: 0,
+      followingCount: 0,
+      likesCount: sc.likes || 0,
+      videosCount: 0,
       isVerified: false,
       isFollowing: false,
       isFollowedBy: false,
-      createdAt: sc.createdAt || new Date().toISOString(),
+      createdAt: sc.createdAt || new Date(0).toISOString(),
     },
     text: sc.text,
     likesCount: sc.likes || 0,

@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { Video } from '@/types';
 import { FeedItem } from '@/components/core/FeedItem';
+import { CommentSheet } from '@/components/video/CommentSheet';
 import { useVideoFeed } from '@/hooks/useVideoFeed';
 import { useNavigation } from '@/navigation/NavigationContext';
 
@@ -24,22 +25,24 @@ export const ForYouScreen: React.FC = () => {
     isRefreshing,
   } = useVideoFeed();
 
+  const [containerHeight, setContainerHeight] = useState(Dimensions.get('window').height);
+  const [commentsVideo, setCommentsVideo] = useState<Video | null>(null);
+
   const renderItem = useCallback(
     ({ item, index }: { item: Video; index: number }) => (
       <FeedItem
         video={item}
         isActive={index === currentIndex}
         itemHeight={containerHeight}
-        onCommentPress={() => nav.push('video.comments', { postId: item.id, count: item.commentsCount })}
+        externalPause={commentsVideo !== null}
+        onCommentPress={() => setCommentsVideo(item)}
         onSharePress={() => nav.push('inbox')}
         onProfilePress={() => nav.push('profile')}
         onProductPress={(productId) => nav.push('shop.product', { productId })}
       />
     ),
-    [currentIndex, nav]
+    [currentIndex, nav, containerHeight, commentsVideo]
   );
-
-  const [containerHeight, setContainerHeight] = useState(Dimensions.get('window').height);
 
   const handleLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -102,6 +105,8 @@ export const ForYouScreen: React.FC = () => {
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
       )}
+
+      {commentsVideo && <CommentSheet video={commentsVideo} onClose={() => setCommentsVideo(null)} />}
     </View>
   );
 };

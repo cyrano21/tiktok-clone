@@ -14,6 +14,8 @@ interface FeedItemProps {
   video: Video;
   isActive: boolean;
   itemHeight?: number;
+  /** Force la pause de la vidéo (ex: un panneau overlay est ouvert). */
+  externalPause?: boolean;
   onCommentPress: () => void;
   onSharePress: () => void;
   onProfilePress: (userId: string) => void;
@@ -24,6 +26,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({
   video,
   isActive,
   itemHeight,
+  externalPause = false,
   onCommentPress,
   onSharePress,
   onProfilePress,
@@ -86,7 +89,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({
       <VideoPlayer
         uri={video.videoUrl}
         isActive={isActive && !safetyVisible}
-        isPaused={isPaused || safetyVisible}
+        isPaused={isPaused || safetyVisible || externalPause}
         onPress={onPress}
       />
 

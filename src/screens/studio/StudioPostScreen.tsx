@@ -6,6 +6,8 @@ import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
 import { useStudioStore } from '@/store/studioStore';
 import { getProductById, formatPrice } from '@/services/demoShop';
 import { MiniBarChart } from '@/components/studio/MiniBarChart';
+import { CommentSheet } from '@/components/video/CommentSheet';
+import type { Video } from '@/types';
 
 function formatShort(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.0', '')}M`;
@@ -24,6 +26,7 @@ export const StudioPostScreen: React.FC = () => {
   const removePost = useStudioStore((s) => s.removePost);
 
   const [editing, setEditing] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [caption, setCaption] = useState(post?.caption ?? '');
 
   if (!post) {
@@ -36,6 +39,42 @@ export const StudioPostScreen: React.FC = () => {
   }
 
   const product = post.productId ? getProductById(post.productId) : undefined;
+  const studioVideo: Video = {
+    id: post.id,
+    user: {
+      id: post.sellerId ?? 'studio-owner',
+      username: 'orky_creator',
+      displayName: 'Créateur ORKY',
+      avatarUrl: '',
+      bio: '',
+      followersCount: 0,
+      followingCount: 0,
+      likesCount: post.metrics.likes,
+      videosCount: 1,
+      isVerified: false,
+      isFollowing: false,
+      isFollowedBy: false,
+      createdAt: post.createdAt,
+    },
+    videoUrl: post.sourceUrl,
+    thumbnailUrl: post.thumbnailUrl,
+    description: post.caption,
+    likesCount: post.metrics.likes,
+    commentsCount: post.metrics.comments,
+    sharesCount: post.metrics.shares,
+    savesCount: 0,
+    viewsCount: post.metrics.views,
+    duration: 0,
+    isLiked: false,
+    isSaved: false,
+    hashtags: [],
+    sound: null,
+    location: null,
+    createdAt: post.createdAt,
+    allowComments: true,
+    allowDuet: false,
+    allowStitch: false,
+  };
 
   const saveCaption = () => {
     updateCaption(post.id, caption.trim());
@@ -116,7 +155,7 @@ export const StudioPostScreen: React.FC = () => {
 
         {/* Actions */}
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.actionBtn} onPress={() => nav.push('video.comments', { postId: post.id, count: post.metrics.comments })}>
+          <TouchableOpacity style={styles.actionBtn} onPress={() => setCommentsOpen(true)}>
             <Text style={styles.actionIcon}>💬</Text>
             <Text style={styles.actionText}>Commentaires</Text>
           </TouchableOpacity>
@@ -130,6 +169,13 @@ export const StudioPostScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {commentsOpen && (
+        <CommentSheet
+          video={studioVideo}
+          onClose={() => setCommentsOpen(false)}
+        />
+      )}
     </View>
   );
 };
