@@ -28,6 +28,26 @@ describe('Orchidy product bridge', () => {
     }));
   });
 
+  it('preserves real variant identity and selected options for checkout handoff', () => {
+    const product = mapOrchidyProduct({
+      _id: 'product-variant',
+      slug: 'sneakers',
+      title: 'Sneakers',
+      price: 60,
+      currency: 'EUR',
+      orderable: true,
+      variants: [
+        { _id: 'variant-red-42', title: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' } },
+        { sku: 'SKU-BLACK-43', name: 'Noir / 43', attributes: [{ name: 'color', value: 'Noir' }, { name: 'size', value: '43' }] },
+      ],
+    });
+
+    expect(product.variants).toEqual([
+      { id: 'variant-red-42', label: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' } },
+      { id: 'SKU-BLACK-43', label: 'Noir / 43', selectedOptions: { color: 'Noir', size: '43' } },
+    ]);
+  });
+
   it('does not mark an explicitly unavailable product as orderable', () => {
     const product = mapOrchidyProduct({
       _id: 'product-43',

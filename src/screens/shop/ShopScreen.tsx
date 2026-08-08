@@ -17,6 +17,8 @@ const COLUMN_GAP = tokens.spacing.sm;
 const H_PADDING = tokens.spacing.md;
 const CARD_WIDTH = (Math.min(SCREEN_WIDTH, 430) - H_PADDING * 2 - COLUMN_GAP) / 2;
 
+type CatalogSource = 'orchidy' | 'demo' | 'unavailable';
+
 export const ShopScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
@@ -24,7 +26,8 @@ export const ShopScreen: React.FC = () => {
   const [category, setCategory] = useState<ProductCategory>('all');
   const [products, setProducts] = useState<CommerceProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [source, setSource] = useState<'orchidy' | 'demo'>('demo');
+  const [source, setSource] = useState<CatalogSource>('unavailable');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -33,18 +36,21 @@ export const ShopScreen: React.FC = () => {
       .then((items) => {
         if (!mounted) return;
         setProducts(items);
-        setSource(items.some((item) => item.source === 'orchidy') ? 'orchidy' : 'demo');
+        if (items.some((item) => item.source === 'orchidy')) setSource('orchidy');
+        else if (items.length > 0) setSource('demo');
+        else setSource('unavailable');
       })
       .finally(() => {
         if (mounted) setLoading(false);
       });
     return () => { mounted = false; };
-  }, [category]);
+  }, [category, reloadKey]);
 
   const subtitle = useMemo(() => {
     if (loading) return 'Chargement du catalogue…';
     if (source === 'orchidy') return 'Produits réels Orchidy';
-    return 'Démo locale — catalogue Orchidy indisponible';
+    if (source === 'demo') return 'Mode démonstration explicite — aucun paiement réel';
+    return 'Catalogue Orchidy temporairement indisponible';
   }, [loading, source]);
 
   const renderProduct = ({ item }: { item: CommerceProduct }) => {
@@ -59,11 +65,9 @@ export const ShopScreen: React.FC = () => {
       >
         <View style={styles.imageWrap}>
           <Image source={{ uri: item.images[0] }} style={styles.image} />
-          {item.source === 'orchidy' && (
-            <View style={styles.sourceBadge}>
-              <Text style={styles.sourceText}>Orchidy</Text>
-            </View>
-          )}
+          <View style={[styles.sourceBadge, item.source !== 'orchidy' && styles.demoSourceBadge]}>
+            <Text style={styles.sourceText}>{item.source === 'orchidy' ? 'Orchidy' : 'Démo'}</Text>
+          </View>
           {discount > 0 && (
             <View style={styles.discountBadge}>
               <Text style={styles.discountText}>-{discount}%</Text>
@@ -138,6 +142,17 @@ export const ShopScreen: React.FC = () => {
         <View style={styles.loadingBlock}>
           <Text style={styles.loadingText}>Connexion au catalogue Orchidy…</Text>
         </View>
+      ) : source === 'unavailable' && products.length === 0 ? (
+        <View style={styles.unavailableBlock}>
+          <Text style={styles.unavailableIcon}>🛍️</Text>
+          <Text style={styles.unavailableTitle}>Catalogue momentanément indisponible</Text>
+          <Text style={styles.unavailableText}>
+            ORKY n’affiche pas de faux produits à la place du catalogue réel. L’achat reste désactivé jusqu’au retour d’Orchidy.
+          </Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => setReloadKey((key) => key + 1)}>
+            <Text style={styles.retryText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
       ) : (
         <FlatList
           data={products}
@@ -208,6 +223,12 @@ const styles = StyleSheet.create({
   catLabelActive: { color: tokens.colors.white, fontWeight: '700' },
   loadingBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: H_PADDING },
   loadingText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize },
+  unavailableBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: tokens.spacing.xl, gap: tokens.spacing.sm },
+  unavailableIcon: { fontSize: 48 },
+  unavailableTitle: { color: tokens.colors.white, fontSize: tokens.typography.title.fontSize, fontWeight: '800', textAlign: 'center' },
+  unavailableText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, lineHeight: 20, textAlign: 'center' },
+  retryBtn: { marginTop: tokens.spacing.sm, backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.sm, paddingHorizontal: tokens.spacing.xl, paddingVertical: tokens.spacing.sm },
+  retryText: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '800' },
   grid: { paddingHorizontal: H_PADDING, paddingBottom: 110 },
   row: { gap: COLUMN_GAP, marginBottom: COLUMN_GAP },
   card: {
@@ -227,6 +248,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     paddingVertical: 2,
   },
+  demoSourceBadge: { backgroundColor: tokens.colors.semantic.warning },
   sourceText: { color: tokens.colors.white, fontSize: 9, fontWeight: '800' },
   discountBadge: {
     position: 'absolute',

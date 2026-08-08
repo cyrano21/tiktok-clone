@@ -1,12 +1,13 @@
 import { create } from "zustand";
 import { Product, getProductById } from "@/services/demoShop";
-import { CommerceProduct, getCachedCommerceProduct } from "@/services/orchidyProducts";
+import { CommerceProduct, CommerceVariant, getCachedCommerceProduct } from "@/services/orchidyProducts";
 
 export interface CartLine {
   key: string; // productId + variantId
   productId: string;
   variantId: string;
   variantLabel: string;
+  selectedOptions?: Record<string, string>;
   quantity: number;
   productSnapshot: CommerceProduct;
 }
@@ -43,12 +44,21 @@ export const useCartStore = create<CartStore>((set, get) => ({
   addToCart: (product, variantId, quantity = 1) => {
     const variant = product.variants.find(v => v.id === variantId) ?? product.variants[0] ?? { id: 'default', label: 'Standard' };
     const key = `${product.id}__${variant.id}`;
+    const selectedOptions: Record<string, string> | undefined =
+      (variant as CommerceVariant).selectedOptions;
     set(state => {
       const existing = state.lines.find(l => l.key === key);
       if (existing) {
         return {
           lines: state.lines.map(l =>
-            l.key === key ? { ...l, quantity: l.quantity + quantity, productSnapshot: product as CommerceProduct } : l,
+            l.key === key
+              ? {
+                  ...l,
+                  quantity: Math.min(25, l.quantity + quantity),
+                  productSnapshot: product as CommerceProduct,
+                  selectedOptions,
+                }
+              : l,
           ),
         };
       }
@@ -60,7 +70,8 @@ export const useCartStore = create<CartStore>((set, get) => ({
             productId: product.id,
             variantId: variant.id,
             variantLabel: variant.label,
-            quantity,
+            selectedOptions,
+            quantity: Math.min(25, Math.max(1, quantity)),
             productSnapshot: product as CommerceProduct,
           },
         ],
@@ -76,7 +87,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
       lines:
         quantity <= 0
           ? state.lines.filter(l => l.key !== key)
-          : state.lines.map(l => (l.key === key ? { ...l, quantity } : l)),
+          : state.lines.map(l => (l.key === key ? { ...l, quantity: Math.min(25, quantity) } : l)),
     })),
 
   clear: () => set({ lines: [] }),
