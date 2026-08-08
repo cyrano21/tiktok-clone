@@ -10,8 +10,8 @@ import {
 } from '@/types';
 import { apiClient } from './api';
 
-// Demo mode is ON — uses local demo data (no backend required).
-const USE_DEMO = true;
+// Demo/scraper mode is configurable. Production can use the real backend by setting NEXT_PUBLIC_USE_DEMO=false.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 // When the scraper API is available, use REAL scraped TikTok videos.
 let _scraperAvailable: boolean | null = null;
 async function useScraper(): Promise<boolean> {
