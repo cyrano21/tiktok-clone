@@ -24,7 +24,6 @@ interface LoginResponse {
 export const authService = {
   async login(identifier: string, password: string): Promise<AuthUser> {
     const res = await apiClient.post<LoginResponse>('/auth/login', {
-      // Backend controller reads `email` (accepts email or username value).
       email: identifier,
       password,
     });
@@ -54,15 +53,22 @@ export const authService = {
     const raw = await apiClient.patch<{ user: AuthUser }>('/auth/me', params);
     const user = raw.user;
     useSessionStore.getState().setUser(user);
-    // Refresh the cached user so subsequent screens see the changes.
     const cached = await this.getCachedUser();
     await AsyncStorage.setItem(USER_KEY, JSON.stringify({ ...(cached ?? {}), ...user }));
     return user;
   },
 
   async logout(): Promise<void> {
-    await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
-    useSessionStore.getState().clearUser();
+    try {
+      // Revoke the Redis-backed refresh session while the access token is still
+      // available. Local cleanup remains guaranteed even if the network is down.
+      await apiClient.post('/auth/logout');
+    } catch {
+      // Best effort: never trap a user in a local authenticated state.
+    } finally {
+      await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
+      useSessionStore.getState().clearUser();
+    }
   },
 
   async isLoggedIn(): Promise<boolean> {
