@@ -214,7 +214,7 @@ export const ProductScreen: React.FC = () => {
               <Text style={styles.qtyBtnText}>−</Text>
             </TouchableOpacity>
             <Text style={styles.qtyValue}>{quantity}</Text>
-            <TouchableOpacity style={styles.qtyBtn} onPress={() => setQuantity((q) => Math.min(99, q + 1))}>
+            <TouchableOpacity style={styles.qtyBtn} onPress={() => setQuantity((q) => Math.min(25, q + 1))}>
               <Text style={styles.qtyBtnText}>+</Text>
             </TouchableOpacity>
           </View>
@@ -233,9 +233,9 @@ export const ProductScreen: React.FC = () => {
         <TouchableOpacity
           style={[styles.buyBtn, !orderable && styles.btnDisabled]}
           disabled={!orderable}
-          onPress={() => isOrchidyProduct ? openExternalProduct(product.externalUrl) : handleAdd(true)}
+          onPress={() => handleAdd(true)}
         >
-          <Text style={styles.buyBtnText}>{isOrchidyProduct ? 'Acheter sur Orchidy' : 'Acheter'}</Text>
+          <Text style={styles.buyBtnText}>{isOrchidyProduct ? 'Acheter via Orchidy' : 'Acheter'}</Text>
         </TouchableOpacity>
       </View>
     </View>
