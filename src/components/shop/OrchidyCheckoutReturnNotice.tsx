@@ -6,7 +6,9 @@ import { tokens } from '@/theme/tokens';
 
 type VerifiedReturn = {
   status: 'paid' | 'cancelled';
+  handoffId: string;
   checkoutId: string;
+  reconciled: boolean;
 };
 
 function clearReceiptFromUrl() {
@@ -18,7 +20,8 @@ function clearReceiptFromUrl() {
 }
 
 export const OrchidyCheckoutReturnNotice: React.FC = () => {
-  const clearCart = useCartStore((state) => state.clear);
+  const completeHandoff = useCartStore((state) => state.completeHandoff);
+  const cancelHandoff = useCartStore((state) => state.cancelHandoff);
   const [result, setResult] = useState<VerifiedReturn | null>(null);
   const [invalidReceipt, setInvalidReceipt] = useState(false);
 
@@ -36,13 +39,25 @@ export const OrchidyCheckoutReturnNotice: React.FC = () => {
         );
         const payload = await response.json().catch(() => ({}));
         if (!active) return;
-        if (!response.ok || !payload?.verified) {
+        if (
+          !response.ok ||
+          !payload?.verified ||
+          !/^[a-f\d]{24}$/i.test(String(payload?.handoffId || ''))
+        ) {
           setInvalidReceipt(true);
           return;
         }
         const status = payload.status === 'paid' ? 'paid' : 'cancelled';
-        if (status === 'paid') clearCart();
-        setResult({ status, checkoutId: String(payload.checkoutId || '') });
+        const handoffId = String(payload.handoffId);
+        const reconciled = status === 'paid'
+          ? completeHandoff(handoffId)
+          : (cancelHandoff(handoffId), true);
+        setResult({
+          status,
+          handoffId,
+          checkoutId: String(payload.checkoutId || ''),
+          reconciled,
+        });
       } catch {
         if (active) setInvalidReceipt(true);
       } finally {
@@ -53,9 +68,13 @@ export const OrchidyCheckoutReturnNotice: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [clearCart]);
+  }, [cancelHandoff, completeHandoff]);
 
   if (!result && !invalidReceipt) return null;
+
+  const paidText = result?.reconciled
+    ? 'Le reçu signé est valide. Seules les quantités correspondant à ce checkout ont été retirées du panier ORKY.'
+    : 'Le paiement est confirmé, mais ORKY n’a trouvé aucun snapshot local correspondant. Aucun autre article du panier n’a été supprimé.';
 
   return (
     <View style={[styles.notice, invalidReceipt && styles.noticeError]}>
@@ -72,8 +91,8 @@ export const OrchidyCheckoutReturnNotice: React.FC = () => {
           {invalidReceipt
             ? 'ORKY n’a pas modifié ton panier, car le reçu signé est invalide ou expiré.'
             : result?.status === 'paid'
-              ? 'Le reçu signé est valide. Le panier ORKY correspondant a été vidé.'
-              : 'Aucun succès de paiement n’est déclaré. Ton panier ORKY reste disponible pour réessayer.'}
+              ? paidText
+              : 'Aucun succès de paiement n’est déclaré. Les articles restent dans ton panier pour réessayer.'}
         </Text>
         {result?.checkoutId ? <Text style={styles.reference}>Réf. {result.checkoutId}</Text> : null}
       </View>
