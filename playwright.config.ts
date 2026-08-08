@@ -2,10 +2,14 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
-  timeout: 30_000,
+  timeout: 60_000,
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],
+  expect: {
+    // First page load after a cold Next.js dev compile can exceed the default 5s.
+    timeout: 15_000,
+  },
   use: {
     baseURL: 'http://127.0.0.1:3100',
     trace: 'retain-on-failure',
