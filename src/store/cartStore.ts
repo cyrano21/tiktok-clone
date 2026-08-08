@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { Product, getProductById } from "@/services/demoShop";
+import { CommerceProduct, getCachedCommerceProduct } from "@/services/orchidyProducts";
 
 export interface CartLine {
   key: string; // productId + variantId
@@ -7,6 +8,7 @@ export interface CartLine {
   variantId: string;
   variantLabel: string;
   quantity: number;
+  productSnapshot: CommerceProduct;
 }
 
 interface CartState {
@@ -15,7 +17,7 @@ interface CartState {
 }
 
 interface CartActions {
-  addToCart: (product: Product, variantId: string, quantity?: number) => void;
+  addToCart: (product: Product | CommerceProduct, variantId: string, quantity?: number) => void;
   removeLine: (key: string) => void;
   setQuantity: (key: string, quantity: number) => void;
   clear: () => void;
@@ -30,20 +32,23 @@ type CartStore = CartState & CartActions;
 
 const FLAT_SHIPPING = 3.9;
 
+function resolveProduct(line: CartLine): CommerceProduct | Product | undefined {
+  return getCachedCommerceProduct(line.productId) || getProductById(line.productId) || line.productSnapshot;
+}
+
 export const useCartStore = create<CartStore>((set, get) => ({
   lines: [],
   lastOrderTotal: null,
 
   addToCart: (product, variantId, quantity = 1) => {
-    const variant =
-      product.variants.find(v => v.id === variantId) ?? product.variants[0];
+    const variant = product.variants.find(v => v.id === variantId) ?? product.variants[0] ?? { id: 'default', label: 'Standard' };
     const key = `${product.id}__${variant.id}`;
     set(state => {
       const existing = state.lines.find(l => l.key === key);
       if (existing) {
         return {
           lines: state.lines.map(l =>
-            l.key === key ? { ...l, quantity: l.quantity + quantity } : l,
+            l.key === key ? { ...l, quantity: l.quantity + quantity, productSnapshot: product as CommerceProduct } : l,
           ),
         };
       }
@@ -56,6 +61,7 @@ export const useCartStore = create<CartStore>((set, get) => ({
             variantId: variant.id,
             variantLabel: variant.label,
             quantity,
+            productSnapshot: product as CommerceProduct,
           },
         ],
       };
@@ -85,15 +91,14 @@ export const useCartStore = create<CartStore>((set, get) => ({
 
   subtotal: () =>
     get().lines.reduce((sum, l) => {
-      const p = getProductById(l.productId);
+      const p = resolveProduct(l);
       return sum + (p ? p.price * l.quantity : 0);
     }, 0),
 
   shippingTotal: () => {
     const lines = get().lines;
     if (lines.length === 0) return 0;
-    // Free shipping if every product in cart offers free shipping
-    const allFree = lines.every(l => getProductById(l.productId)?.freeShipping);
+    const allFree = lines.every(l => resolveProduct(l)?.freeShipping);
     return allFree ? 0 : FLAT_SHIPPING;
   },
 
