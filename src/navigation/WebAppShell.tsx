@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: '#22222F',
     paddingTop: 8,
-    paddingBottom: 16,
+    paddingBottom: 'calc(16px + env(safe-area-inset-bottom))',
     zIndex: 50,
   },
   navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2 },
