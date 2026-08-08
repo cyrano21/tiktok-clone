@@ -1,24 +1,21 @@
-/** Pont entre ORKY et l'API du scraper TikTok.
+/** Pont de recherche entre ORKY et le service d'observation TikTok.
  *
- * Les vidéos sont streamées DIRECTEMENT par le scraper (cache local 24h,
- * puis yt-dlp si absent). L'API scraper (port 8502) sert tout.
- *
- * Données enrichies : hashtags réels du scraper, commentaires par vidéo,
- * miniatures TikTok CDN, stats réelles (likes, vues, durée).
+ * IMPORTANT: ces éléments restent des références externes en lecture seule.
+ * Ils ne deviennent pas des entités sociales ORKY tant qu'ils n'ont pas été
+ * explicitement importés dans le modèle canonique.
  */
 
 import type { Video, User, Comment } from '@/types';
 
-// En prod : NEXT_PUBLIC_SCRAPER_API_URL=http://scraper-api:8502 (nom du service Docker)
-// En local : pas besoin de variable, fallback sur 127.0.0.1:8502
-const SCRAPER_API = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8502';
+// Le navigateur parle uniquement au proxy same-origin. Le proxy Next connaît
+// l'URL interne Docker et son secret; aucun hostname de conteneur n'est exposé.
+const SCRAPER_API = process.env.NEXT_PUBLIC_SCRAPER_API_URL || '/api/scraper';
 
-/** Construit une URL compatible avec le proxy same-origin (/api/scraper) ou l'API directe. */
 function scraperUrl(path: string): string {
   const cleanPath = path.replace(/^\/+/, '').replace(/^api\//, '');
   return SCRAPER_API.startsWith('/')
-    ? `${SCRAPER_API}/${cleanPath}`
-    : `${SCRAPER_API}/api/${cleanPath}`;
+    ? `${SCRAPER_API.replace(/\/$/, '')}/${cleanPath}`
+    : `${SCRAPER_API.replace(/\/$/, '')}/api/${cleanPath}`;
 }
 
 interface ScraperVideo {
@@ -46,6 +43,7 @@ interface ScraperComment {
   likes: number;
   replyCount: number;
   createdAt: string;
+  avatarUrl?: string;
   replies?: any[];
 }
 
@@ -96,13 +94,11 @@ async function fetchComments(videoId: string): Promise<ScraperComment[]> {
   return data.comments ?? [];
 }
 
-
 function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
   if (!hashtags || hashtags.length === 0) return [];
   return hashtags.map((name) => ({
     id: `h-scraper-${name}`,
     name,
-    // The scraper does not expose aggregate hashtag counters. Never invent them.
     viewsCount: 0,
     videosCount: 0,
     isFollowing: false,
@@ -111,59 +107,67 @@ function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
 
 function toOrkyVideo(sv: ScraperVideo): Video {
   const creatorFromUrl = sv.url.match(/\/@@?([^/]+)/)?.[1] || '';
-  const creatorUsername = sv.creatorUsername || creatorFromUrl || 'tiktok';
-  const creatorDisplayName = sv.creatorDisplayName || creatorUsername;
+  const creatorUsername = sv.creatorUsername || creatorFromUrl || 'source-externe';
+  const creatorDisplayName = sv.creatorDisplayName || (creatorUsername === 'source-externe' ? 'Créateur externe' : creatorUsername);
   const creatorAvatarUrl = sv.creatorAvatarUrl || '';
   const dur = sv.duration > 0 ? sv.duration : 0;
 
   return {
     id: `scraper-${sv.id}`,
     user: {
-      id: `scr-creator-${creatorUsername}`,
+      id: `external:${creatorUsername}`,
       username: creatorUsername,
       displayName: creatorDisplayName,
       avatarUrl: creatorAvatarUrl,
       bio: '',
       followersCount: 0,
       followingCount: 0,
-      likesCount: sv.likes,
+      likesCount: 0,
       videosCount: 0,
       isVerified: false,
       isFollowing: false,
       isFollowedBy: false,
       createdAt: sv.createdAt || new Date(0).toISOString(),
     },
-    // 🎬 Stream/cache depuis l'API scraper
     videoUrl: scraperUrl(`stream/${sv.id}`),
-    // 🖼️ Miniature TikTok RÉELLE
     thumbnailUrl: sv.thumbnailUrl || '',
-    description: sv.title || 'Vidéo scrapée',
-    likesCount: sv.likes, commentsCount: sv.commentCount,
-    // The scraper does not expose share/save counters. Never fabricate them.
-    sharesCount: 0, savesCount: 0,
-    viewsCount: sv.views, duration: Math.round(dur),
-    isLiked: false, isSaved: false,
-    // 🏷️ Hashtags enrichis du scraper
+    description: sv.title || '',
+    likesCount: sv.likes,
+    commentsCount: sv.commentCount,
+    sharesCount: 0,
+    savesCount: 0,
+    viewsCount: sv.views,
+    duration: Math.round(dur),
+    isLiked: false,
+    isSaved: false,
     hashtags: mapHashtags(sv.hashtags),
     sound: null,
     location: null,
     createdAt: sv.createdAt || new Date(0).toISOString(),
-    allowComments: true, allowDuet: true, allowStitch: true,
+    allowComments: true,
+    allowDuet: false,
+    allowStitch: false,
+    sourceType: 'external_reference',
+    interactionMode: 'read_only',
+    externalPlatform: 'tiktok',
+    externalUrl: sv.url,
+    productMatches: [],
   };
 }
 
 function mapComment(sc: ScraperComment, index: number): Comment {
+  const username = sc.username || 'source-externe';
   return {
-    id: sc.id || `sc-${index}`,
+    id: sc.id ? `sc-${sc.id}` : `sc-${index}`,
     user: {
-      id: `scr-user-${sc.username}`,
-      username: sc.username,
-      displayName: sc.nickname || sc.username,
-      avatarUrl: `https://i.pravatar.cc/200?u=${encodeURIComponent(sc.username)}`,
+      id: `external:${username}`,
+      username,
+      displayName: sc.nickname || (username === 'source-externe' ? 'Utilisateur externe' : username),
+      avatarUrl: sc.avatarUrl || '',
       bio: '',
       followersCount: 0,
       followingCount: 0,
-      likesCount: sc.likes || 0,
+      likesCount: 0,
       videosCount: 0,
       isVerified: false,
       isFollowing: false,
@@ -175,19 +179,15 @@ function mapComment(sc: ScraperComment, index: number): Comment {
     isLiked: false,
     repliesCount: sc.replyCount || 0,
     replies: (sc.replies || []).map((r: any, ri: number) => mapComment(r, ri)),
-    createdAt: sc.createdAt || new Date().toISOString(),
+    createdAt: sc.createdAt || new Date(0).toISOString(),
   };
 }
 
-// ── Cache ───────────────────────────────────────────────────────────────
-
 function getCached(): Video[] | null {
-  if (cachedVideos && Date.now()-cachedAt < CACHE_TTL_MS) return cachedVideos;
+  if (cachedVideos && Date.now() - cachedAt < CACHE_TTL_MS) return cachedVideos;
   return null;
 }
 function setCached(v: Video[]): void { cachedVideos = v; cachedAt = Date.now(); }
-
-// ── Exports ─────────────────────────────────────────────────────────────
 
 export const scraperBridge = {
   isAvailable,
@@ -209,7 +209,6 @@ export const scraperBridge = {
     return videos;
   },
 
-  /** Récupère les vrais commentaires d'une vidéo scrapée. */
   async getComments(videoId: string): Promise<Comment[]> {
     const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
     const embedded = cachedComments.get(realId);
@@ -220,7 +219,8 @@ export const scraperBridge = {
   },
 
   async refresh(): Promise<void> {
-    try { await fetch(scraperUrl('reload'), { signal: AbortSignal.timeout(2000) }); } catch {}
+    // Reload is intentionally not exposed by the public browser proxy. Data refresh
+    // is an operational action performed by the internal scraper service.
     cachedVideos = null;
     cachedAt = 0;
     cachedComments.clear();
