@@ -76,7 +76,12 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
         <Text style={styles.actionCount}>{formatCount(video.likesCount)}</Text>
       </AnimatedTouchable>
 
-      <TouchableOpacity style={styles.actionButton} onPress={onComment}>
+      <TouchableOpacity
+        style={styles.actionButton}
+        onPress={onComment}
+        accessibilityRole="button"
+        accessibilityLabel="Ouvrir les commentaires"
+      >
         <Text style={styles.actionIcon}>💬</Text>
         <Text style={styles.actionCount}>{formatCount(video.commentsCount)}</Text>
       </TouchableOpacity>

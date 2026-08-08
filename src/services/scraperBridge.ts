@@ -9,9 +9,11 @@
 
 import type { Video, User, Comment } from '@/types';
 
-// En prod : NEXT_PUBLIC_SCRAPER_API_URL=http://scraper-api:8502 (nom du service Docker)
-// En local : pas besoin de variable, fallback sur 127.0.0.1:8502
-const SCRAPER_API = process.env.NEXT_PUBLIC_SCRAPER_API_URL || 'http://127.0.0.1:8502';
+// Prefer the same-origin Next proxy in production so browser clients never
+// need to resolve an internal Docker service name. Local development can use
+// the direct scraper API when explicitly configured.
+const configuredScraperApi = process.env.NEXT_PUBLIC_SCRAPER_API_URL;
+const SCRAPER_API = configuredScraperApi || (typeof window === 'undefined' ? 'http://127.0.0.1:8502' : '/api/scraper');
 
 /** Construit une URL compatible avec le proxy same-origin (/api/scraper) ou l'API directe. */
 function scraperUrl(path: string): string {
@@ -64,14 +66,14 @@ const CACHE_TTL_MS = 60_000;
 
 async function isAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(8_000) });
     return res.ok;
   } catch { return false; }
 }
 
 async function fetchScraperVideos(): Promise<ScraperVideo[]> {
   try {
-    const res = await fetch(scraperUrl('videos'), { signal: AbortSignal.timeout(3000) });
+    const res = await fetch(scraperUrl('videos'), { signal: AbortSignal.timeout(8_000) });
     if (!res.ok) return [];
     const data = await res.json();
     return data.videos ?? [];
@@ -80,7 +82,7 @@ async function fetchScraperVideos(): Promise<ScraperVideo[]> {
 
 async function fetchScraperStats(): Promise<ScraperStats | null> {
   try {
-    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(2000) });
+    const res = await fetch(scraperUrl('stats'), { signal: AbortSignal.timeout(8_000) });
     if (!res.ok) return null;
     return await res.json();
   } catch { return null; }

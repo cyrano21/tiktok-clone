@@ -240,9 +240,8 @@ export const CommentSheet: React.FC<CommentSheetProps> = ({ video, commentVideoI
     return (
       <View key={comment.id} style={styles.commentRow}>
         <Image source={{ uri: comment.user.avatarUrl }} style={styles.avatar} />
-        <View style={styles.commentBody}>
-          <Text style={styles.username}>@{comment.user.username}</Text>
-          <Text style={styles.commentText}>{comment.text}</Text>
+        <View style={styles.commentBody}>          <Text style={styles.username} accessibilityLabel={`Commentaire de ${comment.user.username}`}>@{comment.user.username}</Text>
+        <Text style={styles.commentText}>{comment.text}</Text>
           <View style={styles.metaRow}>
             <Text style={styles.metaTime}>{formatTime(comment.createdAt)}</Text>
             <TouchableOpacity onPress={() => startReply(comment.id, comment.user.username)}>
@@ -308,7 +307,7 @@ export const CommentSheet: React.FC<CommentSheetProps> = ({ video, commentVideoI
       <Animated.View style={[styles.panel, { height: panelHeight, paddingBottom: insets.bottom || tokens.spacing.sm }, panelStyle]}>
         <View style={styles.handle} />
         <View style={styles.tabsHeader}>
-          <Text style={styles.tabTextActive}>Commentaires ({formatLikes(total)})</Text>
+          <Text style={styles.tabTextActive} accessibilityRole="header">Commentaires ({formatLikes(total)})</Text>
         </View>
 
         <View style={styles.searchBar}>
