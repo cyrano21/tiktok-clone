@@ -20,7 +20,6 @@ function key(): Buffer {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('TIKTOK_TOKEN_ENCRYPTION_KEY is required in production');
     }
-    // Stable development-only key, never suitable for production data.
     return crypto.createHash('sha256').update('orky-dev-token-encryption-key').digest();
   }
   return decodeKey(raw);
@@ -46,12 +45,12 @@ export function decryptSecret(stored: string): string {
   if (!isEncryptedSecret(stored)) return stored;
 
   const parts = stored.split(':');
-  if (parts.length !== 6 || `${parts[0]}:${parts[1]}` !== PREFIX) {
+  if (parts.length !== 5 || `${parts[0]}:${parts[1]}` !== PREFIX) {
     throw new Error('Encrypted secret format is invalid');
   }
-  const iv = Buffer.from(parts[3], 'base64url');
-  const tag = Buffer.from(parts[4], 'base64url');
-  const ciphertext = Buffer.from(parts[5], 'base64url');
+  const iv = Buffer.from(parts[2], 'base64url');
+  const tag = Buffer.from(parts[3], 'base64url');
+  const ciphertext = Buffer.from(parts[4], 'base64url');
   if (iv.length !== 12 || tag.length !== 16 || ciphertext.length === 0) {
     throw new Error('Encrypted secret payload is invalid');
   }
