@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, RouteName } from './NavigationContext';
 import { SCREEN_REGISTRY, TAB_ROUTES, ROUTE_TO_TAB } from './screenRegistry';
 import { useBrandingStore } from '@/store/brandingStore';
@@ -53,6 +54,7 @@ const FULLSCREEN_ROUTES: RouteName[] = [
 
 export function WebAppShell() {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isMobile = width < 500;
   const nav = useNavigation();
   const route = nav.current.name;
@@ -75,7 +77,7 @@ export function WebAppShell() {
         </View>
 
         {showTabBar && (
-          <View style={styles.bottomNav}>
+          <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 16) }]}>
             {TABS.map((tab) => {
               const isActive = activeTab === tab.route;
               if (tab.route === 'create') {
@@ -136,7 +138,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     borderTopColor: '#22222F',
     paddingTop: 8,
-    paddingBottom: 16,
     zIndex: 50,
   },
   navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2 },

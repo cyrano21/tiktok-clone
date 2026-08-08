@@ -1,7 +1,8 @@
 import { apiClient } from './api';
 
-// Demo mode is ON — uses local demo data (no backend required).
-const USE_DEMO = true;
+// Local development keeps the demo discover feed unless explicitly disabled.
+// Production sets NEXT_PUBLIC_USE_DEMO=false so categories come from /feed/discover.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 
 export type DiscoverCategory = 'all' | 'trending' | 'music' | 'comedy' | 'sports' | 'food' | 'beauty';
 

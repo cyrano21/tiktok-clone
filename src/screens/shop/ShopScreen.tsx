@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, FlatList, Image, Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
@@ -7,11 +7,10 @@ import { useCartStore } from '@/store/cartStore';
 import {
   SHOP_CATEGORIES,
   ProductCategory,
-  Product,
-  getProducts,
   formatPrice,
   formatCount,
 } from '@/services/demoShop';
+import { CommerceProduct, getCommerceProducts } from '@/services/orchidyProducts';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const COLUMN_GAP = tokens.spacing.sm;
@@ -23,11 +22,35 @@ export const ShopScreen: React.FC = () => {
   const nav = useNavigation();
   const cartCount = useCartStore((s) => s.totalItems());
   const [category, setCategory] = useState<ProductCategory>('all');
+  const [products, setProducts] = useState<CommerceProduct[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState<'orchidy' | 'demo'>('demo');
 
-  const products = useMemo(() => getProducts(category), [category]);
+  useEffect(() => {
+    let mounted = true;
+    setLoading(true);
+    getCommerceProducts({ category, limit: 24 })
+      .then((items) => {
+        if (!mounted) return;
+        setProducts(items);
+        setSource(items.some((item) => item.source === 'orchidy') ? 'orchidy' : 'demo');
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => { mounted = false; };
+  }, [category]);
 
-  const renderProduct = ({ item }: { item: Product }) => {
-    const discount = Math.round(100 - (item.price / item.originalPrice) * 100);
+  const subtitle = useMemo(() => {
+    if (loading) return 'Chargement du catalogue…';
+    if (source === 'orchidy') return 'Produits réels Orchidy';
+    return 'Démo locale — catalogue Orchidy indisponible';
+  }, [loading, source]);
+
+  const renderProduct = ({ item }: { item: CommerceProduct }) => {
+    const discount = item.originalPrice > item.price
+      ? Math.round(100 - (item.price / item.originalPrice) * 100)
+      : 0;
     return (
       <TouchableOpacity
         style={styles.card}
@@ -36,6 +59,11 @@ export const ShopScreen: React.FC = () => {
       >
         <View style={styles.imageWrap}>
           <Image source={{ uri: item.images[0] }} style={styles.image} />
+          {item.source === 'orchidy' && (
+            <View style={styles.sourceBadge}>
+              <Text style={styles.sourceText}>Orchidy</Text>
+            </View>
+          )}
           {discount > 0 && (
             <View style={styles.discountBadge}>
               <Text style={styles.discountText}>-{discount}%</Text>
@@ -52,10 +80,12 @@ export const ShopScreen: React.FC = () => {
           <Text style={styles.cardTitle} numberOfLines={2}>{item.title}</Text>
           <View style={styles.priceRow}>
             <Text style={styles.price}>{formatPrice(item.price, item.currency)}</Text>
-            <Text style={styles.original}>{formatPrice(item.originalPrice, item.currency)}</Text>
+            {item.originalPrice > item.price && (
+              <Text style={styles.original}>{formatPrice(item.originalPrice, item.currency)}</Text>
+            )}
           </View>
           <View style={styles.metaRow}>
-            <Text style={styles.rating}>★ {item.rating.toFixed(1)}</Text>
+            <Text style={styles.rating}>★ {item.rating ? item.rating.toFixed(1) : '—'}</Text>
             <Text style={styles.sold}>{formatCount(item.soldCount)} vendus</Text>
           </View>
           <View style={styles.shopRow}>
@@ -70,7 +100,10 @@ export const ShopScreen: React.FC = () => {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Shop</Text>
+        <View>
+          <Text style={styles.headerTitle}>Shop</Text>
+          <Text style={styles.headerSubtitle}>{subtitle}</Text>
+        </View>
         <TouchableOpacity style={styles.cartButton} onPress={() => nav.push('shop.cart')}>
           <Text style={styles.cartIcon}>🛒</Text>
           {cartCount > 0 && (
@@ -101,15 +134,21 @@ export const ShopScreen: React.FC = () => {
         </ScrollView>
       </View>
 
-      <FlatList
-        data={products}
-        renderItem={renderProduct}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.grid}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading && products.length === 0 ? (
+        <View style={styles.loadingBlock}>
+          <Text style={styles.loadingText}>Connexion au catalogue Orchidy…</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={products}
+          renderItem={renderProduct}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.grid}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
     </View>
   );
 };
@@ -124,6 +163,7 @@ const styles = StyleSheet.create({
     paddingVertical: tokens.spacing.sm,
   },
   headerTitle: { color: tokens.colors.white, fontSize: tokens.typography.headline.fontSize, fontWeight: '800' },
+  headerSubtitle: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, marginTop: 2 },
   cartButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   cartIcon: { fontSize: 24 },
   cartBadge: {
@@ -166,7 +206,9 @@ const styles = StyleSheet.create({
   catIcon: { fontSize: 15 },
   catLabel: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '500' },
   catLabelActive: { color: tokens.colors.white, fontWeight: '700' },
-  grid: { paddingHorizontal: H_PADDING, paddingBottom: 90 },
+  loadingBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: H_PADDING },
+  loadingText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize },
+  grid: { paddingHorizontal: H_PADDING, paddingBottom: 110 },
   row: { gap: COLUMN_GAP, marginBottom: COLUMN_GAP },
   card: {
     width: CARD_WIDTH,
@@ -176,6 +218,16 @@ const styles = StyleSheet.create({
   },
   imageWrap: { width: '100%', aspectRatio: 3 / 4, position: 'relative', backgroundColor: tokens.colors.surface },
   image: { width: '100%', height: '100%' },
+  sourceBadge: {
+    position: 'absolute',
+    top: tokens.spacing.sm,
+    right: tokens.spacing.sm,
+    backgroundColor: tokens.colors.brand.secondary,
+    borderRadius: tokens.radius.xs,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  sourceText: { color: tokens.colors.white, fontSize: 9, fontWeight: '800' },
   discountBadge: {
     position: 'absolute',
     top: tokens.spacing.sm,

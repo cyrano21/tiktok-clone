@@ -8,7 +8,7 @@ import { feedService } from '@/services/feedService';
 import { getDemoFeed } from '@/services/demoFeed';
 import type { Video } from '@/types';
 
-const USE_DEMO = true;
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
