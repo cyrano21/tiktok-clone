@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, RouteName } from './NavigationContext';
 import { SCREEN_REGISTRY, TAB_ROUTES, ROUTE_TO_TAB } from './screenRegistry';
 import { useBrandingStore } from '@/store/brandingStore';
+import { OrchidyCheckoutReturnNotice } from '@/components/shop/OrchidyCheckoutReturnNotice';
 
 interface TabDef {
   route: RouteName;
@@ -98,6 +99,7 @@ export function WebAppShell() {
             })}
           </View>
         )}
+        <OrchidyCheckoutReturnNotice />
       </View>
     </View>
   );
