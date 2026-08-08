@@ -1,18 +1,15 @@
 /**
  * Persistence + token-lifecycle for connected TikTok accounts.
  *
- * This is the single source of truth for a user's TikTok credentials. It owns:
- *  - storing/updating tokens after OAuth
- *  - returning a *valid* access token (auto-refreshing when expired)
- *
- * The HTTP layer never touches the DB columns directly and never refreshes
- * tokens by hand — it asks this module for a ready-to-use access token.
+ * OAuth credentials are encrypted before they reach Prisma. Existing plaintext
+ * rows remain readable for rolling migration and are rewritten encrypted on the
+ * next OAuth upsert or token refresh.
  */
 
 import { prisma } from "../config/database";
+import { decryptSecret, encryptSecret, isEncryptedSecret } from "../config/token-encryption";
 import { refreshAccessToken, type TikTokTokenResponse } from "./tiktok.service";
 
-/** 60s safety window so we refresh slightly before real expiry. */
 const EXPIRY_SKEW_MS = 60_000;
 
 export interface ConnectedAccountSummary {
@@ -35,8 +32,8 @@ export async function upsertFromTokenResponse(
   const data = {
     openId: token.open_id,
     scope: token.scope,
-    accessToken: token.access_token,
-    refreshToken: token.refresh_token,
+    accessToken: encryptSecret(token.access_token),
+    refreshToken: encryptSecret(token.refresh_token),
     accessTokenExpiresAt: expiryDate(token.expires_in),
     refreshTokenExpiresAt: expiryDate(token.refresh_expires_in),
     displayName: profile?.displayName ?? undefined,
@@ -50,14 +47,15 @@ export async function upsertFromTokenResponse(
   });
 }
 
-export async function getAccount(userId: string) {
+/** Internal database row. Callers must never serialize token columns. */
+async function getStoredAccount(userId: string) {
   return prisma.tikTokAccount.findUnique({ where: { userId } });
 }
 
 export async function getSummary(
   userId: string,
 ): Promise<ConnectedAccountSummary | null> {
-  const acc = await getAccount(userId);
+  const acc = await getStoredAccount(userId);
   if (!acc) return null;
   return {
     openId: acc.openId,
@@ -86,23 +84,35 @@ export class TikTokRefreshExpiredError extends Error {
   }
 }
 
-/**
- * Returns a currently-valid access token for the user, refreshing it
- * transparently when it is within the expiry skew window.
- */
+async function migrateLegacyTokens(userId: string, accessToken: string, refreshToken: string) {
+  if (isEncryptedSecret(accessToken) && isEncryptedSecret(refreshToken)) return;
+  await prisma.tikTokAccount.update({
+    where: { userId },
+    data: {
+      accessToken: isEncryptedSecret(accessToken) ? accessToken : encryptSecret(accessToken),
+      refreshToken: isEncryptedSecret(refreshToken) ? refreshToken : encryptSecret(refreshToken),
+    },
+  });
+}
+
+/** Returns a currently-valid plaintext access token only in process memory. */
 export async function getValidAccessToken(userId: string): Promise<string> {
-  const acc = await getAccount(userId);
+  const acc = await getStoredAccount(userId);
   if (!acc) throw new TikTokNotConnectedError();
+
+  const accessToken = decryptSecret(acc.accessToken);
+  const refreshToken = decryptSecret(acc.refreshToken);
+  await migrateLegacyTokens(userId, acc.accessToken, acc.refreshToken);
 
   const stillValid =
     acc.accessTokenExpiresAt.getTime() - EXPIRY_SKEW_MS > Date.now();
-  if (stillValid) return acc.accessToken;
+  if (stillValid) return accessToken;
 
   if (acc.refreshTokenExpiresAt.getTime() <= Date.now()) {
     throw new TikTokRefreshExpiredError();
   }
 
-  const refreshed = await refreshAccessToken(acc.refreshToken);
+  const refreshed = await refreshAccessToken(refreshToken);
   await upsertFromTokenResponse(userId, refreshed);
   return refreshed.access_token;
 }
