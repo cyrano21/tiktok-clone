@@ -10,14 +10,17 @@ import {
 } from '@/types';
 import { apiClient } from './api';
 
-// Demo/scraper mode is configurable. Production can use the real backend by setting NEXT_PUBLIC_USE_DEMO=false.
-const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
-// When the scraper API is available, use REAL scraped TikTok videos.
+// Demo behavior is fail-closed: it must be explicitly requested.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
+// External scraped content is a research/read-only source. It must never silently
+// replace the canonical ORKY recommendation graph in production.
+const USE_SCRAPER_FEED = process.env.NEXT_PUBLIC_USE_SCRAPER_FEED === 'true';
 let _scraperAvailable: boolean | null = null;
 let _scraperCheckedAt = 0;
 const SCRAPER_CHECK_TTL_MS = 15_000;
 
 async function useScraper(): Promise<boolean> {
+  if (!USE_SCRAPER_FEED) return false;
   if (_scraperAvailable !== null && Date.now() - _scraperCheckedAt < SCRAPER_CHECK_TTL_MS) {
     return _scraperAvailable;
   }
@@ -43,12 +46,22 @@ interface BackendUser {
   likeCount?: number | string;
   videoCount?: number;
   isVerified?: boolean;
+  isFollowing?: boolean;
+  isFollowedBy?: boolean;
   createdAt?: string;
 }
 
 type BackendHashtag =
   | { id: string; name: string }
   | { hashtag: { id: string; name: string } };
+
+interface BackendProductMatch {
+  id: string;
+  orchidyCatalogItemId: string;
+  variantKey?: string | null;
+  confidence?: number;
+  source?: string;
+}
 
 interface BackendVideo {
   id: string;
@@ -68,9 +81,12 @@ interface BackendVideo {
   allowComment?: boolean;
   allowDuet?: boolean;
   allowStitch?: boolean;
+  isLiked?: boolean;
+  isSaved?: boolean;
   sound?: { id: string; title: string; artist?: string | null; coverUrl?: string | null } | null;
   soundId?: string | null;
   hashtags?: BackendHashtag[];
+  productMatches?: BackendProductMatch[];
 }
 
 interface BackendComment {
@@ -95,8 +111,8 @@ function mapUser(u: BackendUser): User {
     likesCount: Number(u.likeCount ?? 0),
     videosCount: Number(u.videoCount ?? 0),
     isVerified: u.isVerified ?? false,
-    isFollowing: false,
-    isFollowedBy: false,
+    isFollowing: Boolean(u.isFollowing),
+    isFollowedBy: Boolean(u.isFollowedBy),
     createdAt: u.createdAt ?? new Date().toISOString(),
   };
 }
@@ -122,8 +138,10 @@ function mapVideo(v: BackendVideo): Video {
   return {
     id: v.id,
     user: mapUser(v.user),
-    videoUrl: v.videoUrl,
-    thumbnailUrl: v.thumbnailUrl ?? v.coverUrl ?? '',
+    // Media is served through the authorization-aware ORKY endpoint. This also
+    // keeps legacy objects usable after the MinIO bucket is made private.
+    videoUrl: `/v1/media/videos/${encodeURIComponent(v.id)}`,
+    thumbnailUrl: `/v1/media/thumbnails/${encodeURIComponent(v.id)}`,
     description: v.description ?? v.title ?? '',
     likesCount: Number(v.likeCount ?? 0),
     commentsCount: Number(v.commentCount ?? 0),
@@ -131,8 +149,8 @@ function mapVideo(v: BackendVideo): Video {
     savesCount: Number(v.saveCount ?? 0),
     viewsCount: Number(v.viewCount ?? 0),
     duration: v.duration ?? 0,
-    isLiked: false,
-    isSaved: false,
+    isLiked: Boolean(v.isLiked),
+    isSaved: Boolean(v.isSaved),
     hashtags: (v.hashtags ?? []).map((input) => {
       const hashtag = unwrapHashtag(input);
       return {
@@ -149,6 +167,15 @@ function mapVideo(v: BackendVideo): Video {
     allowComments: v.allowComment ?? true,
     allowDuet: v.allowDuet ?? true,
     allowStitch: v.allowStitch ?? true,
+    sourceType: 'native',
+    interactionMode: 'full',
+    productMatches: (v.productMatches ?? []).map((match) => ({
+      id: match.id,
+      orchidyCatalogItemId: match.orchidyCatalogItemId,
+      variantKey: match.variantKey ?? undefined,
+      confidence: Number(match.confidence ?? 1),
+      source: match.source ?? 'manual',
+    })),
   };
 }
 
@@ -175,49 +202,46 @@ function mapFeed(raw: { videos: BackendVideo[]; page?: number; limit?: number })
 
 export const feedService = {
   getFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    // Scraper data is real content, not demo data: prefer it whenever the
-    // scraper API is reachable, even when the local demo flag is enabled.
+    // The canonical recommendation service is the default. Scraped references are
+    // opt-in research material and never silently replace /feed/for-you.
     if (await useScraper()) {
       const { scraperBridge } = await import('./scraperBridge');
       const videos = await scraperBridge.getVideos(params?.limit ?? 10);
       if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
     }
     if (USE_DEMO) {
-      const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
+      const { getDemoFeed } = await import('./demoFeed');
+      return getDemoFeed(params?.limit);
     }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/for-you',
-      { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }
+      { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } },
     );
     return mapFeed(raw);
   },
 
   getFollowingFeed: async (params?: PaginationParams): Promise<FeedResponse> => {
-    if (await useScraper()) {
-      const { scraperBridge } = await import('./scraperBridge');
-      const videos = await scraperBridge.getVideos(params?.limit ?? 10);
-      if (videos.length > 0) return { videos, cursor: 'scraper-1', hasMore: false };
-    }
+    // An external scraper has no ORKY follow graph, therefore it can never serve
+    // the Following tab. Returning scraper videos here would be semantically false.
     if (USE_DEMO) {
-      const { getDemoFeed } = await import('./demoFeed'); return getDemoFeed(params?.limit);
+      const { getDemoFeed } = await import('./demoFeed');
+      return getDemoFeed(params?.limit);
     }
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/feed/following',
-      { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }
+      { params: { page: params?.cursor ?? 1, limit: params?.limit ?? 10 } },
     );
     return mapFeed(raw);
   },
 
   getVideoById: async (videoId: string): Promise<Video> => {
-    // A scraper id must resolve against the scraper, regardless of demo mode.
-    if (videoId.startsWith('scraper-') || await useScraper()) {
-      try {
-        const { scraperBridge } = await import('./scraperBridge');
-        const videos = await scraperBridge.getVideos(50);
-        const rawId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
-        const found = videos.find(v => v.id === videoId || v.id.endsWith(rawId));
-        if (found) return found;
-      } catch { /* fall through to the configured source */ }
+    if (videoId.startsWith('scraper-')) {
+      const { scraperBridge } = await import('./scraperBridge');
+      const videos = await scraperBridge.getVideos(50);
+      const rawId = videoId.slice(8);
+      const found = videos.find(v => v.id === videoId || v.id.endsWith(rawId));
+      if (found) return found;
+      throw new Error('Référence externe introuvable');
     }
     if (USE_DEMO) {
       const { getDemoFeed } = await import('./demoFeed');
@@ -231,6 +255,9 @@ export const feedService = {
 
   performAction: async (videoId: string, action: FeedAction): Promise<void> => {
     if (USE_DEMO) return;
+    if (videoId.startsWith('scraper-')) {
+      throw new Error('Cette référence externe est en lecture seule. Importe-la dans ORKY avant toute interaction sociale.');
+    }
     const paths: Record<string, string> = {
       like: `/videos/${videoId}/like`,
       save: `/videos/${videoId}/save`,
@@ -246,10 +273,8 @@ export const feedService = {
 
   getComments: async (
     videoId: string,
-    params?: PaginationParams
+    params?: PaginationParams,
   ): Promise<{ comments: Comment[]; hasMore: boolean; cursor: string | null }> => {
-    // Scraped comments are read-only but real. Do not replace them with demo
-    // content when the backend is unavailable.
     if (videoId.startsWith('scraper-')) {
       const { scraperBridge } = await import('./scraperBridge');
       const comments = await scraperBridge.getComments(videoId);
@@ -270,6 +295,7 @@ export const feedService = {
   },
 
   getCommentReplies: async (commentId: string, params?: PaginationParams): Promise<Comment[]> => {
+    if (commentId.startsWith('sc-')) return [];
     const page = Number(params?.cursor ?? 1);
     const limit = params?.limit ?? 50;
     const raw = await apiClient.get<{ replies: BackendComment[] }>(`/comments/${commentId}/replies`, {
@@ -279,7 +305,9 @@ export const feedService = {
   },
 
   postComment: async (videoId: string, text: string, parentId?: string): Promise<Comment> => {
-    if (USE_DEMO) throw new Error('Demo disabled');
+    if (USE_DEMO || videoId.startsWith('scraper-')) {
+      throw new Error('Les références externes et le mode démo sont en lecture seule.');
+    }
     const raw = await apiClient.post<{ comment: BackendComment }>(`/videos/${videoId}/comments`, {
       text,
       parentId: parentId ?? null,
@@ -288,6 +316,7 @@ export const feedService = {
   },
 
   toggleCommentLike: async (commentId: string): Promise<{ liked: boolean; likeCount: number }> => {
+    if (commentId.startsWith('sc-')) throw new Error('Commentaire externe en lecture seule.');
     return apiClient.post(`/comments/${commentId}/like`);
   },
 
@@ -304,14 +333,14 @@ export const feedService = {
     if (USE_DEMO) return { videos: [], cursor: null, hasMore: false };
     const raw = await apiClient.get<{ videos: BackendVideo[]; page: number; limit: number }>(
       '/search/videos',
-      { params: { q: query, page: params?.cursor ?? 1, limit: params?.limit ?? 10 } }
+      { params: { q: query, page: params?.cursor ?? 1, limit: params?.limit ?? 10 } },
     );
     return mapFeed(raw);
   },
 
   searchUsers: async (
     query: string,
-    params?: PaginationParams
+    params?: PaginationParams,
   ): Promise<{ users: User[]; hasMore: boolean; cursor: string | null }> => {
     if (USE_DEMO) return { users: [], hasMore: false, cursor: null };
     const raw = await apiClient.get<{ users: BackendUser[] }>('/search/users', {
@@ -322,7 +351,7 @@ export const feedService = {
 
   searchHashtags: async (
     query: string,
-    params?: PaginationParams
+    params?: PaginationParams,
   ): Promise<{ hashtags: Hashtag[]; hasMore: boolean; cursor: string | null }> => {
     if (USE_DEMO) return { hashtags: [], hasMore: false, cursor: null };
     const raw = await apiClient.get<{ hashtags: any[] }>('/search/hashtags', {
