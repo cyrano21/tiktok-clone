@@ -34,6 +34,26 @@ function orchidyBaseUrl(): string {
   ).replace(/\/$/, '');
 }
 
+async function readBoundedJson(request: NextRequest): Promise<Record<string, unknown>> {
+  const contentType = request.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+  if (contentType !== 'application/json') throw new Error('INVALID_CONTENT_TYPE');
+
+  const declared = request.headers.get('content-length');
+  if (declared) {
+    const size = Number(declared);
+    if (!Number.isSafeInteger(size) || size < 0 || size > MAX_BODY_BYTES) {
+      throw new Error('PAYLOAD_TOO_LARGE');
+    }
+  }
+  const raw = await request.text();
+  if (Buffer.byteLength(raw, 'utf8') > MAX_BODY_BYTES) throw new Error('PAYLOAD_TOO_LARGE');
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    throw new Error('INVALID_JSON');
+  }
+}
+
 function sanitizeSelectedOptions(value: unknown): Record<string, string> | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const entries = Object.entries(value as Record<string, unknown>)
@@ -73,12 +93,7 @@ function parseItems(value: unknown): HandoffItem[] {
 
 export async function POST(request: NextRequest) {
   try {
-    const declaredLength = Number(request.headers.get('content-length') || '0');
-    if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-      return NextResponse.json({ success: false, error: 'Panier trop volumineux.' }, { status: 413 });
-    }
-
-    const incoming = await request.json().catch(() => ({})) as Record<string, unknown>;
+    const incoming = await readBoundedJson(request);
     const items = parseItems(incoming.items);
     const returnUrl = text(incoming.returnUrl) || request.nextUrl.origin;
     let safeReturnUrl: string;
@@ -127,12 +142,19 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'Le checkout Orchidy est indisponible.';
+    if (message === 'PAYLOAD_TOO_LARGE') {
+      return NextResponse.json({ success: false, error: 'Panier trop volumineux.' }, { status: 413 });
+    }
+    if (message === 'INVALID_JSON' || message === 'INVALID_CONTENT_TYPE') {
+      return NextResponse.json({ success: false, error: 'Requête de checkout invalide.' }, { status: 400 });
+    }
     console.error('[orchidy-checkout-handoff] proxy failed', error);
     return NextResponse.json(
       {
         success: false,
         code: 'ORCHIDY_HANDOFF_UNAVAILABLE',
-        error: error instanceof Error ? error.message : 'Le checkout Orchidy est indisponible.',
+        error: message,
       },
       { status: 502, headers: { 'Cache-Control': 'no-store, private' } },
     );
