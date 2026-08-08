@@ -39,3 +39,20 @@ CREATE INDEX "VideoProductMatch_orchidyCatalogItemId_idx"
 ALTER TABLE "VideoProductMatch"
   ADD CONSTRAINT "VideoProductMatch_videoId_fkey"
   FOREIGN KEY ("videoId") REFERENCES "Video"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Database defaults must match the ORKY identity, not just Prisma's generated client.
+ALTER TABLE "Branding" ALTER COLUMN "name" SET DEFAULT 'ORKY';
+ALTER TABLE "Branding" ALTER COLUMN "logoUrl" SET DEFAULT '/logo_orky.png';
+ALTER TABLE "Branding" ALTER COLUMN "primaryColor" SET DEFAULT '#7C3AED';
+ALTER TABLE "Branding" ALTER COLUMN "accentColor" SET DEFAULT '#F72585';
+ALTER TABLE "Branding" ALTER COLUMN "tagline" SET DEFAULT 'La vidéo qui vous ressemble';
+
+-- Only migrate untouched legacy defaults. Customer/admin custom branding is preserved.
+UPDATE "Branding"
+SET
+  "name" = CASE WHEN "name" = 'TikTok' THEN 'ORKY' ELSE "name" END,
+  "logoUrl" = CASE WHEN "logoUrl" IS NULL OR "logoUrl" IN ('/logo.png', '/logo_tiktok.png') THEN '/logo_orky.png' ELSE "logoUrl" END,
+  "primaryColor" = CASE WHEN "primaryColor" = '#FE2C55' THEN '#7C3AED' ELSE "primaryColor" END,
+  "accentColor" = CASE WHEN "accentColor" = '#25F4EE' THEN '#F72585' ELSE "accentColor" END,
+  "tagline" = CASE WHEN "tagline" = 'Short videos' THEN 'La vidéo qui vous ressemble' ELSE "tagline" END
+WHERE "tenant" = 'default';
