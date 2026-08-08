@@ -37,7 +37,8 @@ export interface ProductQuery {
 
 const productCache = new Map<string, CommerceProduct>();
 const ORCHIDY_SOURCE = 'orchidy' as const;
-const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
+// Missing configuration must never manufacture commercial products.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
 function asNumber(value: unknown, fallback = 0): number {
   const number = Number(value);
@@ -90,10 +91,7 @@ function resolveVariants(product: any): CommerceVariant[] {
   const variants = raw.flatMap((variant: any, index: number) => {
     const id = asText(variant?.id || variant?._id || variant?.sku || variant?.externalId);
     if (!id) return [];
-    const label = asText(
-      variant?.title || variant?.name || variant?.label || variant?.sku,
-      `Variante ${index + 1}`,
-    );
+    const label = asText(variant?.title || variant?.name || variant?.label || variant?.sku, `Variante ${index + 1}`);
     return [{ id, label, selectedOptions: variantOptions(variant) }];
   });
   return variants.length ? variants : [{ id: 'default', label: 'Standard' }];
@@ -104,7 +102,7 @@ function resolveStore(product: any) {
   return {
     id: asText(store?._id || product?.storeId || product?.sellerId || 'orchidy-store'),
     name: asText(store?.name || product?.shopName || product?.storeName, 'Orchidy'),
-    avatar: asText(store?.logo || product?.shopAvatar || 'https://orchidy.fr/logo_orky.png'),
+    avatar: asText(store?.logo || product?.shopAvatar || '/logo_orky.png'),
     slug: asText(store?.slug || ''),
     verified: store?.isVerified === true || store?.templateActive === true,
   };
@@ -156,11 +154,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     category: resolveCategory(product),
     freeShipping: Boolean(product?.freeShipping || product?.readyToShip || product?.delivery === 'fast'),
     variants: resolveVariants(product),
-    badges: [
-      ORCHIDY_SOURCE.toUpperCase(),
-      ...(orderable ? ['Achetable'] : ['Indisponible']),
-      ...(store.verified ? ['Boutique vérifiée'] : []),
-    ],
+    badges: [ORCHIDY_SOURCE.toUpperCase(), ...(orderable ? ['Achetable'] : ['Indisponible']), ...(store.verified ? ['Boutique vérifiée'] : [])],
     onSale: originalPrice > price,
     source: ORCHIDY_SOURCE,
     externalId,
@@ -190,10 +184,7 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   if (query.category && query.category !== 'all') params.set('category', query.category);
 
   try {
-    const response = await fetch(`/api/orchidy/products?${params.toString()}`, {
-      headers: { accept: 'application/json' },
-      cache: 'no-store',
-    });
+    const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
     if (!response.ok) throw new Error(`Orchidy products unavailable (${response.status})`);
     const payload = await response.json() as OrchidySearchResponse;
     const products = Array.isArray(payload.products) ? payload.products.map(mapOrchidyProduct) : [];
@@ -215,10 +206,7 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
   if (productId.startsWith('orchidy:')) {
     const rawId = productId.slice('orchidy:'.length);
     try {
-      const response = await fetch(`/api/orchidy/products/${encodeURIComponent(rawId)}`, {
-        headers: { accept: 'application/json' },
-        cache: 'no-store',
-      });
+      const response = await fetch(`/api/orchidy/products/${encodeURIComponent(rawId)}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
       if (response.ok) {
         const payload = await response.json() as { product?: unknown };
         if (payload.product) return mapOrchidyProduct(payload.product);
@@ -228,11 +216,7 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
     }
 
     const products = await getCommerceProducts({ query: rawId, limit: 20, sort: 'relevance' });
-    return products.find((product) =>
-      product.id === productId ||
-      product.externalId === rawId ||
-      product.externalSlug === rawId,
-    );
+    return products.find((product) => product.id === productId || product.externalId === rawId || product.externalSlug === rawId);
   }
 
   return undefined;
