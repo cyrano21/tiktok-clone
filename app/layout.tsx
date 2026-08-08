@@ -7,7 +7,13 @@ export const metadata: Metadata = {
   title: 'ORKY — plateforme vidéo par Orchidy',
   description:
     'ORKY by Orchidy : feed vidéo, studio de création, live, shop, modération et analytics — plateforme complète.',
-  icons: { icon: '/favicon.png' },
+  icons: { icon: '/favicon.png', apple: '/logo_orky.png' },
+  manifest: '/manifest.webmanifest',
+  appleWebApp: {
+    capable: true,
+    title: 'ORKY',
+    statusBarStyle: 'black-translucent',
+  },
   openGraph: {
     title: 'ORKY by Orchidy',
     description: 'Feed vidéo, studio de création, live, shop, modération et analytics.',
@@ -21,6 +27,7 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   themeColor: '#09090F',
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
