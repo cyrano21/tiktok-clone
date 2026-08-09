@@ -1,4 +1,5 @@
 import { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
@@ -11,11 +12,11 @@ const createSchema = z.object({
   source: z.enum(['manual', 'matcher', 'import']).optional().default('manual'),
 }).strict();
 
-function activeUserWhere() {
+function activeUserWhere(): Prisma.UserWhereInput {
   return {
     isBanned: false,
     OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }],
-  } as const;
+  };
 }
 
 export async function productMatchRoutes(app: FastifyInstance) {

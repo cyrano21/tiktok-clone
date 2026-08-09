@@ -35,8 +35,8 @@ function normalizeCompletion(value: number) {
 function bigintToNumber(value: bigint | number) {
   return typeof value === 'bigint' ? Number(value) : value;
 }
-function activeCreatorWhere() {
-  return { isBanned: false, OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }] } as const;
+function activeCreatorWhere(): Prisma.UserWhereInput {
+  return { isBanned: false, OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: new Date() } }] };
 }
 
 export class RecommendationService {
