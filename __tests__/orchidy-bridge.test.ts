@@ -37,14 +37,14 @@ describe('Orchidy product bridge', () => {
       currency: 'EUR',
       orderable: true,
       variants: [
-        { _id: 'variant-red-42', title: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' } },
+        { _id: 'variant-red-42', title: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' }, image: 'https://img/sneaker-rouge.jpg', stock: 7 },
         { sku: 'SKU-BLACK-43', name: 'Noir / 43', attributes: [{ name: 'color', value: 'Noir' }, { name: 'size', value: '43' }] },
       ],
     });
 
     expect(product.variants).toEqual([
-      { id: 'variant-red-42', label: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' } },
-      { id: 'SKU-BLACK-43', label: 'Noir / 43', selectedOptions: { color: 'Noir', size: '43' } },
+      { id: 'variant-red-42', label: 'Rouge / 42', selectedOptions: { color: 'Rouge', size: '42' }, image: 'https://img/sneaker-rouge.jpg', stock: 7 },
+      { id: 'SKU-BLACK-43', label: 'Noir / 43', selectedOptions: { color: 'Noir', size: '43' }, image: null, stock: null },
     ]);
   });
 

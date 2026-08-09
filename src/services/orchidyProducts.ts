@@ -2,6 +2,10 @@ import { Product, ProductCategory, ProductVariant, getProductById, getProducts }
 
 export type CommerceVariant = ProductVariant & {
   selectedOptions?: Record<string, string>;
+  /** Variant-specific swatch image when the source provides one (often null). */
+  image?: string | null;
+  /** Live stock when the source provides it, null when unknown. */
+  stock?: number | null;
 };
 
 export type CommerceProduct = Omit<Product, 'variants'> & {
@@ -86,13 +90,31 @@ function variantOptions(variant: any): Record<string, string> | undefined {
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
+function asNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
 function resolveVariants(product: any): CommerceVariant[] {
   const raw = Array.isArray(product?.variants) ? product.variants : [];
   const variants = raw.flatMap((variant: any, index: number) => {
     const id = asText(variant?.id || variant?._id || variant?.sku || variant?.externalId);
     if (!id) return [];
-    const label = asText(variant?.title || variant?.name || variant?.label || variant?.sku, `Variante ${index + 1}`);
-    return [{ id, label, selectedOptions: variantOptions(variant) }];
+    const named = asText(variant?.title || variant?.name || variant?.label);
+    const sku = asText(variant?.sku);
+    // Orchidy variants expose only { sku, price, stock, image }: no color/option
+    // names. Prefer an explicit label, else show a readable reference code
+    // instead of a bare SKU.
+    const label = named || (sku ? `Réf. ${sku}` : `Variante ${index + 1}`);
+    const imageRaw = variant?.image || variant?.imageUrl || variant?.thumbnailUrl || variant?.thumb;
+    return [{
+      id,
+      label,
+      selectedOptions: variantOptions(variant),
+      image: imageRaw ? String(imageRaw) : null,
+      stock: asNullableNumber(variant?.stock ?? variant?.inventory ?? variant?.quantity),
+    }];
   });
   return variants.length ? variants : [{ id: 'default', label: 'Standard' }];
 }
