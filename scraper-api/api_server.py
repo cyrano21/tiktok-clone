@@ -140,6 +140,12 @@ def _unique_videos(comments: list[dict]) -> list[dict]:
         for hashtag in _extract_hashtags(str(c.get("text") or "")):
             if hashtag not in video["hashtags"]:
                 video["hashtags"].append(hashtag)
+        # Mots-clés de catégorie Discover (alimentent le filtre du front),
+        # marqués dans l'export par enrich_catalog.py.
+        for kw in (c.get("_category_keywords") or []):
+            kw = str(kw).strip().lower()
+            if kw and kw not in video["hashtags"]:
+                video["hashtags"].append(kw)
         video["comments"].append(_comment_public(c))
     return sorted(seen.values(), key=lambda item: item["views"], reverse=True)
 
