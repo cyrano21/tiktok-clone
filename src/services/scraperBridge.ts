@@ -220,10 +220,45 @@ export const scraperBridge = {
   },
 
   async refresh(): Promise<void> {
-    // Reload is intentionally not exposed by the public browser proxy. Data refresh
-    // is an operational action performed by the internal scraper service.
+    // Purge le cache local (la régénération du catalogue est une action
+    // opérationnelle du service scraper, déclenchée via refreshCatalog).
     cachedVideos = null;
     cachedAt = 0;
     cachedComments.clear();
+  },
+
+  /** Déclenche la régénération du catalogue (proxy Next protégé, coûteux). */
+  async refreshCatalog(comments = 6): Promise<{ ok: boolean; message?: string; error?: string }> {
+    try {
+      const res = await fetch(scraperUrl('admin/refresh'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ confirm: true, comments }),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, error: (data as any).error || `Régénération impossible (${res.status})` };
+      }
+      return { ok: true, message: (data as any).message };
+    } catch {
+      return { ok: false, error: 'Service de recherche externe indisponible.' };
+    }
+  },
+
+  /** Statut de la régénération en cours / dernière exécution. */
+  async getRefreshStatus(): Promise<{
+    running: boolean;
+    lastRun: string;
+    lastStatus: string;
+    message: string;
+    autoRefreshEnabled: boolean;
+    autoRefreshHourUtc: number;
+  } | null> {
+    try {
+      const res = await fetch(scraperUrl('admin/refresh-status'), { signal: AbortSignal.timeout(3000) });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch { return null; }
   },
 };

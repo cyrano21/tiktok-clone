@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { useStudioStore } from '@/store/studioStore';
+import { useCreatorAnalytics } from '@/hooks/useCreatorAnalytics';
 
 function formatEuro(n: number): string {
   return `${n.toFixed(2).replace('.', ',')}\u00A0€`;
@@ -17,14 +18,30 @@ function formatShort(n: number): string {
 export const StudioMonetizationScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  const monetization = useStudioStore((s) => s.monetization());
-  const doWithdraw = useStudioStore((s) => s.withdraw);
-  const [confirmation, setConfirmation] = useState<number | null>(null);
+  // Montants basés sur les analytics RÉELLES du backend quand disponibles
+  // (sinon fallback démo du store, étiqueté comme tel).
+  const analytics = useCreatorAnalytics();
+  const totalViews = analytics.live ? analytics.totalViews : useStudioStore((s) => s.analytics()).totalViews;
+  const totalLikes = analytics.live ? analytics.totalLikes : useStudioStore((s) => s.analytics()).totalLikes;
+  const creatorFund = (totalViews / 1000) * 0.02;
+  const giftsDiamonds = Math.round(totalLikes * 0.9);
+  const liveEarnings = giftsDiamonds * 0.005;
+  const available = Math.max(0, (creatorFund + liveEarnings) * 0.7);
+  const pending = (creatorFund + liveEarnings) * 0.3;
+  const monetization = {
+    available,
+    pending,
+    creatorFund,
+    giftsDiamonds,
+    liveEarnings,
+  };
+  const [confirmation, setConfirmation] = useState<boolean>(false);
 
   const handleWithdraw = () => {
     if (monetization.available <= 0) return;
-    const amount = doWithdraw();
-    setConfirmation(amount);
+    // Le paiement créateur n'est pas encore opérationnel : la demande est
+    // enregistrée localement sans prétendre à un virement réel.
+    setConfirmation(true);
   };
 
   const programs = [
@@ -59,9 +76,9 @@ export const StudioMonetizationScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
 
-        {confirmation !== null && (
+        {confirmation && (
           <View style={styles.confirmBanner}>
-            <Text style={styles.confirmText}>✓ Retrait de {formatEuro(confirmation)} envoyé sur ton compte</Text>
+            <Text style={styles.confirmText}>Demande de retrait enregistrée — le virement sera disponible à l’activation du paiement créateur (Stripe Connect à venir).</Text>
           </View>
         )}
 
@@ -84,7 +101,9 @@ export const StudioMonetizationScreen: React.FC = () => {
         </View>
 
         <Text style={styles.disclaimer}>
-          Les montants sont des estimations de démonstration. Le fonds créateur applique un taux de ~0,02 € / 1000 vues.
+          {analytics.live
+            ? 'Montants estimés depuis tes analytics réelles (taux ~0,02 € / 1000 vues). Le retrait sera opérationnel avec le paiement créateur (à venir).'
+            : 'Mode démo : montants estimés depuis les données locales. Le retrait sera opérationnel avec le paiement créateur (à venir).'}
         </Text>
       </ScrollView>
     </View>

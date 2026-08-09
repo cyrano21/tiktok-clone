@@ -21,9 +21,91 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).parent
+# Volume persistant (voir Dockerfile.scraper) : le catalogue régénéré y est
+# écrit pour survivre aux redémarrages du conteneur.
+DATA_DIR = Path(os.environ.get("SCRAPER_DATA_DIR", str(ROOT / "data")))
 VIDEO_CACHE = Path(os.environ.get("VIDEO_CACHE_DIR", str(ROOT / "video_cache")))
 VIDEO_CACHE_TTL = int(os.environ.get("VIDEO_CACHE_TTL_SECONDS", "86400"))
 SCRAPER_INTERNAL_SECRET = os.environ.get("SCRAPER_INTERNAL_SECRET", "").strip()
+# Régénération quotidienne du catalogue (coûteuse : runs Apify). Désactivée
+# par défaut ; SCRAPER_AUTO_REFRESH=1 + SCRAPER_AUTO_REFRESH_HOUR (UTC) active.
+AUTO_REFRESH_ENABLED = os.environ.get("SCRAPER_AUTO_REFRESH", "0") == "1"
+AUTO_REFRESH_HOUR = int(os.environ.get("SCRAPER_AUTO_REFRESH_HOUR", "3") or 3)
+REFRESH_COMMENTS = int(os.environ.get("SCRAPER_REFRESH_COMMENTS", "6") or 6)
+REFRESH_WORKERS = max(1, min(8, int(os.environ.get("SCRAPER_REFRESH_WORKERS", "4") or 4)))
+REFRESH_PER = int(os.environ.get("SCRAPER_REFRESH_PER", "10") or 10)
+
+# État du refresh en cours (protégé par un verrou global).
+_REFRESH_LOCK = threading.Lock()
+_REFRESH_STATE: dict = {"running": False, "last_run": "", "last_status": "", "message": ""}
+
+
+def _run_catalog_refresh(comments_per_video: int = REFRESH_COMMENTS) -> None:
+    """Lance enrich_catalog.py (sous-processus) puis recharge les données.
+
+    Exécuté dans un thread de fond : le endpoint admin répond immédiatement
+    et le résultat est visible via /api/admin/refresh-status. Écrit le
+    catalogue dans DATA_DIR (volume persistant) pour survivre au restart.
+    """
+    with _REFRESH_LOCK:
+        if _REFRESH_STATE["running"]:
+            return
+        _REFRESH_STATE.update(running=True, last_run="", last_status="running", message="Démarrage…")
+    started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    def _worker():
+        try:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            out_path = DATA_DIR / "comments.json"
+            cmd = [
+                sys.executable, str(ROOT / "enrich_catalog.py"),
+                "--per", str(REFRESH_PER),
+                "--comments", str(max(0, int(comments_per_video))),
+                "--workers", str(REFRESH_WORKERS),
+                "--out", str(out_path),
+            ]
+            proc = subprocess.run(
+                cmd, cwd=str(ROOT), capture_output=True, text=True, timeout=7200
+            )
+            ok = proc.returncode == 0
+            tail = (proc.stdout or "").strip().splitlines()[-8:]
+            message = "\n".join(tail) if tail else ((proc.stderr or "").strip()[-500:])
+            if ok and out_path.exists():
+                ScraperAPI.reload()
+            with _REFRESH_LOCK:
+                _REFRESH_STATE.update(
+                    running=False,
+                    last_run=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    last_status="ok" if ok else "failed",
+                    message=message[:1000],
+                )
+        except Exception as exc:  # noqa: BLE001
+            with _REFRESH_LOCK:
+                _REFRESH_STATE.update(
+                    running=False,
+                    last_run=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    last_status="failed",
+                    message=f"Exception: {exc}",
+                )
+
+    thread = threading.Thread(target=_worker, daemon=True, name="catalog-refresh")
+    thread.start()
+
+
+def _scheduler_loop() -> None:
+    """Thread démon : déclenche la régénération une fois par jour à l'heure UTC configurée."""
+    if not AUTO_REFRESH_ENABLED:
+        return
+    last_day = ""
+    while True:
+        today = time.strftime("%Y-%m-%d", time.gmtime())
+        hour = int(time.strftime("%H", time.gmtime()))
+        if today != last_day and hour == AUTO_REFRESH_HOUR:
+            last_day = today
+            print(f"[SCRAPER API] Scheduled daily catalog refresh at {today} {hour}:00Z")
+            _run_catalog_refresh()
+        time.sleep(1800)
+
 MAX_CONCURRENT_DOWNLOADS = max(1, min(8, int(os.environ.get("SCRAPER_MAX_DOWNLOADS", "4"))))
 _CACHE_LOCKS: dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
@@ -40,7 +122,9 @@ def _safe_int(value, default=0):
 
 def _load_comments():
     """Loads available research exports. JSON > CSV > XLSX."""
-    json_path = ROOT / "comments.json"
+    # Le catalogue régénéré (volume persistant) prime sur l'export embarqué.
+    data_json = DATA_DIR / "comments.json"
+    json_path = data_json if data_json.exists() else ROOT / "comments.json"
     if json_path.exists():
         try:
             data = json.loads(json_path.read_text(encoding="utf-8"))
@@ -353,6 +437,13 @@ class ScraperAPI(BaseHTTPRequestHandler):
             self._json({"error": "Unauthorized"}, 401)
             return
 
+        if path == "/api/admin/refresh-status":
+            with _REFRESH_LOCK:
+                state = dict(_REFRESH_STATE)
+            state["autoRefreshEnabled"] = AUTO_REFRESH_ENABLED
+            state["autoRefreshHourUtc"] = AUTO_REFRESH_HOUR
+            self._json(state)
+            return
         if path.startswith("/api/stream/"):
             self._stream_video(path.split("/api/stream/", 1)[1])
             return
@@ -395,6 +486,34 @@ class ScraperAPI(BaseHTTPRequestHandler):
         else:
             self._json({"error": "Not found"}, 404)
 
+    def do_POST(self):
+        path = urlparse(self.path).path.rstrip("/")
+        if not self._authorized():
+            self._json({"error": "Unauthorized"}, 401)
+            return
+
+        if path == "/api/admin/refresh":
+            # Régénère le catalogue (vraies vidéos + commentaires via Apify).
+            # Coûteux : réservé au secret interne, jamais exposé au navigateur.
+            body_len = int(self.headers.get("Content-Length") or 0)
+            payload = {}
+            if body_len:
+                try:
+                    payload = json.loads(self.rfile.read(body_len).decode("utf-8") or "{}")
+                except (ValueError, UnicodeDecodeError):
+                    payload = {}
+            comments = int(payload.get("comments", REFRESH_COMMENTS) or 0)
+            with _REFRESH_LOCK:
+                already_running = _REFRESH_STATE.get("running")
+            if already_running:
+                self._json({"ok": False, "error": "Refresh already running"}, 409)
+                return
+            _run_catalog_refresh(comments_per_video=comments)
+            self._json({"ok": True, "status": "started", "message": "Régénération lancée en arrière-plan."})
+            return
+
+        self._json({"error": "Not found"}, 404)
+
     def log_message(self, format, *args):
         pass
 
@@ -410,6 +529,11 @@ def main():
     )
     # 0.0.0.0 is required for Docker service-to-service traffic. Authorization is
     # enforced at the application layer and the compose service has no public port.
+    if AUTO_REFRESH_ENABLED:
+        threading.Thread(target=_scheduler_loop, daemon=True, name="catalog-scheduler").start()
+        print(f"[SCRAPER API] Daily auto-refresh ENABLED at {AUTO_REFRESH_HOUR}:00Z")
+    else:
+        print("[SCRAPER API] Daily auto-refresh disabled (set SCRAPER_AUTO_REFRESH=1 to enable)")
     server = ThreadingHTTPServer(("0.0.0.0", port), ScraperAPI)
     print(f"[SCRAPER API] Listening internally on :{port}")
     try:

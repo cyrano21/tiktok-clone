@@ -9,7 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api_server.py ./
 COPY comments.json ./
-RUN mkdir -p /app/data/video_cache
+# Scripts de régénération du catalogue (vidéos + commentaires réels via Apify).
+# enrich_catalog.py lit APIFY_TOKEN (env) et écrit le catalogue dans /app/data
+# (volume persistant) pour survivre aux redémarrages.
+COPY enrich_catalog.py ./
+COPY apify_source.py ./
+RUN mkdir -p /app/data /app/data/video_cache
 
 VOLUME ["/app/data"]
 EXPOSE 8502

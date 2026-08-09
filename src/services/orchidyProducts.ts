@@ -98,6 +98,11 @@ function asNullableNumber(value: unknown): number | null {
 
 function resolveVariants(product: any): CommerceVariant[] {
   const raw = Array.isArray(product?.variants) ? product.variants : [];
+  // Real product images only (no placeholder): used as swatch fallback when a
+  // variant ships without its own image (Orchidy variants are SKU-only).
+  const productImages = (firstImage(product) || []).filter(
+    (image: string) => !image.includes('logo_orky') && !image.includes('placeholder'),
+  );
   const variants = raw.flatMap((variant: any, index: number) => {
     const id = asText(variant?.id || variant?._id || variant?.sku || variant?.externalId);
     if (!id) return [];
@@ -108,11 +113,20 @@ function resolveVariants(product: any): CommerceVariant[] {
     // instead of a bare SKU.
     const label = named || (sku ? `Réf. ${sku}` : `Variante ${index + 1}`);
     const imageRaw = variant?.image || variant?.imageUrl || variant?.thumbnailUrl || variant?.thumb;
+    // When the API gives no variant image (Orchidy returns null), fall back to
+    // a real product image so every variant gets a visual swatch. Cycling by
+    // index keeps variants visually distinct.
+    const resolvedImage =
+      imageRaw
+        ? String(imageRaw)
+        : productImages.length > 0
+          ? productImages[index % productImages.length]
+          : null;
     return [{
       id,
       label,
       selectedOptions: variantOptions(variant),
-      image: imageRaw ? String(imageRaw) : null,
+      image: resolvedImage,
       stock: asNullableNumber(variant?.stock ?? variant?.inventory ?? variant?.quantity),
     }];
   });

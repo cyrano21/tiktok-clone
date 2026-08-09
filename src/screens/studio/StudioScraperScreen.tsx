@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
@@ -13,12 +13,25 @@ type Stats = {
   lastScraped: string;
 };
 
+type RefreshStatus = {
+  running: boolean;
+  lastRun: string;
+  lastStatus: string;
+  message: string;
+  autoRefreshEnabled: boolean;
+  autoRefreshHourUtc: number;
+};
+
 export const StudioScraperScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshStatus, setRefreshStatus] = useState<RefreshStatus | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -35,7 +48,51 @@ export const StudioScraperScreen: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
+  const loadRefreshStatus = useCallback(async () => {
+    const status = await scraperBridge.getRefreshStatus();
+    setRefreshStatus(status);
+    if (status?.running) {
+      setRefreshing(true);
+    } else {
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); void loadRefreshStatus(); }, [load, loadRefreshStatus]);
+
+  // Pendant une régénération, on poll le statut toutes les 5 s pour suivre la fin.
+  useEffect(() => {
+    if (!refreshing) return;
+    pollRef.current = setInterval(() => { void loadRefreshStatus(); }, 5000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [refreshing, loadRefreshStatus]);
+
+  const onRefreshCatalog = useCallback(() => {
+    Alert.alert(
+      'Régénérer le catalogue ?',
+      'Le scraper relance une recherche TikTok (vidéos + commentaires réels) via Apify. Cette opération peut prendre plusieurs minutes et consomme du quota payant. Continuer ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Régénérer',
+          style: 'destructive',
+          onPress: async () => {
+            setRefreshing(true);
+            setRefreshError(null);
+            const result = await scraperBridge.refreshCatalog(6);
+            if (!result.ok) {
+              setRefreshing(false);
+              setRefreshError(result.error || 'Régénération impossible.');
+              return;
+            }
+            await loadRefreshStatus();
+          },
+        },
+      ],
+    );
+  }, [loadRefreshStatus]);
 
   const cards = stats ? [
     ['Vidéos référencées', stats.totalVideos],
@@ -43,6 +100,10 @@ export const StudioScraperScreen: React.FC = () => {
     ['Utilisateurs externes', stats.uniqueUsers],
     ['Signaux spam', stats.spamCount],
   ] as const : [];
+
+  const hourLabel = refreshStatus?.autoRefreshEnabled
+    ? `Quotidien à ${String(refreshStatus.autoRefreshHourUtc).padStart(2, '0')}:00 UTC`
+    : 'Désactivée';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -52,7 +113,7 @@ export const StudioScraperScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Recherche externe</Text>
           <Text style={styles.headerSubtitle}>TikTok · lecture seule</Text>
         </View>
-        <TouchableOpacity onPress={() => void load()} disabled={loading}><Text style={styles.refresh}>↻</Text></TouchableOpacity>
+        <TouchableOpacity onPress={() => { void load(); void loadRefreshStatus(); }} disabled={loading}><Text style={styles.refresh}>↻</Text></TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -69,8 +130,42 @@ export const StudioScraperScreen: React.FC = () => {
         {stats ? <>
           <View style={styles.grid}>{cards.map(([label, value]) => <View key={label} style={styles.metric}><Text style={styles.metricValue}>{Number(value).toLocaleString('fr-FR')}</Text><Text style={styles.metricLabel}>{label}</Text></View>)}</View>
           <View style={styles.infoCard}><Text style={styles.infoTitle}>Dernière donnée observée</Text><Text style={styles.infoValue}>{stats.lastScraped ? new Date(stats.lastScraped).toLocaleString('fr-FR') : 'Date non fournie par la source'}</Text></View>
-          <View style={styles.infoCard}><Text style={styles.infoTitle}>Règles appliquées</Text><Text style={styles.infoValue}>Aucun avatar ou compteur n’est inventé · aucun like/follow ORKY sur une référence externe · aucun endpoint de reload exposé au navigateur · téléchargements yt-dlp bornés côté serveur.</Text></View>
         </> : null}
+
+        <View style={styles.refreshCard}>
+          <Text style={styles.infoTitle}>Régénération du catalogue</Text>
+          <Text style={styles.infoValue}>
+            Relance une recherche des vidéos et commentaires TikTok les plus récents par catégorie. La mise à jour est visible dès la fin de l’opération.
+          </Text>
+
+          {refreshError ? <Text style={styles.refreshError}>{refreshError}</Text> : null}
+
+          {refreshStatus?.running ? (
+            <View style={styles.runningRow}>
+              <Text style={styles.runningDot}>●</Text>
+              <Text style={styles.runningText}>Régénération en cours… (plusieurs minutes)</Text>
+            </View>
+          ) : (
+            <>
+              {refreshStatus?.lastRun ? (
+                <Text style={styles.lastRun}>
+                  Dernière régénération : {new Date(refreshStatus.lastRun).toLocaleString('fr-FR')} ·{' '}
+                  {refreshStatus.lastStatus === 'ok' ? 'réussie' : refreshStatus.lastStatus === 'failed' ? 'échouée' : refreshStatus.lastStatus}
+                </Text>
+              ) : null}
+              <TouchableOpacity style={styles.refreshButton} onPress={onRefreshCatalog}>
+                <Text style={styles.refreshButtonText}>Régénérer le catalogue</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          <View style={styles.scheduleRow}>
+            <Text style={styles.scheduleLabel}>Planification automatique</Text>
+            <Text style={styles.scheduleValue}>{hourLabel}</Text>
+          </View>
+        </View>
+
+        <View style={styles.infoCard}><Text style={styles.infoTitle}>Règles appliquées</Text><Text style={styles.infoValue}>Aucun avatar ou compteur n’est inventé · aucun like/follow ORKY sur une référence externe · aucun endpoint de reload exposé au navigateur · téléchargements yt-dlp bornés côté serveur.</Text></View>
       </ScrollView>
     </View>
   );
@@ -101,4 +196,15 @@ const styles = StyleSheet.create({
   infoCard: { backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.md, gap: 5 },
   infoTitle: { color: tokens.colors.white, fontWeight: '800' },
   infoValue: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, lineHeight: 20 },
+  refreshCard: { backgroundColor: '#151529', borderWidth: 1, borderColor: '#3B2D65', borderRadius: tokens.radius.lg, padding: tokens.spacing.lg, gap: 10 },
+  refreshError: { color: '#FF6B6B', fontSize: tokens.typography.caption.fontSize },
+  runningRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  runningDot: { color: '#F72585', fontSize: 12 },
+  runningText: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
+  lastRun: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
+  refreshButton: { backgroundColor: tokens.colors.brand.secondary, borderRadius: tokens.radius.md, paddingVertical: 13, alignItems: 'center' },
+  refreshButtonText: { color: '#09090F', fontWeight: '900', fontSize: tokens.typography.subhead.fontSize },
+  scheduleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
+  scheduleLabel: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
+  scheduleValue: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '800' },
 });

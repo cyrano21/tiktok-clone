@@ -42,6 +42,9 @@ function allowedPath(path: string[]): { ok: boolean; stream: boolean } {
   if (path.length === 1 && ['health', 'stats', 'videos'].includes(path[0])) {
     return { ok: true, stream: false };
   }
+  if (path.length === 2 && path[0] === 'admin' && path[1] === 'refresh-status') {
+    return { ok: true, stream: false };
+  }
   if (path.length === 2 && path[0] === 'stream' && ID_RE.test(path[1])) {
     return { ok: true, stream: true };
   }
