@@ -121,7 +121,16 @@ export const discoverService = {
     const raw = await apiClient.get<{ videos: BackendVideo[] }>('/feed/discover', {
       params: { category, page, limit },
     });
-    return (raw.videos ?? []).map(mapVideo);
+    const videos = (raw.videos ?? []).map(mapVideo);
+    // The backend only holds ORKY-native videos; when it has none (the real
+    // catalog lives in the TikTok scraper), surface the scraped catalog so
+    // Discover never shows a dead empty grid on a healthy backend.
+    if (videos.length === 0 && (await useScraperDiscover())) {
+      const { scraperBridge } = await import('./scraperBridge');
+      const scraped = await scraperBridge.getVideos(limit);
+      if (scraped.length > 0) return scraperToDiscoverVideos(scraped);
+    }
+    return videos;
   },
 };
 
