@@ -5,16 +5,26 @@ export const dynamic = 'force-dynamic';
 
 const INTERNAL_SCRAPER_URL = process.env.SCRAPER_API_INTERNAL_URL || 'http://127.0.0.1:8502';
 const REFRESH_SECRET = String(process.env.SCRAPER_INTERNAL_SECRET || '').trim();
-// Vérification du rôle : on passe par le proxy same-origin /v1 (le même que le
-// client utilise en prod — le proxy rewrite Next route /v1/auth/me vers le backend).
-// L'URL absolue est reconstruite depuis l'origine de la requête entrante, car un
-// fetch serveur relatif ne traverse pas les rewrites de next.config.
+// Vérification du rôle : même résolution que next.config — API_BACKEND_URL est
+// la variable serveur qui alimente le proxy /v1 en production. On appelle
+// directement le backend avec une URL absolue (un fetch relatif ne traverse pas
+// les rewrites côté serveur).
 
 // Régénération coûteuse (runs Apify) : 1 requête / 10 min, par utilisateur
 // admin uniquement. Le rate limit est en mémoire (acceptable : l'autorisation
 // admin est déjà requise — un attaquant non-admin est rejeté avant).
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const refreshHits = new Map<string, { count: number; resetAt: number }>();
+
+/** Résout l'origine du backend comme next.config : API_BACKEND_URL d'abord,
+ *  puis NEXT_PUBLIC_API_BASE_URL (sans suffixe /v1), puis localhost en dev. */
+function resolveBackendOrigin(): string {
+  const raw =
+    process.env.API_BACKEND_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    (process.env.NODE_ENV === 'production' ? 'http://api:4000' : 'http://localhost:4000');
+  return String(raw).replace(/\/$/, '').replace(/\/v1$/, '');
+}
 
 function consumeRefreshRate(key: string, max: number): { allowed: boolean; retryAfter: number } {
   const now = Date.now();
@@ -43,7 +53,7 @@ async function isAdminUser(request: NextRequest): Promise<{ ok: boolean; status?
     return { ok: false, status: 401, error: 'Authentication required' };
   }
   try {
-    const meUrl = `${request.nextUrl.origin}/v1/auth/me`;
+    const meUrl = `${resolveBackendOrigin()}/v1/auth/me`;
     const res = await fetch(meUrl, {
       headers: { authorization: auth },
       cache: 'no-store',
