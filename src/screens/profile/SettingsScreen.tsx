@@ -5,6 +5,7 @@ import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { authService } from '@/services/authService';
 import { useBrandingStore } from '@/store/brandingStore';
+import { useSettingsStore, LANGUAGE_OPTIONS } from '@/store/settingsStore';
 
 type Kind = 'nav' | 'toggle' | 'cycle' | 'action';
 
@@ -73,19 +74,19 @@ export const SettingsScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
 
-  const [toggles, setToggles] = useState<Record<string, boolean>>({
-    notifications: true,
-    darkmode: true,
-    datasaver: false,
-  });
-  const [langIndex, setLangIndex] = useState(1); // English by default
-  const [cacheCleared, setCacheCleared] = useState(false);
+  const notifications = useSettingsStore((s) => s.notifications);
+  const darkMode = useSettingsStore((s) => s.darkMode);
+  const dataSaver = useSettingsStore((s) => s.dataSaver);
+  const language = useSettingsStore((s) => s.language);
+  const cacheClearedAt = useSettingsStore((s) => s.cacheClearedAt);
+  const toggleSetting = useSettingsStore((s) => s.toggle);
+  const cycleLanguage = useSettingsStore((s) => s.cycleLanguage);
+  const clearCache = useSettingsStore((s) => s.clearCache);
   const branding = useBrandingStore((s) => s.branding);
 
-  const languageOptions = ['Français', 'English', 'Español', 'Deutsch'];
-
-  const setToggle = (id: string) =>
-    setToggles((prev) => ({ ...prev, [id]: !prev[id] }));
+  const languageOptions = LANGUAGE_OPTIONS;
+  const langLabel = languageOptions.find((o) => o.code === language)?.label ?? 'English';
+  const [cacheFlash, setCacheFlash] = useState(false);
 
   const handleItem = (item: SettingItem) => {
     switch (item.kind) {
@@ -101,12 +102,13 @@ export const SettingsScreen: React.FC = () => {
         nav.push('profile.settings.detail', { title: item.label, body: item.body, id: item.id });
         break;
       case 'cycle':
-        if (item.id === 'language') setLangIndex((i) => (i + 1) % languageOptions.length);
+        if (item.id === 'language') cycleLanguage();
         break;
       case 'action':
         if (item.id === 'cache') {
-          setCacheCleared(true);
-          setTimeout(() => setCacheCleared(false), 1800);
+          clearCache();
+          setCacheFlash(true);
+          setTimeout(() => setCacheFlash(false), 1800);
         }
         break;
       default:
@@ -124,10 +126,17 @@ export const SettingsScreen: React.FC = () => {
       );
     }
     if (item.kind === 'toggle') {
+      const value =
+        item.id === 'notifications' ? notifications
+        : item.id === 'darkmode' ? darkMode
+        : item.id === 'datasaver' ? dataSaver
+        : false;
       return (
         <Switch
-          value={!!toggles[item.id]}
-          onValueChange={() => setToggle(item.id)}
+          value={value}
+          onValueChange={() =>
+            toggleSetting(item.id === 'notifications' ? 'notifications' : item.id === 'darkmode' ? 'darkMode' : 'dataSaver')
+          }
           trackColor={{ false: tokens.colors.surface, true: tokens.colors.brand.primary }}
           thumbColor={tokens.colors.white}
         />
@@ -136,15 +145,15 @@ export const SettingsScreen: React.FC = () => {
     if (item.kind === 'cycle' && item.id === 'language') {
       return (
         <View style={styles.settingRight}>
-          <Text style={styles.settingValue}>{languageOptions[langIndex]}</Text>
+          <Text style={styles.settingValue}>{langLabel}</Text>
           <Text style={styles.settingArrow}>›</Text>
         </View>
       );
     }
     if (item.kind === 'action' && item.id === 'cache') {
       return (
-        <Text style={[styles.settingValue, cacheCleared && styles.cacheDone]}>
-          {cacheCleared ? '✓ Vidé' : '32,4 Mo'}
+        <Text style={[styles.settingValue, (cacheFlash || cacheClearedAt != null) && styles.cacheDone]}>
+          {cacheFlash ? '✓ Vidé' : cacheClearedAt != null ? '✓ Vidé le ' + new Date(cacheClearedAt).toLocaleDateString('fr-FR') : 'Vider le cache'}
         </Text>
       );
     }
