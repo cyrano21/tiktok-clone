@@ -9,10 +9,8 @@ services:
       POSTGRES_USER: tiktok
       POSTGRES_PASSWORD: tiktok_secret
       POSTGRES_DB: tiktok_clone
-    ports:
-      - '5432:5432'
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+    ports: ['5432:5432']
+    volumes: [postgres_data:/var/lib/postgresql/data]
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U tiktok -d tiktok_clone']
       interval: 5s
@@ -23,71 +21,24 @@ services:
     image: redis:7-alpine
     container_name: tiktok-redis
     restart: unless-stopped
-    ports:
-      - '6379:6379'
-    volumes:
-      - redis_data:/data
+    ports: ['6379:6379']
+    volumes: [redis_data:/data]
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
       timeout: 3s
       retries: 5
 
-  api:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: tiktok-api
-    restart: unless-stopped
-    ports:
-      - '4000:4000'
-    environment:
-      NODE_ENV: production
-      PORT: 4000
-      DATABASE_URL: postgresql://tiktok:tiktok_secret@postgres:5432/tiktok_clone
-      REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_only_refresh_change_me}
-      AWS_REGION: ${AWS_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
-      S3_BUCKET: ${S3_BUCKET:-tiktok-clone-videos}
-      S3_ENDPOINT: http://minio:9000
-      S3_FORCE_PATH_STYLE: 'true'
-      # Browser-facing URL. Override with an HTTPS CDN/domain in production.
-      CDN_URL: ${CDN_URL:-http://localhost:9000/tiktok-clone-videos}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
-      # LIVEKIT_URL is returned to browsers, so localhost is correct for local
-      # desktop development but must become wss://live.<domain> in production.
-      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
-      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
-      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-    healthcheck:
-      test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
   minio:
     image: minio/minio:latest
     container_name: tiktok-minio
     restart: unless-stopped
-    ports:
-      - '9000:9000'
-      - '9001:9001'
+    ports: ['9000:9000', '9001:9001']
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+    volumes: [minio_data:/data]
+    command: server /data --console-address ':9001'
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 5s
@@ -104,13 +55,50 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin;
       mc mb local/tiktok-clone-videos --ignore-existing;
-      mc anonymous set download local/tiktok-clone-videos;
-      echo 'MinIO bucket ready';
+      mc anonymous set none local/tiktok-clone-videos;
+      echo 'MinIO private bucket ready';
       exit 0;
       "
 
-  # Local WebRTC SFU. Production needs real secrets, TLS/WSS and network ports
-  # configured for the public host; livekit.dev.yaml is intentionally dev-only.
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: tiktok-api
+    restart: unless-stopped
+    ports: ['4000:4000']
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://tiktok:tiktok_secret@postgres:5432/tiktok_clone
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-dev_only_change_me}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-dev_only_refresh_change_me}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minioadmin}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-minioadmin}
+      S3_BUCKET: ${S3_BUCKET:-tiktok-clone-videos}
+      S3_ENDPOINT: http://minio:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      CDN_URL: ${CDN_URL:-http://localhost:9000/tiktok-clone-videos}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      TIKTOK_TOKEN_ENCRYPTION_KEY: ${TIKTOK_TOKEN_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   livekit:
     image: livekit/livekit-server:v1.13.4
     container_name: tiktok-livekit
@@ -126,7 +114,25 @@ services:
       api:
         condition: service_healthy
 
+  scraper-api:
+    build:
+      context: ./scraper-api
+      dockerfile: Dockerfile.scraper
+    container_name: tiktok-scraper-api
+    restart: unless-stopped
+    environment:
+      VIDEO_CACHE_DIR: /app/data/video_cache
+      SCRAPER_INTERNAL_SECRET: ${SCRAPER_INTERNAL_SECRET:-dev-scraper-internal-secret-change-me-123456789}
+    ports: ['8502:8502']
+    volumes: [scraper_data:/app/data]
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8502/api/health']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   redis_data:
   minio_data:
+  scraper_data:

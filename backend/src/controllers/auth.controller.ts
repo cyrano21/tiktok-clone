@@ -21,6 +21,14 @@ function generateTokens(userId: string) {
   return { accessToken, refreshToken };
 }
 
+function accountRestriction(user: { isBanned: boolean; suspendedUntil: Date | null }) {
+  if (user.isBanned) return { status: 403, error: 'ACCOUNT_BANNED', message: 'Account banned' };
+  if (user.suspendedUntil && user.suspendedUntil.getTime() > Date.now()) {
+    return { status: 403, error: 'ACCOUNT_SUSPENDED', message: 'Account temporarily suspended', suspendedUntil: user.suspendedUntil };
+  }
+  return null;
+}
+
 export class AuthController {
   static async register(req: FastifyRequest, reply: FastifyReply) {
     const { email, username, password, displayName } = z.object({
@@ -30,8 +38,10 @@ export class AuthController {
       displayName: z.string().trim().max(50).optional(),
     }).parse(req.body);
 
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedUsername = username.trim();
     const existingUser = await prisma.user.findFirst({
-      where: { OR: [{ email }, { username }] },
+      where: { OR: [{ email: normalizedEmail }, { username: normalizedUsername }] },
     });
     if (existingUser) {
       return reply.status(409).send({ error: 'CONFLICT', message: 'Email or username already exists' });
@@ -40,16 +50,15 @@ export class AuthController {
     const hashedPassword = await bcrypt.hash(password, 12);
     const user = await prisma.user.create({
       data: {
-        email,
-        username,
+        email: normalizedEmail,
+        username: normalizedUsername,
         passwordHash: hashedPassword,
-        displayName: displayName || username,
+        displayName: displayName?.trim() || normalizedUsername,
       },
     });
 
     const tokens = generateTokens(user.id);
     await redis.set(`refresh:${user.id}`, tokens.refreshToken, { EX: 7 * 24 * 60 * 60 });
-
     return reply.status(201).send({
       user: { id: user.id, email: user.email, username: user.username, displayName: user.displayName },
       ...tokens,
@@ -61,31 +70,23 @@ export class AuthController {
       email: z.string().trim().min(1).max(254),
       password: z.string().min(1).max(128),
     }).parse(req.body);
-    const identifier = email;
+    const identifier = email.trim();
 
-    // Accepts both email and username ("Email or username" placeholder).
     const user = await prisma.user.findFirst({
-      where:
-        identifier.includes('@')
-          ? { email: identifier }
-          : { username: identifier },
+      where: identifier.includes('@')
+        ? { email: identifier.toLowerCase() }
+        : { username: identifier },
     });
-    if (!user) {
-      return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
-    }
+    if (!user) return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
 
     const validPassword = await bcrypt.compare(password, user.passwordHash);
-    if (!validPassword) {
-      return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
-    }
+    if (!validPassword) return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid credentials' });
 
-    if (user.isBanned) {
-      return reply.status(403).send({ error: 'FORBIDDEN', message: 'Account is banned' });
-    }
+    const restriction = accountRestriction(user);
+    if (restriction) return reply.status(restriction.status).send(restriction);
 
     const tokens = generateTokens(user.id);
     await redis.set(`refresh:${user.id}`, tokens.refreshToken, { EX: 7 * 24 * 60 * 60 });
-
     return reply.send({
       user: { id: user.id, email: user.email, username: user.username, displayName: user.displayName },
       ...tokens,
@@ -93,19 +94,29 @@ export class AuthController {
   }
 
   static async refresh(req: FastifyRequest, reply: FastifyReply) {
-    const { refreshToken } = z.object({ refreshToken: z.string().min(1) }).parse(req.body);
+    const { refreshToken } = z.object({ refreshToken: z.string().min(1).max(4096) }).parse(req.body);
 
     try {
       const decoded = jwt.verify(refreshToken, REFRESH_SECRET) as unknown as { userId: string };
-      const storedToken = await redis.get(`refresh:${decoded.userId}`);
+      const [storedToken, user] = await Promise.all([
+        redis.get(`refresh:${decoded.userId}`),
+        prisma.user.findUnique({
+          where: { id: decoded.userId },
+          select: { id: true, isBanned: true, suspendedUntil: true },
+        }),
+      ]);
 
-      if (storedToken !== refreshToken) {
+      if (storedToken !== refreshToken || !user) {
         return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid refresh token' });
+      }
+      const restriction = accountRestriction(user);
+      if (restriction) {
+        await redis.del(`refresh:${decoded.userId}`);
+        return reply.status(restriction.status).send(restriction);
       }
 
       const tokens = generateTokens(decoded.userId);
       await redis.set(`refresh:${decoded.userId}`, tokens.refreshToken, { EX: 7 * 24 * 60 * 60 });
-
       return reply.send(tokens);
     } catch {
       return reply.status(401).send({ error: 'UNAUTHORIZED', message: 'Invalid or expired refresh token' });
@@ -120,33 +131,18 @@ export class AuthController {
 
   static async updateProfile(req: FastifyRequest, reply: FastifyReply) {
     const userId = (req as any).userId;
-    const { displayName, bio, avatarUrl, website } = req.body as any;
+    const body = z.object({
+      displayName: z.string().trim().max(50).optional(),
+      bio: z.string().trim().max(200).optional(),
+      avatarUrl: z.string().trim().max(500).optional(),
+      website: z.string().trim().max(200).optional(),
+    }).strict().parse(req.body ?? {});
 
     const data: Record<string, string | null | undefined> = {};
-    if (displayName !== undefined) {
-      if (typeof displayName !== 'string' || displayName.length > 50) {
-        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'displayName too long (max 50)' });
-      }
-      data.displayName = displayName.trim();
-    }
-    if (bio !== undefined) {
-      if (typeof bio !== 'string' || bio.length > 200) {
-        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'bio too long (max 200)' });
-      }
-      data.bio = bio.trim();
-    }
-    if (avatarUrl !== undefined) {
-      if (typeof avatarUrl !== 'string' || avatarUrl.length > 500) {
-        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'avatarUrl too long' });
-      }
-      data.avatarUrl = avatarUrl.trim() || null;
-    }
-    if (website !== undefined) {
-      if (typeof website !== 'string' || website.length > 200) {
-        return reply.status(400).send({ error: 'BAD_REQUEST', message: 'website too long' });
-      }
-      data.website = website.trim() || null;
-    }
+    if (body.displayName !== undefined) data.displayName = body.displayName;
+    if (body.bio !== undefined) data.bio = body.bio;
+    if (body.avatarUrl !== undefined) data.avatarUrl = body.avatarUrl || null;
+    if (body.website !== undefined) data.website = body.website || null;
 
     const user = await prisma.user.update({
       where: { id: userId },
@@ -163,7 +159,6 @@ export class AuthController {
         _count: { select: { followers: true, following: true, videos: true } },
       },
     });
-
     return reply.send({ user });
   }
 
@@ -183,11 +178,7 @@ export class AuthController {
         _count: { select: { followers: true, following: true, videos: true } },
       },
     });
-
-    if (!user) {
-      return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
-    }
-
+    if (!user) return reply.status(404).send({ error: 'NOT_FOUND', message: 'User not found' });
     return reply.send({ user });
   }
 }

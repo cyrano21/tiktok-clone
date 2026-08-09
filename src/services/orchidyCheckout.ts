@@ -1,4 +1,4 @@
-import type { CartLine } from '@/store/cartStore';
+import { useCartStore, type CartLine } from '@/store/cartStore';
 
 export type OrchidyHandoffValidatedLine = {
   productId: string | null;
@@ -15,6 +15,7 @@ export type OrchidyHandoffValidatedLine = {
 
 export type OrchidyHandoffResponse = {
   success: true;
+  handoffId: string;
   checkoutUrl: string;
   expiresAt: string;
   currency: string;
@@ -62,11 +63,20 @@ export async function createOrchidyCheckoutHandoff(
     }),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.success || typeof payload?.checkoutUrl !== 'string') {
+  if (
+    !response.ok ||
+    !payload?.success ||
+    typeof payload?.checkoutUrl !== 'string' ||
+    !/^[a-f\d]{24}$/i.test(String(payload?.handoffId || ''))
+  ) {
     const error = new Error(payload?.error || 'Le checkout Orchidy est indisponible.');
     (error as any).code = payload?.code;
     (error as any).details = payload;
     throw error;
   }
+
+  // Persist exactly the quantities that left ORKY. A later signed receipt removes
+  // only these quantities, never a new item the user may have added in another tab.
+  useCartStore.getState().markHandoff(String(payload.handoffId), lines);
   return payload as OrchidyHandoffResponse;
 }

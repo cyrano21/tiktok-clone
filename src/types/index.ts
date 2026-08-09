@@ -14,6 +14,14 @@ export interface User {
   createdAt: string;
 }
 
+export interface VideoProductMatch {
+  id: string;
+  orchidyCatalogItemId: string;
+  variantKey?: string;
+  confidence: number;
+  source: string;
+}
+
 export interface Video {
   id: string;
   user: User;
@@ -35,7 +43,13 @@ export interface Video {
   allowComments: boolean;
   allowDuet: boolean;
   allowStitch: boolean;
+  /** Legacy demo-only product pointer. Real commerce uses productMatches. */
   productId?: string;
+  productMatches?: VideoProductMatch[];
+  sourceType?: 'native' | 'external_reference';
+  interactionMode?: 'full' | 'read_only';
+  externalPlatform?: string;
+  externalUrl?: string;
 }
 
 export interface Hashtag {

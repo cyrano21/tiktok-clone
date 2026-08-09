@@ -71,6 +71,7 @@ export async function GET(request: NextRequest) {
         success: true,
         verified: true,
         status: payload.status,
+        handoffId: payload.handoffId,
         checkoutId: payload.checkoutId,
       },
       {

@@ -10,11 +10,12 @@ export const PLANS = [
     name: 'Freemium',
     priceCents: 0,
     priceLabel: '0€',
+    available: true,
     features: [
-      '50 vidéos publiées',
-      'Analytics basiques (7 jours)',
-      '1 plateforme connectée',
-      'Marque "Powered by"',
+      'Publication et interactions sur ORKY',
+      'Création vidéo avec pipeline média serveur',
+      'Résumé analytics créateur',
+      'Connexion TikTok en lecture selon scopes approuvés',
     ],
   },
   {
@@ -22,12 +23,12 @@ export const PLANS = [
     name: 'Pro',
     priceCents: 999,
     priceLabel: '9,99€/mois',
+    available: true,
     features: [
-      'Vidéos illimitées',
-      'Analytics avancées + export',
-      'Cross-posting TikTok · Reels · Shorts',
-      'File de publication programmée',
-      'Suppression de la marque',
+      'Tout le plan Freemium',
+      'Analytics avancées : top vidéos + historique 30 jours',
+      'Publication TikTok officielle si les scopes Content Posting sont approuvés',
+      'Gestion de l’abonnement via Stripe Billing Portal',
     ],
   },
   {
@@ -35,12 +36,12 @@ export const PLANS = [
     name: 'Business',
     priceCents: 2999,
     priceLabel: '29,99€/mois',
+    available: false,
+    statusLabel: 'Bientôt disponible',
     features: [
-      'Tout le plan Pro',
-      'Multi-comptes (10 membres)',
-      'Modération & approbation d’équipe',
-      'API + webhooks',
-      'Support prioritaire 24/7',
+      'Espaces équipe et rôles — en préparation',
+      'Workflow d’approbation — en préparation',
+      'API/webhooks clients — en préparation',
     ],
   },
 ] as const;
@@ -64,7 +65,6 @@ async function getOrCreateCustomer(userId: string) {
     throw error;
   }
 
-  // userId is an internal UUID, therefore safe to use in Stripe's metadata search query.
   const existing = await stripe.customers.search({
     query: `metadata['userId']:'${userId}'`,
     limit: 1,
@@ -112,6 +112,13 @@ export async function billingRoutes(app: FastifyInstance) {
   app.post('/checkout', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const userId = (req as any).userId as string;
     const { plan } = checkoutSchema.parse(req.body ?? {}) as { plan: PaidPlanId };
+    const publicPlan = PLANS.find((entry) => entry.id === plan);
+    if (!publicPlan?.available) {
+      return reply.status(409).send({
+        error: 'PLAN_NOT_AVAILABLE',
+        message: 'Ce plan n’est pas encore commercialisé. Aucune session de paiement n’a été créée.',
+      });
+    }
 
     const { stripe, customer, subscription } = await findActiveStripeSubscription(userId);
     if (subscription) {

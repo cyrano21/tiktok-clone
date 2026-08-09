@@ -6,6 +6,8 @@ export interface Plan {
   priceCents: number;
   priceLabel: string;
   features: string[];
+  available?: boolean;
+  statusLabel?: string;
 }
 
 export interface SubscriptionInfo {
@@ -23,6 +25,9 @@ export interface PublishPlatform {
   name: string;
   icon: string;
   connected: boolean;
+  available?: boolean;
+  capability?: 'direct_post' | 'connection_only' | 'unavailable';
+  message?: string;
 }
 
 export interface PublishJob {
@@ -39,7 +44,6 @@ export interface PublishJob {
 }
 
 export const saasService = {
-  // ---- Billing ----
   getPlans: async (): Promise<Plan[]> => {
     const raw = await apiClient.get<{ plans: Plan[] }>('/billing/plans');
     return raw.plans;
@@ -61,7 +65,6 @@ export const saasService = {
     return apiClient.post('/billing/cancel');
   },
 
-  // ---- Cross-posting ----
   getPlatforms: async (): Promise<PublishPlatform[]> => {
     const raw = await apiClient.get<{ platforms: PublishPlatform[] }>('/publish/platforms');
     return raw.platforms;

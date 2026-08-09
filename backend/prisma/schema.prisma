@@ -75,8 +75,7 @@ model User {
 }
 
 /// Stores the OAuth tokens for a user's connected TikTok account.
-/// Tokens are obtained via the official OAuth flow and used by the backend
-/// only — never exposed to the frontend.
+/// Tokens are encrypted at rest by the repository before reaching these text columns.
 model TikTokAccount {
   id                    String   @id @default(uuid())
   userId                String   @unique
@@ -106,9 +105,13 @@ model Video {
   title           String?   @db.VarChar(150)
   description     String?   @db.Text
 
+  // Legacy URLs remain for migration compatibility. New clients consume media
+  // through /v1/media/* so private storage never relies on a public bucket URL.
   videoUrl        String
   thumbnailUrl    String?
   coverUrl        String?
+  videoStorageKey String?
+  thumbnailStorageKey String?
   duration        Float     @default(0)
   width           Int       @default(1080)
   height          Int       @default(1920)
@@ -117,6 +120,16 @@ model Video {
   allowDuet       Boolean   @default(true)
   allowStitch     Boolean   @default(true)
   allowComment    Boolean   @default(true)
+
+  // Provenance is explicit so external research content can never be confused
+  // with a native ORKY upload.
+  sourceType      String    @default("ORKY_NATIVE")
+  externalPlatform String?
+  externalContentId String?
+  externalUrl     String?   @db.Text
+  externalCreatorUsername String?
+  externalCreatorDisplayName String?
+  externalCreatorAvatarUrl String? @db.Text
 
   viewCount       BigInt    @default(0)
   likeCount       BigInt    @default(0)
@@ -141,6 +154,7 @@ model Video {
   saves           Save[]
   views           VideoView[]
   hashtags        VideoHashtag[]
+  productMatches  VideoProductMatch[]
   soundId         String?
   sound           Sound?    @relation(fields: [soundId], references: [id])
 
@@ -148,6 +162,27 @@ model Video {
   @@index([createdAt])
   @@index([isTrending, trendingRank])
   @@index([engagementScore])
+  @@index([sourceType])
+  @@unique([externalPlatform, externalContentId])
+}
+
+/// Links an ORKY video to one or more real Orchidy catalog entries. ORKY stores
+/// only catalog identity; price, stock, currency and checkout authority stay in Orchidy.
+model VideoProductMatch {
+  id                   String   @id @default(uuid())
+  videoId              String
+  video                Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  orchidyCatalogItemId String
+  variantKey           String   @default("")
+  confidence           Float    @default(1)
+  source               String   @default("manual") // manual | matcher | import
+  status               String   @default("active") // active | rejected | archived
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@unique([videoId, orchidyCatalogItemId, variantKey])
+  @@index([videoId, status])
+  @@index([orchidyCatalogItemId])
 }
 
 model Hashtag {
@@ -381,7 +416,8 @@ model Subscription {
   updatedAt  DateTime @updatedAt
 }
 
-/// White-label branding: tenant identity (name, logo, colors) shown across the app.
+/// Admin-managed visual branding. Customer-owned multi-tenant workspaces are not
+/// advertised until ownership and membership models exist.
 model Branding {
   id           String   @id @default(uuid())
   tenant       String   @unique @default("default")
@@ -396,7 +432,8 @@ model Branding {
   updatedAt    DateTime @updatedAt
 }
 
-/// Cross-posting queue: schedule a video to be published to external platforms.
+/// Cross-posting queue. Jobs are not presented as delivered until an external
+/// worker marks them published; unsupported platforms remain unavailable.
 model PublishJob {
   id          String    @id @default(uuid())
   userId      String
@@ -410,7 +447,7 @@ model PublishJob {
   scheduledAt DateTime?
   publishedAt DateTime?
   error       String?
-  externalId  String? // platform-side post id
+  externalId  String?
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -419,8 +456,6 @@ model PublishJob {
   @@index([scheduledAt])
 }
 
-/// A user-to-user block. Blocking is symmetric at read time: either direction
-/// hides profiles/content and prevents follow interactions.
 model UserBlock {
   id        String   @id @default(uuid())
   blockerId String
@@ -434,7 +469,6 @@ model UserBlock {
   @@index([blockedId])
 }
 
-/// Generic UGC report. targetType is one of user/video/comment/message/live.
 model Report {
   id           String   @id @default(uuid())
   reporterId   String
@@ -442,7 +476,7 @@ model Report {
   targetId     String
   category     String
   reason       String?  @db.Text
-  status       String   @default("pending") // pending | reviewing | actioned | dismissed
+  status       String   @default("pending")
   priority     Int      @default(0)
   resolution   String?
   actionNote   String?  @db.Text
@@ -458,7 +492,6 @@ model Report {
   @@index([reporterId, createdAt])
 }
 
-/// Immutable audit record of a moderator decision.
 model ModerationAction {
   id          String   @id @default(uuid())
   moderatorId String
@@ -477,13 +510,12 @@ model ModerationAction {
   @@index([moderatorId, createdAt])
 }
 
-/// User appeal against a moderation action. One appeal per action/user pair.
 model Appeal {
   id                 String   @id @default(uuid())
   userId             String
   moderationActionId String
   reason             String   @db.Text
-  status             String   @default("pending") // pending | accepted | rejected
+  status             String   @default("pending")
   reviewerId         String?
   decisionNote       String?  @db.Text
   createdAt          DateTime @default(now())

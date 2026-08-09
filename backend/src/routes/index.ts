@@ -17,11 +17,15 @@ import { stripeWebhookRoutes } from "./stripe-webhook.routes";
 import { publishRoutes } from "./publish.routes";
 import { brandingRoutes } from "./branding.routes";
 import { moderationRoutes } from "./moderation.routes";
+import { productMatchRoutes } from "./product-match.routes";
+import { mediaRoutes } from "./media.routes";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
   app.register(feedRoutes, { prefix: "/v1/feed" });
   app.register(videoRoutes, { prefix: "/v1/videos" });
+  app.register(mediaRoutes, { prefix: "/v1/media" });
+  app.register(productMatchRoutes, { prefix: "/v1/product-matches" });
   app.register(userRoutes, { prefix: "/v1/users" });
   app.register(commentRoutes, { prefix: "/v1/comments" });
   app.register(hashtagRoutes, { prefix: "/v1/hashtags" });

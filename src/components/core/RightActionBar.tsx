@@ -18,6 +18,7 @@ interface RightActionBarProps {
   onSave: () => void;
   onAvatarPress: () => void;
   onMore: () => void;
+  readOnly?: boolean;
 }
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
@@ -30,25 +31,28 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
   onSave,
   onAvatarPress,
   onMore,
+  readOnly = false,
 }) => {
   const likeScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
 
   const handleLike = useCallback(() => {
+    if (readOnly) return;
     likeScale.value = withSequence(
       withSpring(1.4, { stiffness: 400, damping: 10 }),
       withSpring(1, tokens.animation.likeSpring)
     );
     onLike();
-  }, [likeScale, onLike]);
+  }, [likeScale, onLike, readOnly]);
 
   const handleSave = useCallback(() => {
+    if (readOnly) return;
     saveScale.value = withSequence(
       withTiming(0.8, { duration: 100 }),
       withSpring(1, { stiffness: 300, damping: 12 })
     );
     onSave();
-  }, [saveScale, onSave]);
+  }, [saveScale, onSave, readOnly]);
 
   const likeAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: likeScale.value }],

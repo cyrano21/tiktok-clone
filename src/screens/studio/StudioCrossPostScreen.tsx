@@ -1,13 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { saasService, PublishPlatform, PublishJob } from '@/services/saasService';
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  scheduled: { label: 'Programmé', color: tokens.colors.brand.secondary },
-  processing: { label: 'En cours', color: tokens.colors.brand.primary },
+  scheduled: { label: 'Historique : programmé', color: tokens.colors.brand.secondary },
+  processing: { label: 'Historique : en cours', color: tokens.colors.brand.primary },
   published: { label: 'Publié', color: tokens.colors.semantic.success },
   failed: { label: 'Échec', color: tokens.colors.semantic.error },
   canceled: { label: 'Annulé', color: tokens.colors.text.tertiary },
@@ -18,23 +18,12 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 }
 
-const DEMO_PLATFORMS: PublishPlatform[] = [
-  { id: 'tiktok', name: 'TikTok', icon: '🎵', connected: false },
-  { id: 'reels', name: 'Instagram Reels', icon: '📸', connected: false },
-  { id: 'shorts', name: 'YouTube Shorts', icon: '▶️', connected: false },
-];
-
 export const StudioCrossPostScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-
   const [platforms, setPlatforms] = useState<PublishPlatform[]>([]);
   const [jobs, setJobs] = useState<PublishJob[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set(['tiktok']));
-  const [caption, setCaption] = useState('');
-  const [videoUrl, setVideoUrl] = useState('');
-  const [scheduledAt, setScheduledAt] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
   const load = async () => {
@@ -44,171 +33,73 @@ export const StudioCrossPostScreen: React.FC = () => {
       setJobs(j);
       setMessage(null);
     } catch (e: any) {
-      // Demo fallback so the UI stays explorable without auth.
-      setPlatforms(DEMO_PLATFORMS);
+      setPlatforms([]);
       setJobs([]);
-      setMessage(`Connecte-toi pour utiliser le cross-posting (${e?.message ?? 'erreur API'})`);
-    }
-  };
-
-  useEffect(() => {
-    load();
-  }, []);
-
-  const toggle = (id: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const schedule = async () => {
-    if (selected.size === 0) {
-      setMessage('Choisis au moins une plateforme.');
-      return;
-    }
-    if (!videoUrl.trim() && !caption.trim()) {
-      setMessage('Indique une URL de vidéo ou une légende à publier.');
-      return;
-    }
-    setBusy(true);
-    setMessage(null);
-    try {
-      const created = await saasService.schedule({
-        videoUrl: videoUrl.trim() || undefined,
-        caption: caption.trim() || undefined,
-        platforms: Array.from(selected),
-        scheduledAt: scheduledAt.trim() ? new Date(scheduledAt).toISOString() : undefined,
-      });
-      setVideoUrl('');
-      setCaption('');
-      setScheduledAt('');
-      await load();
-      // Set AFTER load() so load's setMessage(null) doesn't wipe the confirmation.
-      setMessage(`✓ ${created.length} publication(s) planifiée(s)`);
-    } catch (e: any) {
-      setMessage(`Erreur : ${e?.message ?? 'impossible de programmer'}`);
+      setMessage(`Impossible de charger les capacités de publication : ${e?.message ?? 'erreur API'}`);
     } finally {
-      setBusy(false);
+      setLoading(false);
     }
   };
+
+  useEffect(() => { void load(); }, []);
 
   const cancelJob = async (id: string) => {
     try {
       await saasService.cancelJob(id);
       await load();
     } catch {
-      setMessage('Impossible d’annuler ce job.');
+      setMessage('Impossible d’annuler cet ancien job.');
     }
   };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => nav.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={styles.backIcon}>←</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Cross-posting</Text>
-        <View style={styles.placeholder} />
+        <TouchableOpacity onPress={() => nav.back()} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}><Text style={styles.backIcon}>←</Text></TouchableOpacity>
+        <Text style={styles.headerTitle}>Distribution</Text><View style={styles.placeholder} />
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tokens.spacing.xxl }}>
-        {/* Platforms */}
-        <Text style={styles.sectionTitle}>Plateformes connectées</Text>
+        <View style={styles.truthCard}>
+          <Text style={styles.truthTitle}>Pas de faux cross-posting</Text>
+          <Text style={styles.truthText}>ORKY n’affiche plus Reels, Shorts ou une file programmée comme disponibles tant qu’aucun worker de livraison ne les exécute réellement. TikTok peut être publié via son API officielle uniquement lorsque le plan Pro et les scopes Content Posting sont actifs.</Text>
+        </View>
+
+        {message ? <View style={styles.messageBanner}><Text style={styles.messageText}>{message}</Text></View> : null}
+
+        <Text style={styles.sectionTitle}>{loading ? 'Vérification des plateformes…' : 'Capacités actuelles'}</Text>
         <View style={styles.section}>
-          {platforms.map((p) => (
-            <View key={p.id} style={styles.platformRow}>
-              <Text style={styles.platformIcon}>{p.icon}</Text>
-              <Text style={styles.platformName}>{p.name}</Text>
-              <View style={[styles.connectBadge, { backgroundColor: (p.connected ? tokens.colors.semantic.success : tokens.colors.text.tertiary) + '22' }]}>
-                <Text style={[styles.connectText, { color: p.connected ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]}>
-                  {p.connected ? 'Connecté' : 'À connecter'}
-                </Text>
+          {platforms.map((p) => {
+            const available = p.available === true;
+            return (
+              <View key={p.id} style={styles.platformRow}>
+                <Text style={styles.platformIcon}>{p.icon}</Text>
+                <View style={styles.platformBody}>
+                  <Text style={styles.platformName}>{p.name}</Text>
+                  {p.message ? <Text style={styles.platformMessage}>{p.message}</Text> : null}
+                </View>
+                <View style={[styles.connectBadge, { backgroundColor: (available ? tokens.colors.semantic.success : tokens.colors.text.tertiary) + '22' }]}>
+                  <Text style={[styles.connectText, { color: available ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]}>{available ? 'Disponible' : p.connected ? 'Lecture seule' : 'Indisponible'}</Text>
+                </View>
               </View>
-            </View>
-          ))}
-          <Text style={styles.platformHint}>
-            TikTok se connecte via OAuth officiel. Reels & Shorts nécessitent leurs clés API (Meta / YouTube) à ajouter en variable d’environnement.
-          </Text>
+            );
+          })}
+          {!loading && platforms.length === 0 ? <Text style={styles.emptyText}>Aucune plateforme vérifiable pour le moment.</Text> : null}
         </View>
 
-        {/* Scheduler */}
-        <Text style={styles.sectionTitle}>Programmer une publication</Text>
+        <Text style={styles.sectionTitle}>Anciens jobs ({jobs.length})</Text>
         <View style={styles.section}>
-          <View style={styles.pickRow}>
-            {platforms.map((p) => {
-              const on = selected.has(p.id);
-              return (
-                <TouchableOpacity
-                  key={p.id}
-                  style={[styles.platformPick, on && styles.platformPickOn]}
-                  onPress={() => toggle(p.id)}
-                >
-                  <Text style={[styles.platformPickText, on && styles.platformPickTextOn]}>{p.icon} {p.name}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-
-          <TextInput
-            style={styles.input}
-            placeholder="URL de la vidéo (ou vidéoId)"
-            placeholderTextColor={tokens.colors.text.tertiary}
-            value={videoUrl}
-            onChangeText={setVideoUrl}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Légende / description"
-            placeholderTextColor={tokens.colors.text.tertiary}
-            value={caption}
-            onChangeText={setCaption}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Programmer (YYYY-MM-DDTHH:mm) — vide = maintenant"
-            placeholderTextColor={tokens.colors.text.tertiary}
-            value={scheduledAt}
-            onChangeText={setScheduledAt}
-          />
-
-          <TouchableOpacity style={[styles.scheduleBtn, busy && { opacity: 0.6 }]} onPress={schedule} disabled={busy}>
-            <Text style={styles.scheduleText}>{busy ? '…' : '🚀 Programmer la publication'}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {message && (
-          <View style={styles.messageBanner}>
-            <Text style={styles.messageText}>{message}</Text>
-          </View>
-        )}
-
-        {/* Job list */}
-        <Text style={styles.sectionTitle}>Publications planifiées ({jobs.length})</Text>
-        <View style={styles.section}>
-          {jobs.length === 0 && (
-            <Text style={styles.emptyText}>Aucune publication planifiée pour le moment.</Text>
-          )}
+          {jobs.length === 0 ? <Text style={styles.emptyText}>Aucun historique de job.</Text> : null}
           {jobs.map((j) => {
             const st = STATUS_LABEL[j.status] ?? { label: j.status, color: tokens.colors.text.secondary };
             return (
               <View key={j.id} style={styles.jobRow}>
                 <Text style={styles.jobPlatform}>{platforms.find((p) => p.id === j.platform)?.icon ?? '🌐'} {j.platform}</Text>
-                <Text style={styles.jobMeta} numberOfLines={1}>
-                  {j.caption ?? j.videoUrl ?? j.videoId ?? '—'}
-                </Text>
+                <Text style={styles.jobMeta} numberOfLines={1}>{j.caption ?? j.videoUrl ?? j.videoId ?? '—'}</Text>
                 <Text style={styles.jobDate}>{formatDate(j.scheduledAt)}</Text>
                 <View style={styles.jobBottom}>
-                  <View style={[styles.statusBadge, { backgroundColor: st.color + '22' }]}>
-                    <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
-                  </View>
-                  {j.status === 'scheduled' && (
-                    <TouchableOpacity onPress={() => cancelJob(j.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={styles.cancelLink}>Annuler</Text>
-                    </TouchableOpacity>
-                  )}
+                  <View style={[styles.statusBadge, { backgroundColor: st.color + '22' }]}><Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text></View>
+                  {j.status === 'scheduled' ? <TouchableOpacity onPress={() => void cancelJob(j.id)}><Text style={styles.cancelLink}>Annuler</Text></TouchableOpacity> : null}
                 </View>
               </View>
             );
@@ -221,49 +112,24 @@ export const StudioCrossPostScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: tokens.colors.bg },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.sm,
-    borderBottomWidth: 0.5,
-    borderBottomColor: tokens.colors.surface,
-  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm, borderBottomWidth: 0.5, borderBottomColor: tokens.colors.surface },
   backIcon: { color: tokens.colors.white, fontSize: 24, width: 28 },
   headerTitle: { color: tokens.colors.white, fontSize: tokens.typography.title.fontSize, fontWeight: '700' },
   placeholder: { width: 28 },
+  truthCard: { margin: tokens.spacing.md, padding: tokens.spacing.lg, borderRadius: tokens.radius.lg, backgroundColor: '#171329', borderWidth: 1, borderColor: '#3B2D65', gap: 8 },
+  truthTitle: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800' },
+  truthText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, lineHeight: 20 },
   sectionTitle: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800', paddingHorizontal: tokens.spacing.md, marginTop: tokens.spacing.lg, marginBottom: tokens.spacing.sm },
   section: { paddingHorizontal: tokens.spacing.md, gap: tokens.spacing.sm },
   platformRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.md, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.md },
   platformIcon: { fontSize: 22 },
-  platformName: { flex: 1, color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
+  platformBody: { flex: 1, minWidth: 0 },
+  platformName: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
+  platformMessage: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, marginTop: 3 },
   connectBadge: { borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.sm, paddingVertical: 4 },
   connectText: { fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
-  platformHint: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, lineHeight: 16 },
-  pickRow: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.spacing.sm },
-  platformPick: { paddingHorizontal: tokens.spacing.md, paddingVertical: 8, borderRadius: tokens.radius.full, backgroundColor: tokens.colors.elevated, borderWidth: 1.5, borderColor: 'transparent' },
-  platformPickOn: { borderColor: tokens.colors.brand.primary, backgroundColor: tokens.colors.brand.primary + '22' },
-  platformPickText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
-  platformPickTextOn: { color: tokens.colors.white, fontWeight: '800' },
-  input: {
-    backgroundColor: tokens.colors.elevated,
-    borderRadius: tokens.radius.md,
-    paddingHorizontal: tokens.spacing.md,
-    paddingVertical: tokens.spacing.md,
-    color: tokens.colors.white,
-    fontSize: tokens.typography.body.fontSize,
-  },
-  scheduleBtn: { backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.md, paddingVertical: tokens.spacing.md, alignItems: 'center' },
-  scheduleText: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800' },
-  messageBanner: {
-    marginHorizontal: tokens.spacing.md,
-    backgroundColor: tokens.colors.semantic.success + '22',
-    borderRadius: tokens.radius.sm,
-    padding: tokens.spacing.md,
-    marginTop: tokens.spacing.md,
-  },
-  messageText: { color: tokens.colors.semantic.success, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
+  messageBanner: { marginHorizontal: tokens.spacing.md, backgroundColor: '#2A1717', borderRadius: tokens.radius.sm, padding: tokens.spacing.md },
+  messageText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
   emptyText: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.body.fontSize },
   jobRow: { backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.md, gap: 4 },
   jobPlatform: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },

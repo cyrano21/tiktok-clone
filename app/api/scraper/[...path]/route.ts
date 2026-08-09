@@ -1,48 +1,105 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { scraperUpstreamHeaders, scraperResponseHeaders } from '../proxy-headers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const INTERNAL_SCRAPER_URL = process.env.SCRAPER_API_INTERNAL_URL || 'http://127.0.0.1:8502';
+const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+const RATE_WINDOW_MS = 60_000;
+const metadataHits = new Map<string, { count: number; resetAt: number }>();
+const streamHits = new Map<string, { count: number; resetAt: number }>();
+
+function scraperSecret(): string {
+  const value = String(process.env.SCRAPER_INTERNAL_SECRET || '').trim();
+  if (!value) throw new Error('SCRAPER_INTERNAL_SECRET is not configured');
+  if (process.env.NODE_ENV === 'production' && value.length < 32) {
+    throw new Error('SCRAPER_INTERNAL_SECRET is too weak');
+  }
+  return value;
+}
+
+function clientKey(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  return forwarded || request.headers.get('x-real-ip') || 'unknown';
+}
+
+function consumeRate(store: Map<string, { count: number; resetAt: number }>, key: string, max: number) {
+  const now = Date.now();
+  const current = store.get(key);
+  if (!current || current.resetAt <= now) {
+    store.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return { allowed: true, retryAfter: 0 };
+  }
+  current.count += 1;
+  if (current.count > max) {
+    return { allowed: false, retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
+  }
+  return { allowed: true, retryAfter: 0 };
+}
+
+function allowedPath(path: string[]): { ok: boolean; stream: boolean } {
+  if (path.length === 1 && ['health', 'stats', 'videos'].includes(path[0])) {
+    return { ok: true, stream: false };
+  }
+  if (path.length === 2 && path[0] === 'stream' && ID_RE.test(path[1])) {
+    return { ok: true, stream: true };
+  }
+  if (path.length === 2 && path[0] === 'videos' && ID_RE.test(path[1])) {
+    return { ok: true, stream: false };
+  }
+  if (path.length === 3 && path[0] === 'videos' && ID_RE.test(path[1]) && path[2] === 'comments') {
+    return { ok: true, stream: false };
+  }
+  return { ok: false, stream: false };
+}
 
 function targetUrl(path: string[], request: Request): string {
-  const suffix = path.join('/');
+  const suffix = path.map(encodeURIComponent).join('/');
   const incoming = new URL(request.url);
-  const query = incoming.search;
-  return `${INTERNAL_SCRAPER_URL}/api/${suffix}${query}`;
+  return `${INTERNAL_SCRAPER_URL.replace(/\/$/, '')}/api/${suffix}${incoming.search}`;
 }
 
 export async function GET(
-  request: Request,
+  request: NextRequest,
   context: { params: { path: string[] } },
 ): Promise<Response> {
-  const target = targetUrl(context.params.path, request);
-  const isStream = context.params.path[0] === 'stream';
+  const path = Array.isArray(context.params.path) ? context.params.path : [];
+  const permission = allowedPath(path);
+  if (!permission.ok) {
+    return NextResponse.json(
+      { error: 'Scraper route not exposed' },
+      { status: 404, headers: { 'cache-control': 'no-store' } },
+    );
+  }
+
+  const key = clientKey(request);
+  const rate = consumeRate(permission.stream ? streamHits : metadataHits, key, permission.stream ? 20 : 120);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: 'Too many scraper requests' },
+      {
+        status: 429,
+        headers: { 'cache-control': 'no-store', 'retry-after': String(rate.retryAfter) },
+      },
+    );
+  }
 
   try {
-    const upstream = await fetch(target, {
-      headers: {
-        accept: request.headers.get('accept') || '*/*',
-        range: request.headers.get('range') || '',
-      },
-      cache: isStream ? 'no-store' : 'no-store',
+    const upstream = await fetch(targetUrl(path, request), {
+      headers: scraperUpstreamHeaders(request, scraperSecret()),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(permission.stream ? 90_000 : 10_000),
     });
 
-    const headers = new Headers();
-    const contentType = upstream.headers.get('content-type');
-    const contentLength = upstream.headers.get('content-length');
-    const contentRange = upstream.headers.get('content-range');
-    if (contentType) headers.set('content-type', contentType);
-    if (contentLength) headers.set('content-length', contentLength);
-    if (contentRange) headers.set('content-range', contentRange);
-    headers.set('cache-control', isStream ? 'public, max-age=86400' : 'no-store');
-    headers.set('access-control-allow-origin', '*');
+    const headers = scraperResponseHeaders(upstream, permission.stream);
 
     return new NextResponse(upstream.body, {
       status: upstream.status,
       headers,
     });
-  } catch {
+  } catch (error) {
+    console.warn('[scraper-proxy] upstream unavailable', error instanceof Error ? error.message : 'unknown');
     return NextResponse.json(
       { error: 'Scraper service unavailable' },
       { status: 502, headers: { 'cache-control': 'no-store' } },

@@ -55,20 +55,26 @@ export interface PublishMediaOptions {
   };
 }
 
+function mediaUrls(video: PublishedVideo): PublishedVideo {
+  return {
+    ...video,
+    videoUrl: `/v1/media/videos/${encodeURIComponent(video.id)}`,
+    thumbnailUrl: video.thumbnailUrl ? `/v1/media/thumbnails/${encodeURIComponent(video.id)}` : null,
+  };
+}
+
 export const studioService = {
   async getAnalytics(): Promise<CreatorAnalytics> {
     return apiClient.get<CreatorAnalytics>('/analytics/summary');
   },
 
   async getTopVideos(limit = 5): Promise<CreatorVideo[]> {
-    const raw = await apiClient.get<{ videos: any[] }>('/analytics/videos', {
-      params: { limit },
-    });
+    const raw = await apiClient.get<{ videos: any[] }>('/analytics/videos', { params: { limit } });
     return (raw.videos ?? []).map((v) => ({
       id: v.id,
       title: v.title ?? null,
       description: v.description ?? null,
-      thumbnailUrl: v.thumbnailUrl ?? null,
+      thumbnailUrl: v.thumbnailUrl ? `/v1/media/thumbnails/${encodeURIComponent(v.id)}` : null,
       viewCount: Number(v.viewCount ?? 0),
       likeCount: Number(v.likeCount ?? 0),
       commentCount: Number(v.commentCount ?? 0),
@@ -78,13 +84,13 @@ export const studioService = {
   },
 
   async publishMedia(blob: Blob, options: PublishMediaOptions): Promise<PublishedVideo> {
+    if ((options.visibility ?? 'public') !== 'public') {
+      throw new Error('La publication friends/private sera activée lorsque la lecture média signée sera disponible.');
+    }
     const form = new FormData();
-
-    // Fastify multipart fields must arrive before the file for req.file().fields
-    // to contain them immediately, so append metadata first and the binary last.
     form.append('description', options.description);
     if (options.title) form.append('title', options.title);
-    form.append('visibility', options.visibility ?? 'public');
+    form.append('visibility', 'public');
     form.append('allowDuet', String(options.allowDuet ?? true));
     form.append('allowStitch', String(options.allowStitch ?? true));
     form.append('allowComment', String(options.allowComment ?? true));
@@ -95,6 +101,6 @@ export const studioService = {
     form.append('file', blob, options.filename);
 
     const raw = await apiClient.upload<{ video: PublishedVideo }>('/videos', form);
-    return raw.video;
+    return mediaUrls(raw.video);
   },
 };
