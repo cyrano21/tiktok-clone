@@ -43,6 +43,14 @@ export function useMyProfile(): ProfileView {
   useEffect(() => {
     let mounted = true;
 
+    // Guests have no token yet: show the guest shell instead of a 401 error.
+    if (!session.authenticated) {
+      setView(fallbackProfile(session, []));
+      return () => {
+        mounted = false;
+      };
+    }
+
     setView((current) => ({ ...current, loading: true, error: null }));
     (async () => {
       try {
