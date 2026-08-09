@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Dimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, Dimensions, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
 import { shareText } from '@/services/share';
+import type { Video } from '@/types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VIDEO_SIZE = (SCREEN_WIDTH - 4) / 3;
@@ -14,23 +15,65 @@ interface VideoGridItem {
   viewsCount: string;
 }
 
-const MOCK_VIDEOS: VideoGridItem[] = Array.from({ length: 24 }, (_, i) => ({
-  id: `hashtag-video-${i}`,
-  thumbnailUrl: `https://picsum.photos/200/${300 + i}`,
-  viewsCount: `${Math.floor(Math.random() * 500 + 50)}K`,
-}));
+function formatViews(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace('.0', '')}M`;
+  if (value >= 1_000) return `${(value / 1_000).toFixed(1).replace('.0', '')}K`;
+  return String(value);
+}
+
+function toGridItem(video: Video): VideoGridItem {
+  return {
+    id: video.id,
+    thumbnailUrl: video.thumbnailUrl,
+    viewsCount: formatViews(video.viewsCount),
+  };
+}
 
 export const HashtagScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const params = useRouteParams<{ tag?: string }>();
-  const tag = params.tag ?? 'fyp';
+  const tag = (params.tag ?? 'fyp').replace(/^#/, '');
   const [isFollowing, setIsFollowing] = useState(false);
+  const [videos, setVideos] = useState<Video[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setFailed(false);
+    try {
+      const { scraperBridge } = await import('@/services/scraperBridge');
+      const all = await scraperBridge.getVideos(60);
+      if (!all.length) {
+        setVideos([]);
+        return;
+      }
+      // Prefer videos whose hashtags match the tag; fall back to the full
+      // catalog so a healthy scraper never renders an empty grid.
+      const normalized = tag.toLowerCase();
+      const matched = all.filter((video) =>
+        (video.hashtags ?? []).some((h) => h.name.toLowerCase().includes(normalized))
+        || video.description.toLowerCase().includes(normalized),
+      );
+      setVideos((matched.length ? matched : all).slice(0, 24));
+    } catch {
+      setFailed(true);
+      setVideos([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [tag]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const totalViews = useMemo(() => videos.reduce((sum, v) => sum + (v.viewsCount ?? 0), 0), [videos]);
 
   const renderVideoItem = ({ item }: { item: VideoGridItem }) => (
     <TouchableOpacity style={styles.videoItem} onPress={() => nav.push('video.detail', { videoId: item.id })}>
-
-      <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} />
+      <Image source={{ uri: item.thumbnailUrl }} style={styles.videoThumbnail} resizeMode="cover" />
       <View style={styles.videoOverlay}>
         <Text style={styles.videoViews}>▶ {item.viewsCount}</Text>
       </View>
@@ -55,9 +98,11 @@ export const HashtagScreen: React.FC = () => {
         </View>
         <View style={styles.hashtagStats}>
           <Text style={styles.hashtagName}>#{tag}</Text>
-          <Text style={styles.hashtagViews}>2.5B views</Text>
+          <Text style={styles.hashtagViews}>
+            {loading ? 'Chargement…' : failed ? 'Indisponible' : `${formatViews(totalViews)} vues · ${videos.length} vidéos`}
+          </Text>
           <Text style={styles.hashtagDescription}>
-            Show us your best dance moves! Join the challenge.
+            {failed ? 'Impossible de charger les vidéos de ce hashtag pour le moment.' : 'Vidéos réelles issues du flux TikTok observé.'}
           </Text>
         </View>
       </View>
@@ -71,14 +116,28 @@ export const HashtagScreen: React.FC = () => {
         </Text>
       </TouchableOpacity>
 
-      <FlatList
-        data={MOCK_VIDEOS}
-        renderItem={renderVideoItem}
-        keyExtractor={(item) => item.id}
-        numColumns={3}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.videoGrid}
-      />
+      {loading ? (
+        <View style={styles.stateContainer}>
+          <ActivityIndicator color={tokens.colors.brand.primary} />
+          <Text style={styles.stateText}>Chargement des vidéos…</Text>
+        </View>
+      ) : videos.length === 0 ? (
+        <View style={styles.stateContainer}>
+          <Text style={styles.stateText}>Aucune vidéo pour ce hashtag pour le moment.</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={() => void load()}>
+            <Text style={styles.retryText}>Réessayer</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={videos.map(toGridItem)}
+          renderItem={renderVideoItem}
+          keyExtractor={(item) => item.id}
+          numColumns={3}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.videoGrid}
+        />
+      )}
     </View>
   );
 };
@@ -189,5 +248,27 @@ const styles = StyleSheet.create({
     color: tokens.colors.white,
     fontSize: tokens.typography.caption.fontSize,
     fontWeight: '600',
+  },
+  stateContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: tokens.spacing.sm,
+    padding: tokens.spacing.xl,
+  },
+  stateText: {
+    color: tokens.colors.text.secondary,
+    textAlign: 'center',
+    fontSize: tokens.typography.body.fontSize,
+  },
+  retryButton: {
+    backgroundColor: tokens.colors.brand.primary,
+    paddingHorizontal: tokens.spacing.lg,
+    paddingVertical: tokens.spacing.sm,
+    borderRadius: tokens.radius.sm,
+  },
+  retryText: {
+    color: tokens.colors.white,
+    fontWeight: '700',
   },
 });
