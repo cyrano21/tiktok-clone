@@ -35,12 +35,21 @@ export function colorName(hex: string): string {
   return 'Rouge';
 }
 
-async function extractDominant(imageUrl: string): Promise<string | null> {
-  // CORS-safe extraction via canvas (same-origin images, tiktokcdn, alicdn…).
+function proxyUrl(imageUrl: string): string {
+  // Les CDN produits (aliyuncs…) ne renvoient pas de header CORS : le canvas
+  // devient tainted et getImageData échoue. On passe alors par le proxy Next
+  // same-origin /api/img qui ajoute access-control-allow-origin.
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+    return `/api/img?u=${encodeURIComponent(imageUrl)}`;
+  }
+  return imageUrl;
+}
+
+async function extractFromUrl(src: string): Promise<string | null> {
   try {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    img.src = imageUrl;
+    img.src = src;
     await new Promise<void>((resolve, reject) => {
       img.onload = () => resolve();
       img.onerror = () => reject(new Error('load failed'));
@@ -68,6 +77,17 @@ async function extractDominant(imageUrl: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+async function extractDominant(imageUrl: string): Promise<string | null> {
+  // Essai direct (images same-origin ou CDN avec CORS), puis via proxy Next.
+  const direct = await extractFromUrl(imageUrl);
+  if (direct) return direct;
+  if (imageUrl.startsWith('http')) {
+    const proxied = await extractFromUrl(proxyUrl(imageUrl));
+    if (proxied) return proxied;
+  }
+  return null;
 }
 
 export function useDominantColor(imageUrl: string | null | undefined): {
