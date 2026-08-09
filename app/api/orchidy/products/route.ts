@@ -19,7 +19,9 @@ function copySearchParam(source: URLSearchParams, target: URLSearchParams, key: 
 
 export async function GET(request: NextRequest) {
   const incoming = request.nextUrl.searchParams;
-  const upstream = new URL('/api/search', resolveOrchidyBaseUrl());
+  // /api/search returns an empty catalog on the deployed Orchidy; the canonical
+  // public catalog endpoint is /api/products (same response shape: products[]).
+  const upstream = new URL('/api/products', resolveOrchidyBaseUrl());
 
   copySearchParam(incoming, upstream.searchParams, 'q');
   copySearchParam(incoming, upstream.searchParams, 'category');
@@ -62,7 +64,7 @@ export async function GET(request: NextRequest) {
       source: 'orchidy',
       upstream: {
         baseUrl: resolveOrchidyBaseUrl(),
-        endpoint: '/api/search',
+        endpoint: '/api/products',
       },
       products: Array.isArray((payload as any).products) ? (payload as any).products : [],
       pagination: (payload as any).pagination ?? null,
