@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { scraperUpstreamHeaders, scraperResponseHeaders } from '../proxy-headers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -86,22 +87,12 @@ export async function GET(
 
   try {
     const upstream = await fetch(targetUrl(path, request), {
-      headers: {
-        accept: request.headers.get('accept') || '*/*',
-        ...(request.headers.get('range') ? { range: request.headers.get('range')! } : {}),
-        'x-scraper-internal-secret': scraperSecret(),
-      },
+      headers: scraperUpstreamHeaders(request, scraperSecret()),
       cache: 'no-store',
       signal: AbortSignal.timeout(permission.stream ? 90_000 : 10_000),
     });
 
-    const headers = new Headers();
-    for (const name of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag']) {
-      const value = upstream.headers.get(name);
-      if (value) headers.set(name, value);
-    }
-    headers.set('cache-control', permission.stream ? 'private, max-age=3600' : 'no-store');
-    headers.set('x-content-type-options', 'nosniff');
+    const headers = scraperResponseHeaders(upstream, permission.stream);
 
     return new NextResponse(upstream.body, {
       status: upstream.status,
