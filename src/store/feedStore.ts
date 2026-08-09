@@ -115,7 +115,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
     // Références externes : aucune interaction ORKY, pas même un toggle local
     // (l'UI ne rend pas ces boutons en lecture seule, mais on verrouille ici).
     if (isReadOnly(before)) return;
-    const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
@@ -127,7 +126,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
-    if (readonly) return;
     void get().performAction(videoId, 'like').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>
@@ -144,7 +142,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
     if (!before) return;
     // Références externes : aucune interaction ORKY, pas même un toggle local.
     if (isReadOnly(before)) return;
-    const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
@@ -156,7 +153,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
-    if (readonly) return;
     void get().performAction(videoId, 'save').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>
