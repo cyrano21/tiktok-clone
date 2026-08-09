@@ -5,7 +5,12 @@ export const dynamic = 'force-dynamic';
 
 const INTERNAL_SCRAPER_URL = process.env.SCRAPER_API_INTERNAL_URL || 'http://127.0.0.1:8502';
 const REFRESH_SECRET = String(process.env.SCRAPER_INTERNAL_SECRET || '').trim();
-const BACKEND_API = String(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://api:4000/v1').replace(/\/$/, '');
+// Vérification du rôle : on passe par le proxy same-origin /v1 (le même que le
+// client utilise en prod — le proxy rewrite Next route /v1/auth/me vers le backend).
+// Une URL directe configurée (NEXT_PUBLIC_API_BASE_URL) reste prioritaire si présente.
+const BACKEND_ORIGIN =
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:4000');
 
 // Régénération coûteuse (runs Apify) : 1 requête / 10 min, par utilisateur
 // admin uniquement. Le rate limit est en mémoire (acceptable : l'autorisation
@@ -40,7 +45,10 @@ async function isAdminUser(request: NextRequest): Promise<{ ok: boolean; status?
     return { ok: false, status: 401, error: 'Authentication required' };
   }
   try {
-    const res = await fetch(`${BACKEND_API}/auth/me`, {
+    const meUrl = BACKEND_ORIGIN
+      ? `${BACKEND_ORIGIN.replace(/\/$/, '')}/auth/me`
+      : '/v1/auth/me';
+    const res = await fetch(meUrl, {
       headers: { authorization: auth },
       cache: 'no-store',
       signal: AbortSignal.timeout(8000),
