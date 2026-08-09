@@ -80,14 +80,13 @@ async function extractFromUrl(src: string): Promise<string | null> {
 }
 
 async function extractDominant(imageUrl: string): Promise<string | null> {
-  // Essai direct (images same-origin ou CDN avec CORS), puis via proxy Next.
-  const direct = await extractFromUrl(imageUrl);
-  if (direct) return direct;
-  if (imageUrl.startsWith('http')) {
+  // Le proxy Next same-origin est la voie fiable (CDN sans CORS). On l'essaie
+  // en premier ; en cas d'échec, tentative directe (images same-origin).
+  if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
     const proxied = await extractFromUrl(proxyUrl(imageUrl));
     if (proxied) return proxied;
   }
-  return null;
+  return extractFromUrl(imageUrl);
 }
 
 export function useDominantColor(imageUrl: string | null | undefined): {
