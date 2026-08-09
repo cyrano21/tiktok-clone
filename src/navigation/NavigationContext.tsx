@@ -7,6 +7,7 @@ export type RouteName =
   | 'explore.search'
   | 'explore.hashtag'
   | 'explore.sound'
+  | 'explore.trends'
   | 'create'
   | 'create.record'
   | 'create.edit'

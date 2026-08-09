@@ -9,6 +9,7 @@ import { FollowingScreen } from '@/screens/feed/FollowingScreen';
 import { SearchScreen } from '@/screens/explore/SearchScreen';
 import { HashtagScreen } from '@/screens/explore/HashtagScreen';
 import { SoundScreen } from '@/screens/explore/SoundScreen';
+import { TrendRadarScreen } from '@/screens/explore/TrendRadarScreen';
 import { RecordScreen } from '@/screens/create/RecordScreen';
 import { EditScreen } from '@/screens/create/EditScreen';
 import { PublishScreen } from '@/screens/create/PublishScreen';
@@ -57,6 +58,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
   'explore.search': SearchScreen,
   'explore.hashtag': HashtagScreen,
   'explore.sound': SoundScreen,
+  'explore.trends': TrendRadarScreen,
   create: CreateScreen,
   'create.record': RecordScreen,
   'create.edit': EditScreen,
@@ -108,6 +110,7 @@ export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
   'explore.search': 'explore',
   'explore.hashtag': 'explore',
   'explore.sound': 'explore',
+  'explore.trends': 'explore',
   create: 'create',
   'create.record': 'create',
   'create.edit': 'create',

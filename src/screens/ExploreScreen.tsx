@@ -74,6 +74,14 @@ export const ExploreScreen: React.FC = () => {
             <Text style={[styles.tabText, activeCategory === category.value && styles.tabTextActive]}>{category.label}</Text>
           </TouchableOpacity>
         ))}
+        <TouchableOpacity
+          accessibilityRole="button"
+          testID="explore-trends-link"
+          style={[styles.tab, styles.trendsTab]}
+          onPress={() => nav.push('explore.trends')}
+        >
+          <Text style={[styles.tabText, styles.trendsTabText]}>📈 Tendances produits</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {loading && (
@@ -121,6 +129,8 @@ const styles = StyleSheet.create({
   tabsContent: { flexGrow: 0, alignItems: 'center', paddingHorizontal: tokens.spacing.md, gap: tokens.spacing.sm },
   tab: { paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm, borderRadius: tokens.radius.full, backgroundColor: tokens.colors.elevated },
   tabActive: { backgroundColor: tokens.colors.white },
+  trendsTab: { backgroundColor: tokens.colors.brand.primary + '22', borderWidth: 1, borderColor: tokens.colors.brand.primary },
+  trendsTabText: { color: tokens.colors.brand.primary, fontWeight: '700' },
   tabText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, fontWeight: '500' },
   tabTextActive: { color: tokens.colors.black, fontWeight: '700' },
   gridRow: { gap: 2 },
