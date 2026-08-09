@@ -173,6 +173,10 @@ services:
       ORKY_CHECKOUT_HANDOFF_SECRET: ${ORKY_CHECKOUT_HANDOFF_SECRET:?ORKY_CHECKOUT_HANDOFF_SECRET is required}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
       SCRAPER_INTERNAL_SECRET: ${SCRAPER_INTERNAL_SECRET:?SCRAPER_INTERNAL_SECRET is required}
+      # Audit P0-4 : le proxy Next /api/trends/sourcing utilise ces deux
+      # variables serveur-à-serveur pour interroger orchidy-pro.
+      ORCHIDY_PRO_API_URL: ${ORCHIDY_PRO_API_URL:?ORCHIDY_PRO_API_URL is required}
+      ORCHIDY_PRO_API_KEY: ${ORCHIDY_PRO_API_KEY:?ORCHIDY_PRO_API_KEY is required}
     depends_on:
       api:
         condition: service_healthy

@@ -102,11 +102,19 @@ function toTrendSignal(video: Awaited<ReturnType<typeof scraperBridge.getVideos>
   const caption = video.description || '';
   const hashtags = (video.hashtags || []).map((h) => (typeof h === 'string' ? h : h.name || '')).filter(Boolean);
   const { name, keywords } = detectProductName(caption, hashtags);
+  // Audit P1-6 : orchidy-pro reçoit la provenance canonique TikTok
+  // (externalUrl), pas le flux proxy ORKY (videoUrl).
+  const externalUrl = video.externalUrl || '';
+  const tiktokId = video.id.startsWith('scraper-') ? video.id.slice(8) : video.id;
+  const sourceEmbedUrl = externalUrl
+    ? `https://www.tiktok.com/embed/v2/${tiktokId}?lang=en-US`
+    : undefined;
   return {
     id: `trend-${video.id}`,
     sourceApp: 'orky',
     sourcePlatform: 'tiktok',
-    sourceVideoUrl: video.videoUrl || '',
+    sourceVideoUrl: externalUrl,
+    sourceEmbedUrl,
     creatorUsername: video.user?.username,
     creatorDisplayName: video.user?.displayName,
     caption: caption.slice(0, 2000),

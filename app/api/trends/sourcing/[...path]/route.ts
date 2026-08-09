@@ -44,12 +44,14 @@ function consumeRate(key: string, max: number): { allowed: boolean; retryAfter: 
 
 function isAllowedPath(path: string[]): boolean {
   const joined = path.join('/');
+  // Audit P0-2 : /record-conversion est volontairement INJOIGNABLE depuis
+  // le proxy navigateur ORKY. La conversion reste un événement serveur
+  // signé entre orchidy marketplace → orchidy-pro.
   return (
     joined === 'requests' ||
     /^requests\/[A-Za-z0-9]{10,40}$/.test(joined) ||
     /^requests\/[A-Za-z0-9]{10,40}\/approve$/.test(joined) ||
-    /^requests\/[A-Za-z0-9]{10,40}\/generate-video$/.test(joined) ||
-    /^requests\/[A-Za-z0-9]{10,40}\/record-conversion$/.test(joined)
+    /^requests\/[A-Za-z0-9]{10,40}\/generate-video$/.test(joined)
   );
 }
 
@@ -99,7 +101,7 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
     if (!isAllowedPath(path)) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
-    const upstream = await fetch(`${PRO_BASE}/api/viral-sourcing/${path.join('/')}`, {
+    const upstream = await fetch(`${PRO_BASE}/api/viral-sourcing/${path.join('/')}${request.nextUrl.search || ""}`, {
       headers: { accept: 'application/json', 'x-api-key': proApiKey() },
       cache: 'no-store',
       signal: AbortSignal.timeout(15_000),
@@ -131,7 +133,7 @@ export async function POST(request: NextRequest, { params }: { params: { path: s
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     const raw = await request.text();
-    const upstream = await fetch(`${PRO_BASE}/api/viral-sourcing/${path.join('/')}`, {
+    const upstream = await fetch(`${PRO_BASE}/api/viral-sourcing/${path.join('/')}${request.nextUrl.search || ''}`, {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
