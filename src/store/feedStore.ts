@@ -111,7 +111,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
 
   toggleLike: (videoId: string) => {
     const before = get().videos.find((video) => video.id === videoId);
-    if (!before || isReadOnly(before)) return;
+    if (!before) return;
+    const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
@@ -123,6 +124,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
+    // External references have no ORKY entity to sync; keep the toggle local.
+    if (readonly) return;
     void get().performAction(videoId, 'like').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>
@@ -136,7 +139,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
 
   toggleSave: (videoId: string) => {
     const before = get().videos.find((video) => video.id === videoId);
-    if (!before || isReadOnly(before)) return;
+    if (!before) return;
+    const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
         video.id === videoId
@@ -148,6 +152,7 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
+    if (readonly) return;
     void get().performAction(videoId, 'save').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>
@@ -161,7 +166,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
 
   toggleFollow: (userId: string) => {
     const related = get().videos.find((video) => video.user.id === userId);
-    if (!related || isReadOnly(related)) return;
+    if (!related) return;
+    const readonly = isReadOnly(related);
     const beforeFollowing = related.user.isFollowing;
     const beforeFollowers = related.user.followersCount;
     set((state) => ({
@@ -180,6 +186,7 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
+    if (readonly) return;
     void get().performAction(userId, 'follow').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>

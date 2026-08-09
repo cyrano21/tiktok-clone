@@ -11,6 +11,7 @@ interface VideoProps {
   paused?: boolean;
   repeat?: boolean;
   muted?: boolean;
+  rate?: number;
   playInBackground?: boolean;
   playWhenInactive?: boolean;
   onLoad?: (data: { duration: number; naturalSize?: { width: number; height: number; orientation: 'portrait' | 'landscape' } }) => void;
@@ -42,6 +43,7 @@ const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
     paused = false,
     repeat = false,
     muted = false,
+    rate = 1,
     onLoad,
     onProgress,
     onBuffer,
@@ -69,16 +71,23 @@ const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
     if (paused) {
       v.pause();
     } else {
+      // Respect the caller's muted intent; browsers may still block unmuted
+      // autoplay before any user gesture, in which case we fall back to muted.
+      v.muted = muted;
       const playPromise = v.play();
       if (playPromise && typeof playPromise.catch === 'function') {
         playPromise.catch(() => {
-          // browsers block unmuted autoplay; force mute and retry
           v.muted = true;
           v.play().catch(() => {});
         });
       }
     }
-  }, [paused, source?.uri]);
+  }, [paused, source?.uri, muted]);
+
+  useEffect(() => {
+    const v = videoRef.current;
+    if (v && Number.isFinite(rate) && rate > 0) v.playbackRate = rate;
+  }, [rate]);
 
   const cssStyle: React.CSSProperties = {
     position: 'absolute',
@@ -95,7 +104,7 @@ const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
       ref={videoRef}
       src={source?.uri}
       loop={repeat}
-      muted={muted || true}
+      muted={muted}
       autoPlay={!paused}
       playsInline
       preload="auto"

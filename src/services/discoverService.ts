@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import type { Video } from '@/types';
 
 // Local development keeps the demo discover feed unless explicitly disabled.
 // Production sets NEXT_PUBLIC_USE_DEMO=false so categories come from /feed/discover.
@@ -108,14 +109,45 @@ function scraperToDiscoverVideos(videos: any[]): DiscoverVideo[] {
   }));
 }
 
+// The scraper catalog has no category field: match hashtags + description against
+// per-category keywords so the Discover tabs actually filter the real content.
+const CATEGORY_KEYWORDS: Record<Exclude<DiscoverCategory, 'all' | 'trending'>, string[]> = {
+  music: ['music', 'song', 'sing', 'dance', 'musique', 'chanson', 'danse', 'beat', 'singer', 'remix', 'cover', 'sound'],
+  comedy: ['comedy', 'funny', 'humor', 'humour', 'sketch', 'joke', 'lol', 'prank', 'comédie', 'standup', 'meme'],
+  sports: ['sport', 'fitness', 'gym', 'football', 'soccer', 'workout', 'basketball', 'nba', 'nfl', 'training', 'match', 'olympics'],
+  food: ['food', 'recipe', 'cook', 'cooking', 'cuisine', 'recette', 'eat', 'bake', 'baking', 'tasty', 'chef', 'kitchen'],
+  beauty: ['beauty', 'makeup', 'skincare', 'fashion', 'beauté', 'maquillage', 'style', 'hair', 'nails', 'glow', 'ootd'],
+};
+
+function filterScrapedByCategory(videos: Video[], category: DiscoverCategory, limit: number): Video[] {
+  if (!videos.length) return videos;
+  if (category === 'all') return videos.slice(0, limit);
+  if (category === 'trending') {
+    return [...videos].sort((a, b) => (b.viewsCount ?? 0) - (a.viewsCount ?? 0)).slice(0, limit);
+  }
+  const terms = CATEGORY_KEYWORDS[category] ?? [];
+  const textOf = (v: Video) =>
+    [v.description, ...(v.hashtags ?? []).map((h) => h.name)].join(' ').toLowerCase();
+  const matched = videos.filter((v) => terms.some((term) => textOf(v).includes(term)));
+  // Fall back to the general pool when a category has no matches, so the tab
+  // never shows an empty grid on a healthy scraper.
+  const pool = matched.length >= Math.min(limit, 6) ? matched : videos;
+  return pool.slice(0, limit);
+}
+
+async function loadScrapedDiscover(category: DiscoverCategory, limit: number): Promise<DiscoverVideo[] | null> {
+  if (!(await useScraperDiscover())) return null;
+  const { scraperBridge } = await import('./scraperBridge');
+  const scraped = await scraperBridge.getVideos(Math.max(limit * 3, 30));
+  if (scraped.length === 0) return null;
+  return scraperToDiscoverVideos(filterScrapedByCategory(scraped, category, limit));
+}
+
 export const discoverService = {
   async getVideos(category: DiscoverCategory, page = 1, limit = 20): Promise<DiscoverVideo[]> {
     if (USE_DEMO) {
-      if (await useScraperDiscover()) {
-        const { scraperBridge } = await import('./scraperBridge');
-        const videos = await scraperBridge.getVideos(limit);
-        if (videos.length > 0) return scraperToDiscoverVideos(videos);
-      }
+      const scraped = await loadScrapedDiscover(category, limit);
+      if (scraped) return scraped;
       return generateDiscoverVideos(category, limit);
     }
     const raw = await apiClient.get<{ videos: BackendVideo[] }>('/feed/discover', {
@@ -125,10 +157,9 @@ export const discoverService = {
     // The backend only holds ORKY-native videos; when it has none (the real
     // catalog lives in the TikTok scraper), surface the scraped catalog so
     // Discover never shows a dead empty grid on a healthy backend.
-    if (videos.length === 0 && (await useScraperDiscover())) {
-      const { scraperBridge } = await import('./scraperBridge');
-      const scraped = await scraperBridge.getVideos(limit);
-      if (scraped.length > 0) return scraperToDiscoverVideos(scraped);
+    if (videos.length === 0) {
+      const scraped = await loadScrapedDiscover(category, limit);
+      if (scraped) return scraped;
     }
     return videos;
   },

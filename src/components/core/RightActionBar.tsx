@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -31,28 +31,32 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
   onSave,
   onAvatarPress,
   onMore,
-  readOnly = false,
 }) => {
   const likeScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const handleLike = useCallback(() => {
-    if (readOnly) return;
     likeScale.value = withSequence(
       withSpring(1.4, { stiffness: 400, damping: 10 }),
       withSpring(1, tokens.animation.likeSpring)
     );
     onLike();
-  }, [likeScale, onLike, readOnly]);
+  }, [likeScale, onLike]);
 
   const handleSave = useCallback(() => {
-    if (readOnly) return;
     saveScale.value = withSequence(
       withTiming(0.8, { duration: 100 }),
       withSpring(1, { stiffness: 300, damping: 12 })
     );
     onSave();
-  }, [saveScale, onSave, readOnly]);
+  }, [saveScale, onSave]);
+
+  const handleShare = useCallback(() => {
+    onShare();
+    setShareCopied(true);
+    setTimeout(() => setShareCopied(false), 1600);
+  }, [onShare]);
 
   const likeAnimatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: likeScale.value }],
@@ -95,9 +99,9 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
         <Text style={styles.actionCount}>{formatCount(video.savesCount)}</Text>
       </AnimatedTouchable>
 
-      <TouchableOpacity style={styles.actionButton} onPress={onShare}>
-        <Text style={styles.actionIcon}>↗</Text>
-        <Text style={styles.actionCount}>{formatCount(video.sharesCount)}</Text>
+      <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+        <Text style={styles.actionIcon}>{shareCopied ? '✓' : '↗'}</Text>
+        <Text style={styles.actionCount}>{shareCopied ? 'Copié' : formatCount(video.sharesCount)}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.actionButton} onPress={onMore} accessibilityLabel="Sécurité et signalement">

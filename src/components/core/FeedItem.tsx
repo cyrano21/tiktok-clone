@@ -27,7 +27,30 @@ const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight, externalPause = false, onCommentPress, onSharePress, onProfilePress, onProductPress }) => {
   const { toggleLike, toggleSave } = useFeedStore();
   const [isPaused, setIsPaused] = useState(false);
+  const [muted, setMuted] = useState(true);
+  const [rate, setRate] = useState(1);
   const [heartVisible, setHeartVisible] = useState(false);
+  const RATES = [1, 1.5, 2, 0.5];
+
+  const cycleRate = useCallback(() => {
+    const index = RATES.indexOf(rate);
+    setRate(RATES[(index + 1) % RATES.length]);
+  }, [rate]);
+
+  const handleShare = useCallback(() => {
+    const url = video.externalUrl
+      || (typeof window !== 'undefined' ? `${window.location.origin}/v1/videos/${video.id}` : video.id);
+    const fallback = () => {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(url).catch(() => undefined);
+      }
+    };
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      navigator.share({ title: video.description || 'Vidéo ORKY', url }).catch(() => fallback());
+    } else {
+      fallback();
+    }
+  }, [video]);
   const [heartPosition, setHeartPosition] = useState({ x: 0, y: 0 });
   const [safetyVisible, setSafetyVisible] = useState(false);
   const [blockedNotice, setBlockedNotice] = useState(false);
@@ -68,18 +91,36 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   return (
     <View style={containerStyle}>
       {video.thumbnailUrl ? <Image source={{ uri: video.thumbnailUrl }} style={styles.thumbnailBg} resizeMode="cover" /> : null}
-      <VideoPlayer uri={video.videoUrl} isActive={isActive && !safetyVisible} isPaused={isPaused || safetyVisible || externalPause} onPress={onPress} />
+      <VideoPlayer uri={video.videoUrl} isActive={isActive && !safetyVisible} isPaused={isPaused || safetyVisible || externalPause} isMuted={muted} rate={rate} onPress={onPress} />
       <DoubleTapHeart isVisible={heartVisible} x={heartPosition.x} y={heartPosition.y} onAnimationEnd={() => setHeartVisible(false)} />
+
+      <View style={styles.playerControls}>
+        <TouchableOpacity style={styles.playerControlBtn} onPress={() => setMuted((m) => !m)} accessibilityLabel={muted ? 'Activer le son' : 'Couper le son'}>
+          <Text style={styles.playerControlIcon}>{muted ? '🔇' : '🔊'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.playerControlBtn} onPress={cycleRate} accessibilityLabel="Vitesse de lecture">
+          <Text style={styles.playerControlText}>{rate}x</Text>
+        </TouchableOpacity>
+      </View>
 
       <RightActionBar
         video={video}
         readOnly={readOnly}
         onLike={() => toggleLike(video.id)}
         onComment={onCommentPress}
-        onShare={onSharePress}
+        onShare={handleShare}
         onSave={() => toggleSave(video.id)}
-        onAvatarPress={() => { if (!readOnly) onProfilePress(video.user.id); }}
-        onMore={() => { if (!readOnly) setSafetyVisible(true); }}
+        onAvatarPress={() => {
+          if (readOnly) {
+            // External creator: open their public TikTok profile instead of a fake ORKY page.
+            if (typeof window !== 'undefined' && video.user.username) {
+              window.open(`https://www.tiktok.com/@${video.user.username.replace(/^@/, '')}`, '_blank', 'noopener,noreferrer');
+            }
+          } else {
+            onProfilePress(video.user.id);
+          }
+        }}
+        onMore={() => setSafetyVisible(true)}
       />
 
       <View style={styles.infoOverlay}>
@@ -103,7 +144,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {video.sound ? <View style={styles.soundRow}><Text style={styles.soundIcon}>♪</Text><Text style={styles.soundText} numberOfLines={1}>{video.sound.title} - {video.sound.artist}</Text></View> : null}
       </View>
 
-      {!readOnly ? <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} /> : null}
+      <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} />
     </View>
   );
 };
@@ -117,6 +158,10 @@ const styles = StyleSheet.create({
   thumbnailBg: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   infoOverlay: { position: 'absolute', bottom: 90, left: tokens.feed.infoPadding, right: tokens.feed.rightBarWidth + tokens.spacing.lg, gap: tokens.spacing.xs },
   externalPill: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: 'rgba(0,0,0,0.65)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  playerControls: { position: 'absolute', left: tokens.feed.infoPadding, bottom: 54, flexDirection: 'row', gap: tokens.spacing.sm, zIndex: 20 },
+  playerControlBtn: { minWidth: 40, height: 34, paddingHorizontal: 8, borderRadius: tokens.radius.full, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)' },
+  playerControlIcon: { fontSize: 16, lineHeight: 20 },
+  playerControlText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '800' },
   externalPillText: { color: tokens.colors.text.secondary, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
   username: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700' },
   description: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, lineHeight: tokens.typography.body.lineHeight },

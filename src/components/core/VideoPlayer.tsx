@@ -8,6 +8,7 @@ interface VideoPlayerProps {
   isActive: boolean;
   isPaused?: boolean;
   isMuted?: boolean;
+  rate?: number;
   resizeMode?: 'cover' | 'contain';
   onPress?: (event: any) => void;
   onProgress?: (progress: number) => void;
@@ -19,6 +20,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isActive,
   isPaused = false,
   isMuted = false,
+  rate = 1,
   resizeMode = 'cover',
   onPress,
   onProgress,
@@ -59,6 +61,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           repeat
           paused={!isActive || isPaused}
           muted={isMuted}
+          rate={rate}
           onBuffer={handleBuffer}
           onLoad={handleLoad}
           onProgress={handleProgress}
