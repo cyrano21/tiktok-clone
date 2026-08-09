@@ -200,13 +200,14 @@ export const scraperBridge = {
     const raw = await fetchScraperVideos();
     if (raw.length === 0) return [];
 
-    const selected = raw.slice(0, limit);
-    selected.forEach((video) => {
+    // Cache the FULL catalog (not just the requested slice): Discover filters
+    // the whole pool per category while the feed only takes its first N items.
+    raw.forEach((video) => {
       if (Array.isArray(video.comments)) cachedComments.set(video.id, video.comments);
     });
-    const videos = selected.map(toOrkyVideo);
+    const videos = raw.map(toOrkyVideo);
     setCached(videos);
-    return videos;
+    return videos.slice(0, limit);
   },
 
   async getComments(videoId: string): Promise<Comment[]> {
