@@ -12,5 +12,8 @@ webhook:
   api_key: ${LIVEKIT_API_KEY}
   urls:
     - http://api:4000/v1/live/webhook
-# The API key/secret pair is injected by Coolify; never commit their values.
-keys: {}
+# Clés serveur LiveKit : LiveKit exige que les clés utilisées pour signer les
+# tokens ET les webhooks soient déclarées ici (format "secret: key").
+# Les valeurs sont injectées par Coolify — jamais commitées.
+keys:
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}

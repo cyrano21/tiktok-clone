@@ -120,7 +120,17 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
             onProfilePress(video.user.id);
           }
         }}
-        onMore={() => setSafetyVisible(true)}
+        onMore={() => {
+          if (readOnly) {
+            // Référence externe : ouvre la source TikTok au lieu du menu de
+            // modération ORKY (pas de signalement ORKY sur du contenu externe).
+            if (typeof window !== 'undefined' && video.externalUrl) {
+              window.open(video.externalUrl, '_blank', 'noopener,noreferrer');
+            }
+          } else {
+            setSafetyVisible(true);
+          }
+        }}
       />
 
       <View style={styles.infoOverlay}>
@@ -144,7 +154,9 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {video.sound ? <View style={styles.soundRow}><Text style={styles.soundIcon}>♪</Text><Text style={styles.soundText} numberOfLines={1}>{video.sound.title} - {video.sound.artist}</Text></View> : null}
       </View>
 
-      <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} />
+      {!readOnly ? (
+        <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} />
+      ) : null}
     </View>
   );
 };

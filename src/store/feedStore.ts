@@ -112,6 +112,9 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   toggleLike: (videoId: string) => {
     const before = get().videos.find((video) => video.id === videoId);
     if (!before) return;
+    // Références externes : aucune interaction ORKY, pas même un toggle local
+    // (l'UI ne rend pas ces boutons en lecture seule, mais on verrouille ici).
+    if (isReadOnly(before)) return;
     const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
@@ -124,7 +127,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
-    // External references have no ORKY entity to sync; keep the toggle local.
     if (readonly) return;
     void get().performAction(videoId, 'like').catch(() => {
       set((state) => ({
@@ -140,6 +142,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   toggleSave: (videoId: string) => {
     const before = get().videos.find((video) => video.id === videoId);
     if (!before) return;
+    // Références externes : aucune interaction ORKY, pas même un toggle local.
+    if (isReadOnly(before)) return;
     const readonly = isReadOnly(before);
     set((state) => ({
       videos: state.videos.map((video) =>
@@ -167,7 +171,8 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
   toggleFollow: (userId: string) => {
     const related = get().videos.find((video) => video.user.id === userId);
     if (!related) return;
-    const readonly = isReadOnly(related);
+    // Références externes : aucun follow ORKY, pas même un toggle local.
+    if (isReadOnly(related)) return;
     const beforeFollowing = related.user.isFollowing;
     const beforeFollowers = related.user.followersCount;
     set((state) => ({
@@ -186,7 +191,6 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
           : video,
       ),
     }));
-    if (readonly) return;
     void get().performAction(userId, 'follow').catch(() => {
       set((state) => ({
         videos: state.videos.map((video) =>

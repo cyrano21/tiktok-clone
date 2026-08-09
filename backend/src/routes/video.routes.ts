@@ -38,6 +38,7 @@ const uploadMetadataSchema = z.object({
     contrast: z.number().min(50).max(150).optional(),
     saturate: z.number().min(0).max(200).optional(),
     grayscale: z.number().min(0).max(100).optional(),
+    sepia: z.number().min(0).max(100).optional(),
   }).default({}),
 });
 

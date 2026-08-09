@@ -5,15 +5,13 @@ export const dynamic = 'force-dynamic';
 
 const INTERNAL_SCRAPER_URL = process.env.SCRAPER_API_INTERNAL_URL || 'http://127.0.0.1:8502';
 const REFRESH_SECRET = String(process.env.SCRAPER_INTERNAL_SECRET || '').trim();
+const BACKEND_API = String(process.env.NEXT_PUBLIC_API_BASE_URL || 'http://api:4000/v1').replace(/\/$/, '');
 
-// Régénération coûteuse (runs Apify) : fenêtre stricte d'1 requête / 10 min.
+// Régénération coûteuse (runs Apify) : 1 requête / 10 min, par utilisateur
+// admin uniquement. Le rate limit est en mémoire (acceptable : l'autorisation
+// admin est déjà requise — un attaquant non-admin est rejeté avant).
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const refreshHits = new Map<string, { count: number; resetAt: number }>();
-
-function clientKey(request: NextRequest): string {
-  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
-  return forwarded || request.headers.get('x-real-ip') || 'unknown';
-}
 
 function consumeRefreshRate(key: string, max: number): { allowed: boolean; retryAfter: number } {
   const now = Date.now();
@@ -29,9 +27,52 @@ function consumeRefreshRate(key: string, max: number): { allowed: boolean; retry
   return { allowed: true, retryAfter: 0 };
 }
 
+interface MeUser {
+  id: string;
+  username: string;
+  role?: string;
+}
+
+/** Vérifie que l'appelant est un admin ORKY authentifié (token Bearer). */
+async function isAdminUser(request: NextRequest): Promise<{ ok: boolean; status?: number; error?: string }> {
+  const auth = request.headers.get('authorization');
+  if (!auth?.startsWith('Bearer ')) {
+    return { ok: false, status: 401, error: 'Authentication required' };
+  }
+  try {
+    const res = await fetch(`${BACKEND_API}/auth/me`, {
+      headers: { authorization: auth },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8000),
+    });
+    if (res.status === 401) {
+      return { ok: false, status: 401, error: 'Session invalide ou expirée' };
+    }
+    if (!res.ok) {
+      return { ok: false, status: 502, error: 'Backend indisponible' };
+    }
+    const payload = (await res.json()) as { user?: MeUser };
+    if (!payload.user) {
+      return { ok: false, status: 401, error: 'Session invalide' };
+    }
+    if (payload.user.role !== 'admin') {
+      return { ok: false, status: 403, error: 'Administrateur requis' };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, status: 502, error: 'Backend indisponible' };
+  }
+}
+
 export async function POST(request: NextRequest): Promise<Response> {
   if (!REFRESH_SECRET) {
     return NextResponse.json({ error: 'SCRAPER_INTERNAL_SECRET is not configured' }, { status: 500 });
+  }
+
+  // 1. Session ORKY + rôle admin (la garde principale contre l'abus public).
+  const admin = await isAdminUser(request);
+  if (!admin.ok) {
+    return NextResponse.json({ error: admin.error }, { status: admin.status ?? 403 });
   }
 
   let body: { confirm?: boolean; comments?: number } = {};
@@ -78,4 +119,9 @@ export async function POST(request: NextRequest): Promise<Response> {
       { status: 502 },
     );
   }
+}
+
+function clientKey(request: NextRequest): string {
+  const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
+  return forwarded || request.headers.get('x-real-ip') || 'unknown';
 }

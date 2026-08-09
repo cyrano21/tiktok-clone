@@ -1,9 +1,8 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
-import { useStudioStore } from '@/store/studioStore';
 import { useCreatorAnalytics } from '@/hooks/useCreatorAnalytics';
 
 function formatEuro(n: number): string {
@@ -18,37 +17,22 @@ function formatShort(n: number): string {
 export const StudioMonetizationScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
-  // Montants basés sur les analytics RÉELLES du backend quand disponibles
-  // (sinon fallback démo du store, étiqueté comme tel).
+  // SIMULATEUR : aucun solde réel, aucun retrait. Les montants sont des
+  // estimations pédagogiques basées sur les analytics (réelles si dispo).
+  // Il n'existe pas encore de ledger de gains ni de paiement créateur.
   const analytics = useCreatorAnalytics();
-  const totalViews = analytics.live ? analytics.totalViews : useStudioStore((s) => s.analytics()).totalViews;
-  const totalLikes = analytics.live ? analytics.totalLikes : useStudioStore((s) => s.analytics()).totalLikes;
-  const creatorFund = (totalViews / 1000) * 0.02;
-  const giftsDiamonds = Math.round(totalLikes * 0.9);
-  const liveEarnings = giftsDiamonds * 0.005;
-  const available = Math.max(0, (creatorFund + liveEarnings) * 0.7);
-  const pending = (creatorFund + liveEarnings) * 0.3;
-  const monetization = {
-    available,
-    pending,
-    creatorFund,
-    giftsDiamonds,
-    liveEarnings,
-  };
-  const [confirmation, setConfirmation] = useState<boolean>(false);
-
-  const handleWithdraw = () => {
-    if (monetization.available <= 0) return;
-    // Le paiement créateur n'est pas encore opérationnel : la demande est
-    // enregistrée localement sans prétendre à un virement réel.
-    setConfirmation(true);
-  };
+  const totalViews = analytics.totalViews;
+  const totalLikes = analytics.totalLikes;
+  const estimatedCreatorFund = (totalViews / 1000) * 0.02;
+  const estimatedGifts = Math.round(totalLikes * 0.9);
+  const estimatedLive = estimatedGifts * 0.005;
+  const estimatedGross = estimatedCreatorFund + estimatedLive;
 
   const programs = [
-    { icon: '💸', label: 'Fonds créateur', value: formatEuro(monetization.creatorFund), sub: 'Basé sur tes vues', active: true },
-    { icon: '💎', label: 'Cadeaux LIVE', value: `${formatShort(monetization.giftsDiamonds)} diamants`, sub: formatEuro(monetization.liveEarnings), active: true },
-    { icon: '🛍️', label: 'Commissions Shop', value: 'Activé', sub: 'Via TikTok Shop', active: true },
-    { icon: '🤝', label: 'Partenariats marques', value: 'Éligible', sub: 'Marketplace créateurs', active: false },
+    { icon: '💸', label: 'Fonds créateur', value: formatEuro(estimatedCreatorFund), sub: 'Estimation ~0,02 € / 1000 vues', enabled: true },
+    { icon: '💎', label: 'Cadeaux LIVE', value: `${formatShort(estimatedGifts)} diamants`, sub: `≈ ${formatEuro(estimatedLive)} / an`, enabled: true },
+    { icon: '🛍️', label: 'Commissions Shop', value: 'À venir', sub: 'Ledger des commissions pas encore actif', enabled: false },
+    { icon: '🤝', label: 'Partenariats marques', value: 'Bientôt', sub: 'Marketplace créateurs en préparation', enabled: false },
   ];
 
   return (
@@ -62,25 +46,15 @@ export const StudioMonetizationScreen: React.FC = () => {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tokens.spacing.xxl }}>
-        {/* Balance card */}
-        <View style={styles.balanceCard}>
-          <Text style={styles.balanceLabel}>Solde disponible</Text>
-          <Text style={styles.balanceValue}>{formatEuro(monetization.available)}</Text>
-          <Text style={styles.balancePending}>En attente : {formatEuro(monetization.pending)}</Text>
-          <TouchableOpacity
-            style={[styles.withdrawBtn, monetization.available <= 0 && styles.withdrawBtnDisabled]}
-            onPress={handleWithdraw}
-            disabled={monetization.available <= 0}
-          >
-            <Text style={styles.withdrawText}>Retirer mes gains</Text>
-          </TouchableOpacity>
-        </View>
-
-        {confirmation && (
-          <View style={styles.confirmBanner}>
-            <Text style={styles.confirmText}>Demande de retrait enregistrée — le virement sera disponible à l’activation du paiement créateur (Stripe Connect à venir).</Text>
+        {/* Simulator card — jamais un solde réel */}
+        <View style={styles.simCard}>
+          <View style={styles.simBadge}>
+            <Text style={styles.simBadgeText}>SIMULATEUR</Text>
           </View>
-        )}
+          <Text style={styles.simTitle}>Estimation annuelle</Text>
+          <Text style={styles.simValue}>{formatEuro(estimatedGross)}</Text>
+          <Text style={styles.simSub}>Aucun paiement : les gains réels seront disponibles avec le ledger créateur et Stripe Connect (à venir).</Text>
+        </View>
 
         {/* Programs */}
         <Text style={styles.sectionTitle}>Programmes</Text>
@@ -93,8 +67,8 @@ export const StudioMonetizationScreen: React.FC = () => {
                 <Text style={styles.progSub}>{p.sub}</Text>
               </View>
               <View style={styles.progRight}>
-                <Text style={styles.progValue}>{p.value}</Text>
-                <View style={[styles.statusDot, { backgroundColor: p.active ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]} />
+                <Text style={[styles.progValue, !p.enabled && styles.progValueDisabled]}>{p.value}</Text>
+                <View style={[styles.statusDot, { backgroundColor: p.enabled ? tokens.colors.semantic.success : tokens.colors.text.tertiary }]} />
               </View>
             </View>
           ))}
@@ -102,8 +76,8 @@ export const StudioMonetizationScreen: React.FC = () => {
 
         <Text style={styles.disclaimer}>
           {analytics.live
-            ? 'Montants estimés depuis tes analytics réelles (taux ~0,02 € / 1000 vues). Le retrait sera opérationnel avec le paiement créateur (à venir).'
-            : 'Mode démo : montants estimés depuis les données locales. Le retrait sera opérationnel avec le paiement créateur (à venir).'}
+            ? 'Estimations calculées depuis tes analytics réelles. Aucun retrait n’est possible tant que le paiement créateur n’est pas opérationnel.'
+            : 'Estimations indicatives. Connecte-toi pour tes vraies stats — le paiement créateur n’est pas encore opérationnel.'}
         </Text>
       </ScrollView>
     </View>
@@ -124,32 +98,20 @@ const styles = StyleSheet.create({
   backIcon: { color: tokens.colors.white, fontSize: 24, width: 28 },
   headerTitle: { color: tokens.colors.white, fontSize: tokens.typography.title.fontSize, fontWeight: '700' },
   placeholder: { width: 28 },
-  balanceCard: {
+  simCard: {
     margin: tokens.spacing.md,
-    backgroundColor: tokens.colors.brand.primary,
+    backgroundColor: tokens.colors.elevated,
+    borderWidth: 1,
+    borderColor: tokens.colors.surface,
     borderRadius: tokens.radius.lg,
     padding: tokens.spacing.lg,
     gap: 6,
   },
-  balanceLabel: { color: 'rgba(255,255,255,0.85)', fontSize: tokens.typography.body.fontSize },
-  balanceValue: { color: tokens.colors.white, fontSize: 36, fontWeight: '800' },
-  balancePending: { color: 'rgba(255,255,255,0.85)', fontSize: tokens.typography.caption.fontSize },
-  withdrawBtn: {
-    marginTop: tokens.spacing.md,
-    backgroundColor: tokens.colors.white,
-    borderRadius: tokens.radius.sm,
-    paddingVertical: tokens.spacing.md,
-    alignItems: 'center',
-  },
-  withdrawBtnDisabled: { opacity: 0.6 },
-  withdrawText: { color: tokens.colors.brand.primary, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800' },
-  confirmBanner: {
-    marginHorizontal: tokens.spacing.md,
-    backgroundColor: tokens.colors.semantic.success + '22',
-    borderRadius: tokens.radius.sm,
-    padding: tokens.spacing.md,
-  },
-  confirmText: { color: tokens.colors.semantic.success, fontSize: tokens.typography.body.fontSize, fontWeight: '700', textAlign: 'center' },
+  simBadge: { alignSelf: 'flex-start', backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.xs, paddingHorizontal: 8, paddingVertical: 3 },
+  simBadgeText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '800', letterSpacing: 0.5 },
+  simTitle: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize, marginTop: tokens.spacing.sm },
+  simValue: { color: tokens.colors.white, fontSize: 34, fontWeight: '800' },
+  simSub: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, lineHeight: 16 },
   sectionTitle: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '800', paddingHorizontal: tokens.spacing.md, marginTop: tokens.spacing.lg, marginBottom: tokens.spacing.sm },
   section: { paddingHorizontal: tokens.spacing.md, gap: tokens.spacing.sm },
   progRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.md, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.md, padding: tokens.spacing.md },
@@ -160,6 +122,7 @@ const styles = StyleSheet.create({
   progSub: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize, marginTop: 2 },
   progRight: { alignItems: 'flex-end', gap: 4 },
   progValue: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
+  progValueDisabled: { color: tokens.colors.text.tertiary },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   disclaimer: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize, paddingHorizontal: tokens.spacing.md, marginTop: tokens.spacing.lg, lineHeight: 16 },
 });

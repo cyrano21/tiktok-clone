@@ -28,20 +28,20 @@ describe('feed reality hardening', () => {
     useFeedStore.setState({ videos: [], currentIndex: 0, loadingState: 'idle', error: null, cursor: null, hasMore: false });
   });
 
-  it('toggles external references locally but never calls social APIs for them', () => {
+  it('leaves external references completely untouched (no local toggle, no social API)', () => {
     useFeedStore.setState({ videos: [externalVideo] });
     useFeedStore.getState().toggleLike(externalVideo.id);
     useFeedStore.getState().toggleSave(externalVideo.id);
     useFeedStore.getState().toggleFollow(externalVideo.user.id);
 
     const video = useFeedStore.getState().videos[0];
-    // Local optimistic state updates (visual feedback) are allowed…
-    expect(video.isLiked).toBe(true);
-    expect(video.likesCount).toBe(6);
-    expect(video.isSaved).toBe(true);
-    expect(video.savesCount).toBe(3);
-    expect(video.user.isFollowing).toBe(true);
-    // …but no ORKY social API is ever called for external references.
+    // External references are strictly read-only: not even an optimistic local
+    // toggle is allowed, and no ORKY social API is ever called.
+    expect(video.isLiked).toBe(false);
+    expect(video.likesCount).toBe(5);
+    expect(video.isSaved).toBe(false);
+    expect(video.savesCount).toBe(2);
+    expect(video.user.isFollowing).toBe(false);
     expect(feedService.performAction).not.toHaveBeenCalled();
   });
 

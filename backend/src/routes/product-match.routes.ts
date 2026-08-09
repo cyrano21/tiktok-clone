@@ -19,6 +19,55 @@ function activeUserWhere(): Prisma.UserWhereInput {
   };
 }
 
+const ORCHIDY_BASE_URL =
+  process.env.ORCHIDY_API_BASE_URL ||
+  process.env.NEXT_PUBLIC_ORCHIDY_BASE_URL ||
+  'https://orchidy.fr';
+
+interface OrchidyProduct {
+  orderable?: boolean;
+  stockStatus?: string;
+  isActive?: boolean;
+  isPublished?: boolean;
+  status?: string;
+}
+
+/**
+ * Validates that an Orchidy catalog item exists, is published and is still
+ * purchasable before ORKY attaches it to a video. Fail-closed: if Orchidy is
+ * unreachable or reports anything other than an orderable product, the match
+ * is rejected so no invalid product is ever shown on a video.
+ */
+async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const url = `${ORCHIDY_BASE_URL.replace(/\/$/, '')}/api/products/${encodeURIComponent(itemId)}`;
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { accept: 'application/json' },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(8_000),
+    });
+  } catch {
+    return { ok: false, reason: 'ORCHIDY_CATALOG_UNAVAILABLE' };
+  }
+  if (!response.ok) return { ok: false, reason: 'ORCHIDY_PRODUCT_NOT_FOUND' };
+  const payload = (await response.json().catch(() => null)) as { product?: OrchidyProduct } | OrchidyProduct | null;
+  const product = (payload as any)?.product ?? payload ?? null;
+  if (!product || typeof product !== 'object') return { ok: false, reason: 'ORCHIDY_PRODUCT_NOT_FOUND' };
+  const p = product as OrchidyProduct;
+  const explicitStatus = p.status ?? 'published';
+  const publishedFlag = p.isPublished ?? p.isActive ?? explicitStatus !== 'draft';
+  const isPublished =
+    publishedFlag !== false &&
+    explicitStatus !== 'draft' &&
+    explicitStatus !== 'archived' &&
+    explicitStatus !== 'disabled';
+  const isOrderable = p.orderable !== false && p.stockStatus !== 'out_of_stock';
+  if (!isPublished) return { ok: false, reason: 'ORCHIDY_PRODUCT_NOT_PUBLISHED' };
+  if (!isOrderable) return { ok: false, reason: 'ORCHIDY_PRODUCT_NOT_ORDERABLE' };
+  return { ok: true };
+}
+
 export async function productMatchRoutes(app: FastifyInstance) {
   app.get('/video/:videoId', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { videoId } = z.object({ videoId: z.string().uuid() }).parse(req.params);
@@ -51,6 +100,11 @@ export async function productMatchRoutes(app: FastifyInstance) {
     if (!video) return reply.status(404).send({ error: 'NOT_FOUND', message: 'Video not found' });
     if (video.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Only the video owner may attach products' });
+    }
+
+    const validation = await validateOrchidyCatalogItem(body.orchidyCatalogItemId);
+    if (!validation.ok) {
+      return reply.status(422).send({ error: validation.reason, message: 'Le produit Orchidy est introuvable, non publié ou non achetable.' });
     }
 
     const match = await prisma.videoProductMatch.upsert({

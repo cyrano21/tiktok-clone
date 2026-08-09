@@ -61,8 +61,17 @@ services:
     image: livekit/livekit-server:v1.13.4
     restart: unless-stopped
     command: --config /etc/livekit.yaml --bind 0.0.0.0
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?LIVEKIT_API_KEY is required}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?LIVEKIT_API_SECRET is required}
     volumes:
       - ./livekit.prod.yaml:/etc/livekit.yaml:ro
+    ports:
+      # RTC : le multiplexage UDP (7882) et le TCP (7881) doivent être
+      # accessibles aux clients Internet pour que le live fonctionne entre
+      # utilisateurs. 7880 (WebSocket) reste interne derrière TLS/proxy.
+      - '7881:7881/tcp'
+      - '7882:7882/udp'
     networks: [orky]
 
   api:
@@ -125,6 +134,12 @@ services:
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       VIDEO_CACHE_DIR: /app/data/video_cache
       SCRAPER_INTERNAL_SECRET: ${SCRAPER_INTERNAL_SECRET:?SCRAPER_INTERNAL_SECRET is required}
+      SCRAPER_DATA_DIR: /app/data
+      SCRAPER_AUTO_REFRESH: ${SCRAPER_AUTO_REFRESH:-0}
+      SCRAPER_AUTO_REFRESH_HOUR: ${SCRAPER_AUTO_REFRESH_HOUR:-3}
+      SCRAPER_REFRESH_COMMENTS: ${SCRAPER_REFRESH_COMMENTS:-6}
+      SCRAPER_REFRESH_PER: ${SCRAPER_REFRESH_PER:-10}
+      SCRAPER_REFRESH_WORKERS: ${SCRAPER_REFRESH_WORKERS:-4}
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:8502/api/health']
       interval: 10s
@@ -158,13 +173,6 @@ services:
       ORKY_CHECKOUT_HANDOFF_SECRET: ${ORKY_CHECKOUT_HANDOFF_SECRET:?ORKY_CHECKOUT_HANDOFF_SECRET is required}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
       SCRAPER_INTERNAL_SECRET: ${SCRAPER_INTERNAL_SECRET:?SCRAPER_INTERNAL_SECRET is required}
-      SCRAPER_DATA_DIR: /app/data
-      SCRAPER_AUTO_REFRESH: ${SCRAPER_AUTO_REFRESH:-0}
-      SCRAPER_AUTO_REFRESH_HOUR: ${SCRAPER_AUTO_REFRESH_HOUR:-3}
-      SCRAPER_REFRESH_COMMENTS: ${SCRAPER_REFRESH_COMMENTS:-6}
-      SCRAPER_REFRESH_PER: ${SCRAPER_REFRESH_PER:-10}
-      SCRAPER_REFRESH_WORKERS: ${SCRAPER_REFRESH_WORKERS:-4}
-      APIFY_TOKEN: ${APIFY_TOKEN:-}
     depends_on:
       api:
         condition: service_healthy

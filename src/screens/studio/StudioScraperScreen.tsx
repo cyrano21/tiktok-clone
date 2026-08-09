@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { scraperBridge } from '@/services/scraperBridge';
+import { useSessionStore } from '@/store/sessionStore';
 
 type Stats = {
   totalComments: number;
@@ -25,6 +26,7 @@ type RefreshStatus = {
 export const StudioScraperScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const isAdmin = useSessionStore((s) => s.role === 'admin');
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +134,7 @@ export const StudioScraperScreen: React.FC = () => {
           <View style={styles.infoCard}><Text style={styles.infoTitle}>Dernière donnée observée</Text><Text style={styles.infoValue}>{stats.lastScraped ? new Date(stats.lastScraped).toLocaleString('fr-FR') : 'Date non fournie par la source'}</Text></View>
         </> : null}
 
+        {isAdmin ? (
         <View style={styles.refreshCard}>
           <Text style={styles.infoTitle}>Régénération du catalogue</Text>
           <Text style={styles.infoValue}>
@@ -164,6 +167,14 @@ export const StudioScraperScreen: React.FC = () => {
             <Text style={styles.scheduleValue}>{hourLabel}</Text>
           </View>
         </View>
+        ) : (
+          <View style={styles.refreshCard}>
+            <Text style={styles.infoTitle}>Régénération du catalogue</Text>
+            <Text style={styles.infoValue}>
+              La régénération est réservée aux administrateurs ORKY. Contacte un administrateur pour déclencher une nouvelle collecte.
+            </Text>
+          </View>
+        )}
 
         <View style={styles.infoCard}><Text style={styles.infoTitle}>Règles appliquées</Text><Text style={styles.infoValue}>Aucun avatar ou compteur n’est inventé · aucun like/follow ORKY sur une référence externe · aucun endpoint de reload exposé au navigateur · téléchargements yt-dlp bornés côté serveur.</Text></View>
       </ScrollView>

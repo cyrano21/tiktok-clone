@@ -6,6 +6,17 @@
  */
 
 import type { Video, User, Comment } from '@/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const AUTH_TOKEN_KEY = '@auth_token';
+
+async function authBearer(): Promise<string | null> {
+  try {
+    return await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
 
 // Le navigateur parle uniquement au proxy same-origin. Le proxy Next connaît
 // l'URL interne Docker et son secret; aucun hostname de conteneur n'est exposé.
@@ -227,12 +238,15 @@ export const scraperBridge = {
     cachedComments.clear();
   },
 
-  /** Déclenche la régénération du catalogue (proxy Next protégé, coûteux). */
+  /** Déclenche la régénération du catalogue (admin ORKY requis côté serveur). */
   async refreshCatalog(comments = 6): Promise<{ ok: boolean; message?: string; error?: string }> {
     try {
+      const token = await authBearer();
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
       const res = await fetch(scraperUrl('admin/refresh'), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify({ confirm: true, comments }),
         signal: AbortSignal.timeout(15_000),
       });

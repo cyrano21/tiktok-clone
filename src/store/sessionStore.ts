@@ -6,6 +6,7 @@ export interface SessionUser {
   email?: string | null;
   displayName: string | null;
   avatarUrl?: string | null;
+  role?: string;
 }
 
 interface SessionState extends SessionUser {

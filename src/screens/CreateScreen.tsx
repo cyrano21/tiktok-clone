@@ -14,23 +14,13 @@ interface CreateOption {
 
 const CREATE_OPTIONS: CreateOption[] = [
   { id: 'studio', icon: '🎬', label: 'Studio', color: tokens.colors.brand.primary, route: 'studio.editor' },
-  { id: 'camera', icon: '📷', label: 'Camera', color: tokens.colors.brand.secondary, route: 'create.record' },
+  // Camera et Duet passent par le vrai éditeur média (upload/enregistrement) :
+  // il n'existe pas de fausse caméra ni de faux parcours d'édition sur main.
+  { id: 'camera', icon: '📷', label: 'Camera', color: tokens.colors.brand.secondary, route: 'studio.editor' },
   { id: 'upload', icon: '📁', label: 'Upload', color: tokens.colors.semantic.success, route: 'studio.editor' },
   { id: 'live', icon: '📡', label: 'LIVE', color: tokens.colors.semantic.live, route: 'live.broadcast' },
   { id: 'shop', icon: '🛍️', label: 'Ma boutique', color: tokens.colors.action.tip, route: 'shop.dashboard' },
-  { id: 'duet', icon: '👥', label: 'Duet', color: tokens.colors.text.link, route: 'create.record' },
-];
-
-interface DraftItem {
-  id: string;
-  thumbnailUrl: string;
-  duration: string;
-}
-
-const MOCK_DRAFTS: DraftItem[] = [
-  { id: 'd1', thumbnailUrl: 'https://picsum.photos/100/150', duration: '0:15' },
-  { id: 'd2', thumbnailUrl: 'https://picsum.photos/100/151', duration: '0:32' },
-  { id: 'd3', thumbnailUrl: 'https://picsum.photos/100/152', duration: '1:05' },
+  { id: 'duet', icon: '👥', label: 'Duet', color: tokens.colors.text.link, route: 'studio.editor' },
 ];
 
 export const CreateScreen: React.FC = () => {
@@ -66,23 +56,12 @@ export const CreateScreen: React.FC = () => {
       <View style={styles.draftsSection}>
         <View style={styles.draftsSectionHeader}>
           <Text style={styles.draftsTitle}>Drafts</Text>
-          <Text style={styles.draftsCount}>{MOCK_DRAFTS.length}</Text>
+          <Text style={styles.draftsCount}>0</Text>
         </View>
-        <FlatList
-          data={MOCK_DRAFTS}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.draftsContent}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.draftItem} onPress={() => nav.push('create.edit')}>
-              <View style={styles.draftThumbnail}>
-                <Text style={styles.draftPlaceholder}>📹</Text>
-              </View>
-              <Text style={styles.draftDuration}>{item.duration}</Text>
-            </TouchableOpacity>
-          )}
-        />
+        <View style={styles.draftsEmpty}>
+          <Text style={styles.draftsEmptyText}>Aucun brouillon pour l’instant.</Text>
+          <Text style={styles.draftsEmptyHint}>Tes vidéos en préparation apparaîtront ici. Crée et publie depuis le Studio.</Text>
+        </View>
       </View>
     </View>
   );
@@ -153,26 +132,20 @@ const styles = StyleSheet.create({
   draftsContent: {
     gap: tokens.spacing.sm,
   },
-  draftItem: {
-    width: 100,
-    height: 140,
-    borderRadius: tokens.radius.sm,
-    overflow: 'hidden',
+  draftsEmpty: {
     backgroundColor: tokens.colors.elevated,
+    borderRadius: tokens.radius.md,
+    padding: tokens.spacing.lg,
+    gap: tokens.spacing.xs,
   },
-  draftThumbnail: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  draftPlaceholder: {
-    fontSize: 32,
-  },
-  draftDuration: {
+  draftsEmptyText: {
     color: tokens.colors.white,
+    fontSize: tokens.typography.body.fontSize,
+    fontWeight: '700',
+  },
+  draftsEmptyHint: {
+    color: tokens.colors.text.secondary,
     fontSize: tokens.typography.caption.fontSize,
-    padding: tokens.spacing.xs,
-    textAlign: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    lineHeight: 17,
   },
 });

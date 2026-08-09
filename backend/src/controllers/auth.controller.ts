@@ -174,6 +174,7 @@ export class AuthController {
         avatarUrl: true,
         bio: true,
         isVerified: true,
+        role: true,
         createdAt: true,
         _count: { select: { followers: true, following: true, videos: true } },
       },

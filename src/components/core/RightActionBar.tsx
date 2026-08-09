@@ -31,6 +31,7 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
   onSave,
   onAvatarPress,
   onMore,
+  readOnly = false,
 }) => {
   const likeScale = useSharedValue(1);
   const saveScale = useSharedValue(1);
@@ -76,13 +77,15 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
     <View style={styles.container}>
       <TouchableOpacity style={styles.avatarContainer} onPress={onAvatarPress}>
         <Image source={{ uri: video.user.avatarUrl }} style={styles.avatar} />
-        {!video.user.isFollowing && <View style={styles.followBadge}><Text style={styles.followBadgeText}>+</Text></View>}
+        {!readOnly && !video.user.isFollowing && <View style={styles.followBadge}><Text style={styles.followBadgeText}>+</Text></View>}
       </TouchableOpacity>
 
-      <AnimatedTouchable style={[styles.actionButton, likeAnimatedStyle]} onPress={handleLike}>
-        <Text style={[styles.actionIcon, video.isLiked && styles.likedIcon]}>♥</Text>
-        <Text style={styles.actionCount}>{formatCount(video.likesCount)}</Text>
-      </AnimatedTouchable>
+      {!readOnly ? (
+        <AnimatedTouchable style={[styles.actionButton, likeAnimatedStyle]} onPress={handleLike}>
+          <Text style={[styles.actionIcon, video.isLiked && styles.likedIcon]}>♥</Text>
+          <Text style={styles.actionCount}>{formatCount(video.likesCount)}</Text>
+        </AnimatedTouchable>
+      ) : null}
 
       <TouchableOpacity
         style={styles.actionButton}
@@ -94,18 +97,24 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
         <Text style={styles.actionCount}>{formatCount(video.commentsCount)}</Text>
       </TouchableOpacity>
 
-      <AnimatedTouchable style={[styles.actionButton, saveAnimatedStyle]} onPress={handleSave}>
-        <Text style={[styles.actionIcon, video.isSaved && styles.savedIcon]}>🔖</Text>
-        <Text style={styles.actionCount}>{formatCount(video.savesCount)}</Text>
-      </AnimatedTouchable>
+      {!readOnly ? (
+        <AnimatedTouchable style={[styles.actionButton, saveAnimatedStyle]} onPress={handleSave}>
+          <Text style={[styles.actionIcon, video.isSaved && styles.savedIcon]}>🔖</Text>
+          <Text style={styles.actionCount}>{formatCount(video.savesCount)}</Text>
+        </AnimatedTouchable>
+      ) : null}
 
       <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
         <Text style={styles.actionIcon}>{shareCopied ? '✓' : '↗'}</Text>
         <Text style={styles.actionCount}>{shareCopied ? 'Copié' : formatCount(video.sharesCount)}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity style={styles.actionButton} onPress={onMore} accessibilityLabel="Sécurité et signalement">
-        <Text style={styles.moreIcon}>•••</Text>
+      <TouchableOpacity
+        style={styles.actionButton}
+        onPress={onMore}
+        accessibilityLabel={readOnly ? "Ouvrir la source TikTok" : "Sécurité et signalement"}
+      >
+        <Text style={styles.moreIcon}>{readOnly ? '↗' : '•••'}</Text>
       </TouchableOpacity>
 
       {video.sound && (

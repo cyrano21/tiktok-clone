@@ -1,9 +1,9 @@
 import { apiClient } from './api';
 import type { Video } from '@/types';
 
-// Local development keeps the demo discover feed unless explicitly disabled.
-// Production sets NEXT_PUBLIC_USE_DEMO=false so categories come from /feed/discover.
-const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
+// Demo discover feed is used ONLY when explicitly enabled (NEXT_PUBLIC_USE_DEMO=true).
+// Otherwise categories come from the real backend /feed/discover.
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
 export type DiscoverCategory = 'all' | 'trending' | 'music' | 'comedy' | 'sports' | 'food' | 'beauty';
 

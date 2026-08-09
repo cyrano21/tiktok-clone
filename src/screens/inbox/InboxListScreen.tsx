@@ -37,9 +37,14 @@ export const InboxListScreen: React.FC = () => {
   const renderConversation = ({ item }: { item: Conversation }) => {
     const other = item.participant1Id === session.userId ? item.participant2 : item.participant1;
     const last = item.messages[0];
+    const initial = (other.displayName || other.username || '?').charAt(0).toUpperCase();
     return (
       <TouchableOpacity style={styles.conversationItem} onPress={() => nav.push('inbox.chat', { conversationId: item.id, username: other.username })}>
-        <Image source={{ uri: other.avatarUrl ?? 'https://picsum.photos/50/50' }} style={styles.avatar} />
+        {other.avatarUrl ? (
+          <Image source={{ uri: other.avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={[styles.avatar, styles.avatarFallback]}><Text style={styles.avatarInitial}>{initial}</Text></View>
+        )}
         <View style={styles.conversationContent}>
           <View style={styles.conversationHeader}>
             <Text style={styles.username}>{other.username}</Text>
@@ -74,6 +79,8 @@ const styles = StyleSheet.create({
   retry: { color: tokens.colors.brand.primary, fontWeight: '700', textAlign: 'center' },
   conversationItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: tokens.spacing.md, paddingVertical: tokens.spacing.sm },
   avatar: { width: 48, height: 48, borderRadius: 24 },
+  avatarFallback: { backgroundColor: tokens.colors.brand.primary, alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: tokens.colors.white, fontSize: 20, fontWeight: '700' },
   conversationContent: { flex: 1, marginLeft: tokens.spacing.md },
   conversationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   username: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },

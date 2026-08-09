@@ -97,91 +97,22 @@ type StudioStore = StudioState & StudioActions;
 
 let mediaSeq = 1;
 
-function randomBetween(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+function emptyMetrics(): PostMetrics {
+  // Aucune métrique inventée : les vrais compteurs viennent du backend
+  // (studioService.getAnalytics / getTopVideos). Le store ne conserve que le
+  // contenu créé par l'utilisateur dans l'éditeur.
+  return { views: 0, likes: 0, comments: 0, shares: 0, dailyViews: [0, 0, 0, 0, 0, 0, 0] };
 }
-
-function deterministicBetween(min: number, max: number, seed: number): number {
-  const normalized = Math.abs(Math.sin(seed * 12.9898) * 43758.5453) % 1;
-  return Math.floor(normalized * (max - min + 1)) + min;
-}
-
-function seedMetrics(base: number, seed: number): PostMetrics {
-  const views = base;
-  const likes = Math.round(views * (0.09 + deterministicBetween(0, 5, seed) / 100));
-  const comments = Math.round(likes * (0.05 + deterministicBetween(0, 4, seed + 1) / 100));
-  const shares = Math.round(likes * (0.04 + deterministicBetween(0, 3, seed + 2) / 100));
-  const dailyViews = Array.from({ length: 7 }, (_, day) =>
-    deterministicBetween(Math.round(views * 0.08), Math.round(views * 0.18), seed + day + 3),
-  );
-  return { views, likes, comments, shares, dailyViews };
-}
-
-// A few pre-existing published videos so the Studio has real content & analytics on first open.
-function buildSeedPosts(): MediaPost[] {
-  const seeds: Array<{
-    thumb: string;
-    caption: string;
-    base: number;
-    days: number;
-  }> = [
-    {
-      thumb: "https://picsum.photos/seed/studio1/360/640",
-      caption: "Le spot secret au lever du soleil 🌅",
-      base: 184000,
-      days: 6,
-    },
-    {
-      thumb: "https://picsum.photos/seed/studio2/360/640",
-      caption: "Routine du matin en 30s ☕",
-      base: 92300,
-      days: 12,
-    },
-    {
-      thumb: "https://picsum.photos/seed/studio3/360/640",
-      caption: "Ce trick m'a pris 2 semaines 🔥",
-      base: 421500,
-      days: 20,
-    },
-    {
-      thumb: "https://picsum.photos/seed/studio4/360/640",
-      caption: "Avant / après, vous y croyez ? 😳",
-      base: 56700,
-      days: 31,
-    },
-    {
-      thumb: "https://picsum.photos/seed/studio5/360/640",
-      caption: "Mon setup créateur 2026 🎬",
-      base: 248900,
-      days: 45,
-    },
-  ];
-  return seeds.map((s, i) => ({
-    id: `seed-${i + 1}`,
-    type: "video" as MediaType,
-    sourceUrl: "",
-    thumbnailUrl: s.thumb,
-    caption: s.caption,
-    overlayText: "",
-    filters: DEFAULT_FILTERS,
-    trimStart: 0,
-    trimEnd: 0,
-    createdAt: new Date(Date.now() - s.days * 86_400_000).toISOString(),
-    metrics: seedMetrics(s.base, i + 1),
-  }));
-}
-
-const BASE_FOLLOWERS = 14200;
 
 export const useStudioStore = create<StudioStore>((set, get) => ({
-  posts: buildSeedPosts(),
+  posts: [],
   withdrawnTotal: 0,
 
   addPost: post => {
     const created: MediaPost = {
       id: `media-${mediaSeq++}-${Math.random().toString(36).slice(2, 7)}`,
       createdAt: new Date().toISOString(),
-      metrics: seedMetrics(randomBetween(800, 6400), mediaSeq),
+      metrics: emptyMetrics(),
       ...post,
     };
     set(state => ({ posts: [created, ...state.posts] }));
@@ -204,6 +135,9 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
   postsBySeller: sellerId => get().posts.filter(p => p.sellerId === sellerId),
 
   analytics: () => {
+    // Fallback local à ZÉRO (jamais de chiffres inventés). Les vraies
+    // analytics sont chargées depuis le backend par useCreatorAnalytics ;
+    // si l'API est indisponible, ce fallback affiche 0 au lieu de simuler.
     const posts = get().posts;
     const totalViews = posts.reduce((s, p) => s + p.metrics.views, 0);
     const totalLikes = posts.reduce((s, p) => s + p.metrics.likes, 0);
@@ -215,16 +149,13 @@ export const useStudioStore = create<StudioStore>((set, get) => ({
     const interactions = totalLikes + totalComments + totalShares;
     const engagementRate =
       totalViews > 0 ? (interactions / totalViews) * 100 : 0;
-    const followersGained7d = Math.round(
-      dailyViews.reduce((a, b) => a + b, 0) * 0.012,
-    );
     return {
       totalViews,
       totalLikes,
       totalComments,
       totalShares,
-      followers: BASE_FOLLOWERS + followersGained7d,
-      followersGained7d,
+      followers: 0,
+      followersGained7d: 0,
       engagementRate,
       dailyViews,
       postsCount: posts.length,
