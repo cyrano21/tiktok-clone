@@ -98,6 +98,19 @@ def _comment_public(c: dict) -> dict:
     }
 
 
+def _video_source_url(record: dict, video_id: str) -> str:
+    """Return the real TikTok source, even when an export omitted its URL."""
+    exported = str(
+        record.get("url")
+        or record.get("video_url")
+        or record.get("source_url")
+        or ""
+    ).strip()
+    if exported.startswith(("https://www.tiktok.com/", "https://vm.tiktok.com/")):
+        return exported
+    return f"https://www.tiktok.com/@tiktok/video/{video_id}"
+
+
 def _unique_videos(comments: list[dict]) -> list[dict]:
     seen: dict[str, dict] = {}
     for c in comments:
@@ -113,7 +126,7 @@ def _unique_videos(comments: list[dict]) -> list[dict]:
                 "likes": _safe_int(c.get("video_likes")),
                 "duration": _safe_int(c.get("video_duration")),
                 "commentCount": 0,
-                "url": str(c.get("url") or c.get("video_url") or "").strip(),
+                "url": _video_source_url(c, vid),
                 "thumbnailUrl": str(c.get("video_thumbnail") or c.get("cover_url") or "").strip(),
                 "hashtags": _extract_hashtags(title),
                 "creatorUsername": str(c.get("creator_username") or c.get("author_username") or "").strip(),
