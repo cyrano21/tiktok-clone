@@ -47,7 +47,9 @@ function isAllowedPath(path: string[]): boolean {
   return (
     joined === 'requests' ||
     /^requests\/[A-Za-z0-9]{10,40}$/.test(joined) ||
-    /^requests\/[A-Za-z0-9]{10,40}\/approve$/.test(joined)
+    /^requests\/[A-Za-z0-9]{10,40}\/approve$/.test(joined) ||
+    /^requests\/[A-Za-z0-9]{10,40}\/generate-video$/.test(joined) ||
+    /^requests\/[A-Za-z0-9]{10,40}\/record-conversion$/.test(joined)
   );
 }
 

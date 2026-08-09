@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { useSessionStore } from '@/store/sessionStore';
-import { trendService, type TrendSignal, type SourcingCandidate } from '@/services/trendService';
+import { trendService, type TrendSignal, type SourcingCandidate, type SourcingRequest } from '@/services/trendService';
 
 function formatCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -22,6 +22,9 @@ interface SourcingState {
   candidates: SourcingCandidate[];
   error?: string;
   productId?: string;
+  videoUrl?: string;
+  conversion?: SourcingRequest['conversion'];
+  generatingVideo?: boolean;
 }
 
 export const TrendRadarScreen: React.FC = () => {
@@ -33,6 +36,53 @@ export const TrendRadarScreen: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [sourcingByTrend, setSourcingByTrend] = useState<Record<string, SourcingState>>({});
   const [sourcingInFlight, setSourcingInFlight] = useState<string | null>(null);
+  const [rankByConversion, setRankByConversion] = useState(false);
+  const [conversionRank, setConversionRank] = useState<Record<string, SourcingRequest['conversion']>>({});
+
+  // Boucle de conversion : charge les demandes sourcées et leurs ventes réelles
+  // (rapportées par Orchidy), puis surclasse les tendances qui convertissent.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const requests = await trendService.listSourcingRequests(50);
+        if (cancelled) return;
+        const map: Record<string, SourcingRequest['conversion']> = {};
+        const states: Record<string, SourcingState> = {};
+        for (const r of requests) {
+          if (r.conversion) map[r.signal.id] = r.conversion;
+          if ((r.status === 'product_created' || r.status === 'published') && r.signal?.id) {
+            states[r.signal.id] = {
+              status: r.status,
+              requestId: r._id,
+              candidates: r.candidates || [],
+              productId: r.orchidyProProductId || undefined,
+              conversion: r.conversion ?? undefined,
+            };
+          }
+        }
+        if (!cancelled) {
+          setConversionRank(map);
+          setSourcingByTrend((prev) => ({ ...prev, ...states }));
+        }
+      } catch {
+        // Le reclassement par conversion est un bonus : silencieux si indisponible.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleGenerateVideo = async (signal: TrendSignal) => {
+    const state = sourcingByTrend[signal.id];
+    if (!state?.requestId || state.generatingVideo) return;
+    setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...state, generatingVideo: true } }));
+    try {
+      const result = await trendService.generateVideo(state.requestId);
+      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...prev[signal.id], generatingVideo: false, videoUrl: result.videoUrl || prev[signal.id]?.videoUrl } }));
+    } catch {
+      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...prev[signal.id], generatingVideo: false } }));
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -124,6 +174,15 @@ export const TrendRadarScreen: React.FC = () => {
     </View>
   );
 
+  const orderedTrends = rankByConversion
+    ? [...trends].sort((a, b) => {
+        const convA = conversionRank[a.id]?.ordersCount ?? 0;
+        const convB = conversionRank[b.id]?.ordersCount ?? 0;
+        if (convA !== convB) return convB - convA;
+        return viralScore(b) - viralScore(a);
+      })
+    : trends;
+
   const renderTrend = ({ item }: { item: TrendSignal }) => {
     const state = sourcingByTrend[item.id];
     const score = viralScore(item);
@@ -183,6 +242,20 @@ export const TrendRadarScreen: React.FC = () => {
                 ? 'Publié sur la marketplace Orchidy — disponible dans le Shop ORKY.'
                 : 'Fiche créée. La publication sur la marketplace Orchidy est en cours.'}
             </Text>
+            {state.conversion && state.conversion.ordersCount > 0 && (
+              <View style={styles.conversionRow}>
+                <Text style={styles.conversionText}>
+                  🛒 {state.conversion.ordersCount} commande{state.conversion.ordersCount > 1 ? 's' : ''} · {state.conversion.unitsSold} article{state.conversion.unitsSold > 1 ? 's' : ''} ·{' '}
+                  {state.conversion.currency} {(state.conversion.revenueCents / 100).toFixed(2)}
+                </Text>
+                <Text style={styles.conversionHint}>Ventes réelles Orchidy</Text>
+              </View>
+            )}
+            <TouchableOpacity style={styles.videoButton} onPress={() => handleGenerateVideo(item)} disabled={Boolean(state.generatingVideo)}>
+              <Text style={styles.videoButtonText}>
+                {state.generatingVideo ? '🎬 Génération en cours… (IA)' : state.videoUrl ? '🎬 Vidéo générée ✓' : '🎬 Générer la vidéo produit'}
+              </Text>
+            </TouchableOpacity>
           </View>
         )}
         {state && state.status === 'candidates_ready' && state.candidates.length > 0 && (
@@ -203,6 +276,14 @@ export const TrendRadarScreen: React.FC = () => {
           <Text style={styles.headerTitle}>Tendances produits</Text>
           <Text style={styles.headerSubtitle}>Signaux TikTok · sourcing Orchidy</Text>
         </View>
+        <TouchableOpacity
+          onPress={() => setRankByConversion((v) => !v)}
+          style={[styles.rankToggle, rankByConversion && styles.rankToggleActive]}
+        >
+          <Text style={[styles.rankToggleText, rankByConversion && styles.rankToggleTextActive]}>
+            {rankByConversion ? 'Ventes réelles' : 'Viral'}
+          </Text>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => void load()}><Text style={styles.refresh}>⟳</Text></TouchableOpacity>
       </View>
 
@@ -215,7 +296,7 @@ export const TrendRadarScreen: React.FC = () => {
       {!loading && !error && trends.length === 0 && <Text style={styles.stateText}>Aucune tendance pour le moment.</Text>}
       {!loading && !error && trends.length > 0 && (
         <FlatList
-          data={trends}
+          data={orderedTrends}
           renderItem={renderTrend}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
@@ -277,4 +358,13 @@ const styles = StyleSheet.create({
   successBox: { backgroundColor: tokens.colors.semantic.success + '1A', borderRadius: tokens.radius.md, padding: tokens.spacing.sm, gap: 2 },
   successTitle: { color: tokens.colors.semantic.success, fontWeight: '700', fontSize: tokens.typography.body.fontSize },
   successText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
+  conversionRow: { marginTop: tokens.spacing.xs, gap: 1 },
+  conversionText: { color: tokens.colors.semantic.success, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
+  conversionHint: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize },
+  videoButton: { backgroundColor: tokens.colors.action.tip, borderRadius: tokens.radius.sm, paddingVertical: tokens.spacing.xs, alignItems: 'center', marginTop: tokens.spacing.xs },
+  videoButtonText: { color: tokens.colors.white, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
+  rankToggle: { borderColor: tokens.colors.brand.primary, borderWidth: 1, borderRadius: 999, paddingHorizontal: tokens.spacing.sm, paddingVertical: 2 },
+  rankToggleActive: { backgroundColor: tokens.colors.brand.primary },
+  rankToggleText: { color: tokens.colors.brand.primary, fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },
+  rankToggleTextActive: { color: tokens.colors.white },
 });

@@ -53,9 +53,28 @@ export interface SourcingRequest {
   approvedCandidateId?: string | null;
   orchidyProProductId?: string | null;
   orchidyMarketplaceProductId?: string | null;
+  conversion?: {
+    ordersCount: number;
+    unitsSold: number;
+    revenueCents: number;
+    currency: string;
+    lastSaleAt?: string | null;
+  } | null;
   error?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Résultat de génération vidéo pour une tendance sourcée. */
+export interface GeneratedTrendVideo {
+  success: boolean;
+  requestId?: string;
+  productId?: string;
+  videoUrl?: string;
+  model?: string;
+  attachment?: unknown;
+  error?: string;
+  message?: string;
 }
 
 /** URL du proxy Next vers orchidy-pro. */
@@ -135,5 +154,16 @@ export const trendService = {
   /** Approuve un candidat → Orchidy Pro crée le produit et le publie sur Orchidy. */
   async approveCandidate(requestId: string, candidateId: string): Promise<{ success: boolean; productId?: string; productUrl?: string; orchidyMarketplaceProductId?: string | null; status?: string; error?: string }> {
     return apiClient.post<{ success: boolean; productId?: string; productUrl?: string; orchidyMarketplaceProductId?: string | null; status?: string; error?: string }>(`${PROXY_BASE}/requests/${requestId}/approve`, { candidateId });
+  },
+
+  /** Génère la vidéo commerce ORKY (originale, inspirée par la tendance) via orchidy-pro. */
+  async generateVideo(requestId: string): Promise<GeneratedTrendVideo> {
+    return apiClient.post<GeneratedTrendVideo>(`${PROXY_BASE}/requests/${requestId}/generate-video`, {});
+  },
+
+  /** Récupère toutes les demandes sourcées avec leurs stats de conversion (boucle ventes → tendances). */
+  async listSourcingRequests(limit = 50): Promise<SourcingRequest[]> {
+    const data = await apiClient.get<{ success: boolean; requests: SourcingRequest[] }>(`${PROXY_BASE}/requests?limit=${limit}`);
+    return data.requests ?? [];
   },
 };
