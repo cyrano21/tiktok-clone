@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
@@ -52,8 +52,10 @@ interface SourcingState {
   videoUrl?: string;
   videoStatus?: GeneratedVideoState['status'];
   videoJobId?: string;
+  orkyVideoId?: string;
   conversion?: SourcingRequest['conversion'];
   generatingVideo?: boolean;
+  publishingVideo?: boolean;
 }
 
 function stateFromRequest(request: SourcingRequest): SourcingState {
@@ -68,6 +70,7 @@ function stateFromRequest(request: SourcingRequest): SourcingState {
     videoUrl: video?.hostedUrl || video?.sourceUrl || undefined,
     videoStatus: video?.status,
     videoJobId: video?.jobId,
+    orkyVideoId: video?.orkyVideoId || undefined,
     generatingVideo: video?.status === 'queued' || video?.status === 'processing',
   };
 }
@@ -76,6 +79,7 @@ export const TrendRadarScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const session = useSessionStore();
+  const activePolls = useRef(new Set<string>());
   const [trends, setTrends] = useState<TrendSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,9 +100,6 @@ export const TrendRadarScreen: React.FC = () => {
           const key = signalKey(request);
           if (!key) continue;
           if (request.conversion) conversions[key] = request.conversion;
-          // Reconstruct every persisted lifecycle state, including
-          // candidates_ready. Otherwise a reload offered "Find product" again
-          // and could duplicate supplier searches.
           states[key] = stateFromRequest(request);
         }
         if (!cancelled) {
@@ -113,47 +114,53 @@ export const TrendRadarScreen: React.FC = () => {
   }, []);
 
   const pollGeneratedVideo = useCallback(async (trendId: string, requestId: string) => {
-    for (let attempt = 0; attempt < 40; attempt += 1) {
-      await sleep(attempt === 0 ? 1_000 : 4_000);
-      try {
-        const video = await trendService.getGeneratedVideo(requestId);
-        if (!video) continue;
-        const done = video.status === 'completed' || video.status === 'failed';
-        setSourcingByTrend((previous) => {
-          const current = previous[trendId];
-          if (!current || current.requestId !== requestId) return previous;
-          return {
-            ...previous,
-            [trendId]: {
-              ...current,
-              videoStatus: video.status,
-              videoJobId: video.jobId,
-              videoUrl: video.hostedUrl || video.sourceUrl || current.videoUrl,
-              generatingVideo: !done,
-              error: video.status === 'failed'
-                ? video.error || 'La génération vidéo a échoué.'
-                : current.error,
-            },
-          };
-        });
-        if (done) return;
-      } catch {
-        // Temporary status failure: continue polling; the server-side worker is
-        // independent of this browser request.
+    if (activePolls.current.has(requestId)) return;
+    activePolls.current.add(requestId);
+    try {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await sleep(attempt === 0 ? 1_000 : 4_000);
+        try {
+          const video = await trendService.getGeneratedVideo(requestId);
+          if (!video) continue;
+          const done = video.status === 'completed' || video.status === 'failed';
+          setSourcingByTrend((previous) => {
+            const current = previous[trendId];
+            if (!current || current.requestId !== requestId) return previous;
+            return {
+              ...previous,
+              [trendId]: {
+                ...current,
+                videoStatus: video.status,
+                videoJobId: video.jobId,
+                orkyVideoId: video.orkyVideoId || current.orkyVideoId,
+                videoUrl: video.hostedUrl || video.sourceUrl || current.videoUrl,
+                generatingVideo: !done,
+                error: video.status === 'failed'
+                  ? video.error || 'La génération vidéo a échoué.'
+                  : current.error,
+              },
+            };
+          });
+          if (done) return;
+        } catch {
+          // Temporary status failure: the server-side worker keeps running.
+        }
       }
+      setSourcingByTrend((previous) => {
+        const current = previous[trendId];
+        if (!current || current.requestId !== requestId) return previous;
+        return {
+          ...previous,
+          [trendId]: {
+            ...current,
+            generatingVideo: false,
+            error: 'La génération continue en arrière-plan. Recharge la page pour vérifier son état.',
+          },
+        };
+      });
+    } finally {
+      activePolls.current.delete(requestId);
     }
-    setSourcingByTrend((previous) => {
-      const current = previous[trendId];
-      if (!current || current.requestId !== requestId) return previous;
-      return {
-        ...previous,
-        [trendId]: {
-          ...current,
-          generatingVideo: false,
-          error: 'La génération continue en arrière-plan. Recharge la page pour vérifier son état.',
-        },
-      };
-    });
   }, []);
 
   useEffect(() => {
@@ -166,10 +173,7 @@ export const TrendRadarScreen: React.FC = () => {
         void pollGeneratedVideo(trendId, state.requestId);
       }
     }
-    // Deliberately only start recovered jobs once on mount/reconciliation; a
-    // POST starts its own poll immediately below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sourcingByTrend, pollGeneratedVideo]);
 
   const handleGenerateVideo = async (signal: TrendSignal) => {
     const state = sourcingByTrend[signal.id];
@@ -208,6 +212,35 @@ export const TrendRadarScreen: React.FC = () => {
     }
   };
 
+  const handlePublishGeneratedVideo = async (signal: TrendSignal) => {
+    const state = sourcingByTrend[signal.id];
+    if (!state?.requestId || state.videoStatus !== 'completed' || state.publishingVideo || state.orkyVideoId) return;
+    setSourcingByTrend((previous) => ({
+      ...previous,
+      [signal.id]: { ...state, publishingVideo: true, error: undefined },
+    }));
+    try {
+      const result = await trendService.publishGeneratedVideoToOrky(state.requestId);
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: {
+          ...previous[signal.id],
+          publishingVideo: false,
+          orkyVideoId: result.videoId,
+        },
+      }));
+    } catch (publishError: any) {
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: {
+          ...previous[signal.id],
+          publishingVideo: false,
+          error: publishError?.message || 'Publication ORKY impossible.',
+        },
+      }));
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -234,16 +267,8 @@ export const TrendRadarScreen: React.FC = () => {
       setSourcingByTrend((previous) => ({
         ...previous,
         [signal.id]: result.success
-          ? {
-              status: result.status,
-              requestId: result.requestId,
-              candidates: result.candidates,
-            }
-          : {
-              status: 'failed',
-              candidates: [],
-              error: result.error || 'Sourcing indisponible',
-            },
+          ? { status: result.status, requestId: result.requestId, candidates: result.candidates }
+          : { status: 'failed', candidates: [], error: result.error || 'Sourcing indisponible' },
       }));
     } catch {
       setSourcingByTrend((previous) => ({
@@ -294,11 +319,7 @@ export const TrendRadarScreen: React.FC = () => {
           <Text style={styles.candidatePrice}>{candidate.currency} {candidate.price}</Text>
           <Text style={[
             styles.candidateScore,
-            candidate.matchScore >= 0.75
-              ? styles.scoreHigh
-              : candidate.matchScore >= 0.45
-                ? styles.scoreMid
-                : styles.scoreLow,
+            candidate.matchScore >= 0.75 ? styles.scoreHigh : candidate.matchScore >= 0.45 ? styles.scoreMid : styles.scoreLow,
           ]}>
             correspondance estimée {(candidate.matchScore * 100).toFixed(0)}%
           </Text>
@@ -307,9 +328,7 @@ export const TrendRadarScreen: React.FC = () => {
           {candidate.stockKnown ? `Stock: ${candidate.stock ?? '?'}` : 'Stock non vérifié'}
           {candidate.shippingDays ? ` · livraison estimée ${candidate.shippingDays}j` : ' · délai à vérifier'}
         </Text>
-        {candidate.riskFlags.length > 0 && (
-          <Text style={styles.riskText}>{candidate.riskFlags.join(' · ')}</Text>
-        )}
+        {candidate.riskFlags.length > 0 && <Text style={styles.riskText}>{candidate.riskFlags.join(' · ')}</Text>}
         <TouchableOpacity
           style={styles.approveButton}
           onPress={() => handleApprove(signal, candidate.candidateId)}
@@ -363,26 +382,17 @@ export const TrendRadarScreen: React.FC = () => {
 
         {!state && session.authenticated && (
           <TouchableOpacity style={styles.ctaButton} onPress={() => handleFindProduct(item)} disabled={sourcingInFlight === item.id}>
-            <Text style={styles.ctaButtonText}>
-              {sourcingInFlight === item.id ? 'Recherche en cours…' : '🔍 Trouver ce produit'}
-            </Text>
+            <Text style={styles.ctaButtonText}>{sourcingInFlight === item.id ? 'Recherche en cours…' : '🔍 Trouver ce produit'}</Text>
           </TouchableOpacity>
         )}
         {!state && !session.authenticated && (
           <View style={styles.stateRow}><Text style={styles.stateText}>Connecte-toi pour lancer le sourcing.</Text></View>
         )}
-
         {state?.status === 'sourcing' && (
-          <View style={styles.stateRow}>
-            <ActivityIndicator color={tokens.colors.brand.primary} size="small" />
-            <Text style={styles.stateText}>Sourcing fournisseurs (CJ / AliExpress)…</Text>
-          </View>
+          <View style={styles.stateRow}><ActivityIndicator color={tokens.colors.brand.primary} size="small" /><Text style={styles.stateText}>Sourcing fournisseurs (CJ / AliExpress)…</Text></View>
         )}
         {state?.status === 'approved' && (
-          <View style={styles.stateRow}>
-            <ActivityIndicator color={tokens.colors.brand.primary} size="small" />
-            <Text style={styles.stateText}>Création et validation du produit…</Text>
-          </View>
+          <View style={styles.stateRow}><ActivityIndicator color={tokens.colors.brand.primary} size="small" /><Text style={styles.stateText}>Création et validation du produit…</Text></View>
         )}
         {state?.status === 'failed' && (
           <View style={styles.stateRow}><Text style={styles.errorText}>⚠ {state.error || 'Sourcing indisponible'}</Text></View>
@@ -417,8 +427,7 @@ export const TrendRadarScreen: React.FC = () => {
                   const factor = minorUnitFactor(currency, stats.minorUnitFactor);
                   return (
                     <Text key={currency} style={styles.conversionText}>
-                      🛒 {stats.ordersCount} commande{stats.ordersCount > 1 ? 's' : ''} · {stats.unitsSold} article{stats.unitsSold > 1 ? 's' : ''} ·{' '}
-                      {currency} {(stats.revenueCents / factor).toFixed(factor === 1 ? 0 : 2)}
+                      🛒 {stats.ordersCount} commande{stats.ordersCount > 1 ? 's' : ''} · {stats.unitsSold} article{stats.unitsSold > 1 ? 's' : ''} · {currency} {(stats.revenueCents / factor).toFixed(factor === 1 ? 0 : 2)}
                     </Text>
                   );
                 })}
@@ -443,9 +452,23 @@ export const TrendRadarScreen: React.FC = () => {
                         : '🎬 Générer la vidéo produit'}
               </Text>
             </TouchableOpacity>
-            {state.error && state.videoStatus === 'failed' && (
-              <Text style={styles.errorText}>{state.error}</Text>
+
+            {state.videoStatus === 'completed' && (
+              <TouchableOpacity
+                style={[styles.publishButton, state.orkyVideoId && styles.publishButtonDone]}
+                onPress={() => handlePublishGeneratedVideo(item)}
+                disabled={Boolean(state.publishingVideo || state.orkyVideoId)}
+              >
+                <Text style={styles.publishButtonText}>
+                  {state.orkyVideoId
+                    ? '✓ Vidéo shoppable publiée sur ORKY'
+                    : state.publishingVideo
+                      ? 'Publication ORKY…'
+                      : 'Publier la vidéo shoppable sur ORKY'}
+                </Text>
+              </TouchableOpacity>
             )}
+            {state.error && <Text style={styles.errorText}>{state.error}</Text>}
           </View>
         )}
 
@@ -555,6 +578,9 @@ const styles = StyleSheet.create({
   conversionHint: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize },
   videoButton: { backgroundColor: tokens.colors.action.tip, borderRadius: tokens.radius.sm, paddingVertical: tokens.spacing.xs, alignItems: 'center', marginTop: tokens.spacing.xs },
   videoButtonText: { color: tokens.colors.white, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
+  publishButton: { backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.sm, paddingVertical: tokens.spacing.xs, alignItems: 'center', marginTop: tokens.spacing.xs },
+  publishButtonDone: { backgroundColor: tokens.colors.semantic.success },
+  publishButtonText: { color: tokens.colors.white, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
   rankToggle: { borderColor: tokens.colors.brand.primary, borderWidth: 1, borderRadius: 999, paddingHorizontal: tokens.spacing.sm, paddingVertical: 2 },
   rankToggleActive: { backgroundColor: tokens.colors.brand.primary },
   rankToggleText: { color: tokens.colors.brand.primary, fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },
