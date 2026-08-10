@@ -5,7 +5,6 @@ export type TrendSignalSource = 'tiktok' | 'reels' | 'shorts';
 
 export interface TrendSignal {
   id: string;
-  /** Stable identity persisted in Orchidy Pro for reload-safe reconciliation. */
   sourceSignalId?: string;
   sourceApp: 'orky';
   sourcePlatform: TrendSignalSource;
@@ -15,16 +14,11 @@ export interface TrendSignal {
   creatorDisplayName?: string;
   caption?: string;
   hashtags: string[];
-  /** Heuristic product concept; supplier matching must still verify the item. */
   detectedProductName: string;
   detectedKeywords: string[];
   detectedCategory?: string;
   thumbnailUrl?: string;
-  viralStats: {
-    views: number;
-    likes: number;
-    comments: number;
-  };
+  viralStats: { views: number; likes: number; comments: number };
 }
 
 export interface SourcingCandidate {
@@ -126,7 +120,6 @@ function detectProductName(caption: string, hashtags: string[]): { name: string;
   const captionTokens = meaningfulTokens(caption);
   const hashtagTokens = hashtags.flatMap((tag) => meaningfulTokens(tag.replace(/^#/, '')));
   const keywords = Array.from(new Set([...hashtagTokens, ...captionTokens])).slice(0, 8);
-
   const phraseTokens = captionTokens.slice(0, 3).filter(Boolean);
   const fallbackTokens = keywords.slice(0, 3);
   const chosen = phraseTokens.length >= 2 ? phraseTokens : fallbackTokens;
@@ -208,9 +201,26 @@ export const trendService = {
     return data.video ?? null;
   },
 
-  /** Copies the completed Pro asset into ORKY media storage and attaches the real Orchidy catalog product. */
   async publishGeneratedVideoToOrky(requestId: string): Promise<ImportedTrendVideo> {
-    return apiClient.post<ImportedTrendVideo>('/../api/trends/generated-video/import', { requestId });
+    const token = await apiClient.currentAccessToken();
+    if (!token) throw new Error('Authentication required');
+    const response = await fetch('/api/trends/generated-video/import', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({ requestId }),
+    });
+    const payload = await response.json().catch(() => ({})) as ImportedTrendVideo;
+    if (!response.ok || !payload.success) {
+      const error = new Error(payload.error || 'ORKY video import failed');
+      (error as any).status = response.status;
+      throw error;
+    }
+    return payload;
   },
 
   async listSourcingRequests(limit = 50): Promise<SourcingRequest[]> {
