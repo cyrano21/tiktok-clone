@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 export const runtime = 'nodejs';
@@ -21,6 +22,28 @@ function proApiKey(): string {
     throw new Error('ORCHIDY_PRO_API_KEY is not configured');
   }
   return value;
+}
+
+function delegationSecret(): string {
+  const value = String(process.env.ORKY_PRO_DELEGATION_SECRET || '').trim();
+  if (!value) {
+    throw new Error('ORKY_PRO_DELEGATION_SECRET is not configured');
+  }
+  return value;
+}
+
+function encode(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString('base64url');
+}
+
+function createDelegation(userId: string): string {
+  const normalizedUserId = String(userId || '').trim();
+  if (!normalizedUserId) throw new Error('Authenticated ORKY user id is missing');
+  const iat = Math.floor(Date.now() / 1000);
+  const claims = { sub: normalizedUserId, aud: 'orchidy-pro', iat, exp: iat + 120 };
+  const encoded = encode(claims);
+  const signature = createHmac('sha256', delegationSecret()).update(encoded).digest('base64url');
+  return `${encoded}.${signature}`;
 }
 
 function clientKey(request: NextRequest): string {
@@ -66,7 +89,7 @@ function resolveBackendOrigin(): string {
 
 /** Le sourcing déclenche des appels fournisseurs coûteux (AliExpress/CJ) :
  *  exiger une session ORKY authentifiée (Bearer), vérifiée via /v1/auth/me. */
-async function requireSession(request: NextRequest): Promise<{ ok: boolean; status?: number; error?: string }> {
+async function requireSession(request: NextRequest): Promise<{ ok: boolean; userId?: string; status?: number; error?: string }> {
   const auth = request.headers.get('authorization');
   if (!auth?.startsWith('Bearer ')) {
     return { ok: false, status: 401, error: 'Authentication required' };
@@ -80,7 +103,12 @@ async function requireSession(request: NextRequest): Promise<{ ok: boolean; stat
     if (!res.ok) {
       return { ok: false, status: res.status === 401 ? 401 : 502, error: 'Session invalide' };
     }
-    return { ok: true };
+    const payload = await res.json().catch(() => ({})) as { user?: { id?: unknown }; id?: unknown };
+    const userId = String(payload.user?.id ?? payload.id ?? '').trim();
+    if (!userId) {
+      return { ok: false, status: 502, error: 'Identité utilisateur indisponible' };
+    }
+    return { ok: true, userId };
   } catch {
     return { ok: false, status: 502, error: 'Backend indisponible' };
   }
@@ -102,7 +130,11 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
       return NextResponse.json({ error: 'Not found' }, { status: 404 });
     }
     const upstream = await fetch(`${PRO_BASE}/api/viral-sourcing/${path.join('/')}${request.nextUrl.search || ""}`, {
-      headers: { accept: 'application/json', 'x-api-key': proApiKey() },
+      headers: {
+        accept: 'application/json',
+        'x-api-key': proApiKey(),
+        'x-orky-delegation': createDelegation(session.userId!),
+      },
       cache: 'no-store',
       signal: AbortSignal.timeout(15_000),
     });
@@ -139,6 +171,7 @@ export async function POST(request: NextRequest, { params }: { params: { path: s
         'content-type': 'application/json',
         accept: 'application/json',
         'x-api-key': proApiKey(),
+        'x-orky-delegation': createDelegation(session.userId!),
       },
       body: raw,
       cache: 'no-store',

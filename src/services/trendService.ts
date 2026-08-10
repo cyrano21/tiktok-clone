@@ -58,6 +58,7 @@ export interface SourcingRequest {
     unitsSold: number;
     revenueCents: number;
     currency: string;
+    byCurrency?: Record<string, { ordersCount: number; unitsSold: number; revenueCents: number; minorUnitFactor?: number }>;
     lastSaleAt?: string | null;
   } | null;
   error?: string | null;

@@ -244,11 +244,20 @@ export const TrendRadarScreen: React.FC = () => {
             </Text>
             {state.conversion && state.conversion.ordersCount > 0 && (
               <View style={styles.conversionRow}>
-                <Text style={styles.conversionText}>
-                  🛒 {state.conversion.ordersCount} commande{state.conversion.ordersCount > 1 ? 's' : ''} · {state.conversion.unitsSold} article{state.conversion.unitsSold > 1 ? 's' : ''} ·{' '}
-                  {state.conversion.currency} {(state.conversion.revenueCents / 100).toFixed(2)}
-                </Text>
-                <Text style={styles.conversionHint}>Ventes réelles Orchidy</Text>
+                {Object.entries(state.conversion.byCurrency || {
+                  [state.conversion.currency]: {
+                    ordersCount: state.conversion.ordersCount,
+                    unitsSold: state.conversion.unitsSold,
+                    revenueCents: state.conversion.revenueCents,
+                    minorUnitFactor: 100,
+                  },
+                }).map(([currency, stats]) => (
+                  <Text key={currency} style={styles.conversionText}>
+                    🛒 {stats.ordersCount} commande{stats.ordersCount > 1 ? 's' : ''} · {stats.unitsSold} article{stats.unitsSold > 1 ? 's' : ''} ·{' '}
+                    {currency} {(stats.revenueCents / (stats.minorUnitFactor || 100)).toFixed((stats.minorUnitFactor || 100) === 1 ? 0 : 2)}
+                  </Text>
+                ))}
+                <Text style={styles.conversionHint}>Ventes réelles Orchidy · par devise</Text>
               </View>
             )}
             <TouchableOpacity style={styles.videoButton} onPress={() => handleGenerateVideo(item)} disabled={Boolean(state.generatingVideo)}>
