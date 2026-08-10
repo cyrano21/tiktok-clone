@@ -1,6 +1,11 @@
 import { randomUUID } from 'crypto';
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { AccessToken, TrackSource, WebhookReceiver } from 'livekit-server-sdk';
+import {
+  AccessToken,
+  RoomServiceClient,
+  TrackSource,
+  WebhookReceiver,
+} from 'livekit-server-sdk';
 import { z } from 'zod';
 import { authMiddleware, optionalAuth } from '../middleware/auth';
 import { prisma } from '../config/database';
@@ -26,6 +31,32 @@ function requireLiveKitConfig() {
     throw error;
   }
   return config;
+}
+
+function liveKitHttpUrl(serverUrl: string) {
+  if (serverUrl.startsWith('wss://')) return `https://${serverUrl.slice('wss://'.length)}`;
+  if (serverUrl.startsWith('ws://')) return `http://${serverUrl.slice('ws://'.length)}`;
+  return serverUrl;
+}
+
+function roomService() {
+  const config = requireLiveKitConfig();
+  return new RoomServiceClient(
+    liveKitHttpUrl(config.serverUrl),
+    config.apiKey,
+    config.apiSecret,
+  );
+}
+
+async function deleteLiveKitRoom(roomName: string, log?: FastifyRequest['log']) {
+  if (!roomName) return;
+  try {
+    await roomService().deleteRoom(roomName);
+  } catch (error) {
+    // Deleting an already-finished room is operationally idempotent. The DB is
+    // still the discovery authority; log the transport failure for observability.
+    log?.warn({ err: error, roomName }, 'LiveKit room deletion failed or room was already absent');
+  }
 }
 
 async function createLiveKitToken(input: {
@@ -85,24 +116,29 @@ const publicUserSelect = {
 } as const;
 
 async function adjustViewerCount(roomName: string, delta: 1 | -1, participantIdentity?: string) {
-  await prisma.$transaction(async (tx) => {
-    const stream = await tx.liveStream.findUnique({
-      where: { streamKey: roomName },
-      select: { id: true, userId: true, viewerCount: true, status: true },
-    });
-    if (!stream || stream.status !== 'live') return;
-    if (participantIdentity && participantIdentity === stream.userId) return;
-
-    await tx.liveStream.update({
-      where: { id: stream.id },
-      data: { viewerCount: Math.max(0, stream.viewerCount + delta) },
-    });
+  const stream = await prisma.liveStream.findUnique({
+    where: { streamKey: roomName },
+    select: { id: true, userId: true, status: true },
   });
+  if (!stream || stream.status !== 'live') return;
+  if (participantIdentity && participantIdentity === stream.userId) return;
+
+  // Atomic DB arithmetic avoids lost increments when LiveKit emits concurrent
+  // participant webhooks. The decrement predicate prevents values below zero.
+  if (delta === 1) {
+    await prisma.liveStream.updateMany({
+      where: { id: stream.id, status: 'live' },
+      data: { viewerCount: { increment: 1 } },
+    });
+  } else {
+    await prisma.liveStream.updateMany({
+      where: { id: stream.id, status: 'live', viewerCount: { gt: 0 } },
+      data: { viewerCount: { decrement: 1 } },
+    });
+  }
 }
 
 export async function liveRoutes(app: FastifyInstance) {
-  // LiveKit signs webhook requests and sends application/webhook+json. Keeping
-  // the exact raw string is mandatory for signature verification.
   app.addContentTypeParser('application/webhook+json', { parseAs: 'string' }, (_req, body, done) => {
     done(null, body);
   });
@@ -149,10 +185,19 @@ export async function liveRoutes(app: FastifyInstance) {
     const { title } = startSchema.parse(req.body);
     const config = requireLiveKitConfig();
 
-    await prisma.liveStream.updateMany({
+    const previousStreams = await prisma.liveStream.findMany({
       where: { userId, status: 'live' },
-      data: { status: 'ended', endedAt: new Date(), viewerCount: 0 },
+      select: { id: true, streamKey: true },
     });
+    if (previousStreams.length > 0) {
+      await prisma.liveStream.updateMany({
+        where: { id: { in: previousStreams.map((stream) => stream.id) }, status: 'live' },
+        data: { status: 'ended', endedAt: new Date(), viewerCount: 0 },
+      });
+      await Promise.allSettled(
+        previousStreams.map((stream) => deleteLiveKitRoom(stream.streamKey, req.log)),
+      );
+    }
 
     const roomName = `live_${randomUUID()}`;
     const stream = await prisma.liveStream.create({
@@ -160,8 +205,6 @@ export async function liveRoutes(app: FastifyInstance) {
         userId,
         title,
         status: 'live',
-        // Backwards-compatible column. The value is a room identifier, not a
-        // publishing secret; clients receive it only inside authenticated joins.
         streamKey: roomName,
       },
       include: { user: { select: publicUserSelect } },
@@ -217,7 +260,10 @@ export async function liveRoutes(app: FastifyInstance) {
   app.post('/:id/end', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const userId = (req as any).userId as string;
-    const stream = await prisma.liveStream.findUnique({ where: { id }, select: { userId: true, status: true } });
+    const stream = await prisma.liveStream.findUnique({
+      where: { id },
+      select: { userId: true, status: true, streamKey: true },
+    });
     if (!stream || stream.userId !== userId) {
       return reply.status(403).send({ error: 'FORBIDDEN', message: 'Not authorized' });
     }
@@ -227,6 +273,7 @@ export async function liveRoutes(app: FastifyInstance) {
         data: { status: 'ended', endedAt: new Date(), viewerCount: 0 },
       });
     }
+    await deleteLiveKitRoom(stream.streamKey, req.log);
     return reply.send({ message: 'Stream ended' });
   });
 
