@@ -95,6 +95,15 @@ export interface GeneratedTrendVideo {
   message?: string;
 }
 
+export interface ImportedTrendVideo {
+  success: boolean;
+  idempotent?: boolean;
+  recoverable?: boolean;
+  videoId?: string;
+  productMatchId?: string | null;
+  error?: string;
+}
+
 const PROXY_BASE = '/api/trends/sourcing';
 
 const STOPWORDS = new Set([
@@ -113,10 +122,6 @@ function meaningfulTokens(value: string): string[] {
     .filter((token) => token.length > 2 && !STOPWORDS.has(token));
 }
 
-/**
- * Conservative text-only product concept. We prefer a short phrase instead of
- * pretending the first non-stopword is the exact product identity.
- */
 function detectProductName(caption: string, hashtags: string[]): { name: string; keywords: string[] } {
   const captionTokens = meaningfulTokens(caption);
   const hashtagTokens = hashtags.flatMap((tag) => meaningfulTokens(tag.replace(/^#/, '')));
@@ -194,7 +199,6 @@ export const trendService = {
     return apiClient.post<{ success: boolean; productId?: string; productUrl?: string; orchidyMarketplaceProductId?: string | null; status?: string; error?: string }>(`${PROXY_BASE}/requests/${requestId}/approve`, { candidateId });
   },
 
-  /** Queue an expensive generation job; the HTTP call never waits for Replicate. */
   async generateVideo(requestId: string): Promise<GeneratedTrendVideo> {
     return apiClient.post<GeneratedTrendVideo>(`${PROXY_BASE}/requests/${requestId}/generate-video`, {});
   },
@@ -202,6 +206,11 @@ export const trendService = {
   async getGeneratedVideo(requestId: string): Promise<GeneratedVideoState | null> {
     const data = await apiClient.get<{ success: boolean; video?: GeneratedVideoState | null }>(`${PROXY_BASE}/requests/${requestId}/generate-video`);
     return data.video ?? null;
+  },
+
+  /** Copies the completed Pro asset into ORKY media storage and attaches the real Orchidy catalog product. */
+  async publishGeneratedVideoToOrky(requestId: string): Promise<ImportedTrendVideo> {
+    return apiClient.post<ImportedTrendVideo>('/../api/trends/generated-video/import', { requestId });
   },
 
   async listSourcingRequests(limit = 50): Promise<SourcingRequest[]> {
