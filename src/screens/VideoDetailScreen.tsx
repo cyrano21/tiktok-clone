@@ -9,13 +9,12 @@ import { feedService } from '@/services/feedService';
 import { getDemoFeed } from '@/services/demoFeed';
 import type { Video } from '@/types';
 
-const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO !== 'false';
+const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
-/** Build a single demo video seeded from the videoId so it's deterministic. */
 function buildDemoVideo(videoId: string): Video {
-  const seed = videoId.split('').reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+  const seed = videoId.split('').reduce((sum, character) => sum + character.charCodeAt(0), 0);
   const feed = getDemoFeed(seed % 20 + 1);
   return feed.videos[seed % feed.videos.length];
 }
@@ -46,11 +45,10 @@ export const VideoDetailScreen: React.FC = () => {
         const result = await feedService.getVideoById(videoId);
         if (!cancelled) setVideo(result);
       } catch {
-        // Only show demo data when explicitly in demo mode, otherwise surface the real error.
         if (USE_DEMO) {
           if (!cancelled) setVideo(buildDemoVideo(videoId));
-        } else {
-          if (!cancelled) setError('Impossible de charger cette vidéo.');
+        } else if (!cancelled) {
+          setError('Impossible de charger cette vidéo.');
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -107,7 +105,6 @@ export const VideoDetailScreen: React.FC = () => {
         onProductPress={(productId) => nav.push('shop.product', { productId })}
       />
 
-      {/* Close button overlay */}
       <TouchableOpacity
         style={[styles.closeBtn, { top: insets.top + 8 }]}
         onPress={() => nav.back()}
@@ -122,50 +119,12 @@ export const VideoDetailScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: tokens.colors.black,
-  },
-  center: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: tokens.spacing.md,
-  },
-  loadingText: {
-    color: tokens.colors.text.secondary,
-    fontSize: tokens.typography.body.fontSize,
-  },
-  errorText: {
-    color: tokens.colors.semantic.error,
-    fontSize: tokens.typography.body.fontSize,
-    textAlign: 'center',
-    paddingHorizontal: tokens.spacing.xl,
-  },
-  backBtn: {
-    marginTop: tokens.spacing.lg,
-    paddingHorizontal: tokens.spacing.lg,
-    paddingVertical: tokens.spacing.sm,
-    backgroundColor: tokens.colors.elevated,
-    borderRadius: tokens.radius.sm,
-  },
-  backText: {
-    color: tokens.colors.white,
-    fontWeight: '700',
-  },
-  closeBtn: {
-    position: 'absolute',
-    left: tokens.spacing.md,
-    zIndex: 20,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  closeIcon: {
-    color: tokens.colors.white,
-    fontSize: 18,
-    fontWeight: '700',
-  },
+  container: { flex: 1, backgroundColor: tokens.colors.black },
+  center: { justifyContent: 'center', alignItems: 'center', gap: tokens.spacing.md },
+  loadingText: { color: tokens.colors.text.secondary, fontSize: tokens.typography.body.fontSize },
+  errorText: { color: tokens.colors.semantic.error, fontSize: tokens.typography.body.fontSize, textAlign: 'center', paddingHorizontal: tokens.spacing.xl },
+  backBtn: { marginTop: tokens.spacing.lg, paddingHorizontal: tokens.spacing.lg, paddingVertical: tokens.spacing.sm, backgroundColor: tokens.colors.elevated, borderRadius: tokens.radius.sm },
+  backText: { color: tokens.colors.white, fontWeight: '700' },
+  closeBtn: { position: 'absolute', left: tokens.spacing.md, zIndex: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center' },
+  closeIcon: { color: tokens.colors.white, fontSize: 18, fontWeight: '700' },
 });
