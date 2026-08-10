@@ -5,6 +5,8 @@ export type TrendSignalSource = 'tiktok' | 'reels' | 'shorts';
 
 export interface TrendSignal {
   id: string;
+  /** Stable identity persisted in Orchidy Pro for reload-safe reconciliation. */
+  sourceSignalId?: string;
   sourceApp: 'orky';
   sourcePlatform: TrendSignalSource;
   sourceVideoUrl: string;
@@ -13,7 +15,7 @@ export interface TrendSignal {
   creatorDisplayName?: string;
   caption?: string;
   hashtags: string[];
-  /** Nom du produit détecté — dérivé du titre/caption (signal, pas une certitude). */
+  /** Heuristic product concept; supplier matching must still verify the item. */
   detectedProductName: string;
   detectedKeywords: string[];
   detectedCategory?: string;
@@ -45,6 +47,19 @@ export interface SourcingCandidate {
   estimatedMargin?: number;
 }
 
+export interface GeneratedVideoState {
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  jobId: string;
+  requestedBy?: string;
+  requestedAt?: string;
+  updatedAt?: string;
+  model?: string | null;
+  sourceUrl?: string | null;
+  hostedUrl?: string | null;
+  error?: string | null;
+  orkyVideoId?: string | null;
+}
+
 export interface SourcingRequest {
   _id: string;
   status: string;
@@ -58,60 +73,79 @@ export interface SourcingRequest {
     unitsSold: number;
     revenueCents: number;
     currency: string;
+    mixedCurrency?: boolean;
     byCurrency?: Record<string, { ordersCount: number; unitsSold: number; revenueCents: number; minorUnitFactor?: number }>;
     lastSaleAt?: string | null;
   } | null;
+  generatedVideo?: GeneratedVideoState | null;
   error?: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-/** Résultat de génération vidéo pour une tendance sourcée. */
 export interface GeneratedTrendVideo {
   success: boolean;
   requestId?: string;
   productId?: string;
-  videoUrl?: string;
-  model?: string;
-  attachment?: unknown;
+  jobId?: string;
+  status?: GeneratedVideoState['status'];
+  videoUrl?: string | null;
+  model?: string | null;
   error?: string;
   message?: string;
 }
 
-/** URL du proxy Next vers orchidy-pro. */
 const PROXY_BASE = '/api/trends/sourcing';
 
-function stopwords(): Set<string> {
-  return new Set([
-    'avec', 'pour', 'une', 'dans', 'cette', 'voici', 'comment', 'tiktok', 'mademybueit',
-    'amazonfinds', 'foryou', 'viral', 'product', 'gadget', 'nouveau', 'tuto', 'astuce',
-  ]);
+const STOPWORDS = new Set([
+  'avec', 'pour', 'une', 'dans', 'cette', 'voici', 'comment', 'tiktok', 'mademybueit',
+  'amazonfinds', 'foryou', 'viral', 'product', 'gadget', 'nouveau', 'tuto', 'astuce',
+  'that', 'this', 'with', 'from', 'your', 'have', 'just', 'really', 'best', 'must', 'need',
+  'the', 'and', 'you', 'les', 'des', 'sur', 'mon', 'mes', 'son', 'ses', 'tout', 'plus',
+]);
+
+function meaningfulTokens(value: string): string[] {
+  return value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
 }
 
-/** Déduit un nom produit probable depuis le titre/caption + hashtags. */
+/**
+ * Conservative text-only product concept. We prefer a short phrase instead of
+ * pretending the first non-stopword is the exact product identity.
+ */
 function detectProductName(caption: string, hashtags: string[]): { name: string; keywords: string[] } {
-  const text = `${caption} ${hashtags.join(' ')}`.toLowerCase();
-  const tokens = text.split(/[^a-z0-9#éèàçùêâîôûäöüß]+/).filter((t) => t.length > 3 && !stopwords().has(t));
-  const keywords = Array.from(new Set(tokens)).slice(0, 6);
-  const name = keywords[0]
-    ? keywords[0].charAt(0).toUpperCase() + keywords[0].slice(1)
-    : 'Produit tendance';
+  const captionTokens = meaningfulTokens(caption);
+  const hashtagTokens = hashtags.flatMap((tag) => meaningfulTokens(tag.replace(/^#/, '')));
+  const keywords = Array.from(new Set([...hashtagTokens, ...captionTokens])).slice(0, 8);
+
+  const phraseTokens = captionTokens.slice(0, 3).filter(Boolean);
+  const fallbackTokens = keywords.slice(0, 3);
+  const chosen = phraseTokens.length >= 2 ? phraseTokens : fallbackTokens;
+  const name = chosen.length
+    ? chosen.join(' ').replace(/^./, (character) => character.toUpperCase())
+    : 'Produit à identifier';
   return { name, keywords };
 }
 
 function toTrendSignal(video: Awaited<ReturnType<typeof scraperBridge.getVideos>>[number]): TrendSignal | null {
   const caption = video.description || '';
-  const hashtags = (video.hashtags || []).map((h) => (typeof h === 'string' ? h : h.name || '')).filter(Boolean);
+  const hashtags = (video.hashtags || [])
+    .map((tag) => (typeof tag === 'string' ? tag : tag.name || ''))
+    .filter(Boolean);
   const { name, keywords } = detectProductName(caption, hashtags);
-  // Audit P1-6 : orchidy-pro reçoit la provenance canonique TikTok
-  // (externalUrl), pas le flux proxy ORKY (videoUrl).
   const externalUrl = video.externalUrl || '';
   const tiktokId = video.id.startsWith('scraper-') ? video.id.slice(8) : video.id;
   const sourceEmbedUrl = externalUrl
     ? `https://www.tiktok.com/embed/v2/${tiktokId}?lang=en-US`
     : undefined;
+  const id = `trend-${video.id}`;
   return {
-    id: `trend-${video.id}`,
+    id,
+    sourceSignalId: id,
     sourceApp: 'orky',
     sourcePlatform: 'tiktok',
     sourceVideoUrl: externalUrl,
@@ -131,46 +165,45 @@ function toTrendSignal(video: Awaited<ReturnType<typeof scraperBridge.getVideos>
   };
 }
 
+function viralOpportunityScore(signal: TrendSignal): number {
+  const views = Math.max(1, signal.viralStats.views);
+  const engagementRate = (signal.viralStats.likes + signal.viralStats.comments * 3) / views;
+  return Math.log10(views + 1) * 100 + Math.min(1, engagementRate) * 500;
+}
+
 export const trendService = {
-  /**
-   * Liste les signaux de tendance à partir du catalogue scraper réel (60 vidéos
-   * TikTok avec vues / likes / commentaires / hashtags). La vidéo source reste un
-   * signal : le produit vendu est l'objet commercial Orchidy, jamais la vidéo.
-   */
   async listTrends(limit = 50): Promise<TrendSignal[]> {
     const videos = await scraperBridge.getVideos(limit);
     return videos
       .map(toTrendSignal)
-      .filter((s): s is TrendSignal => s !== null)
-      .sort((a, b) => {
-        const scoreA = a.viralStats.views + a.viralStats.likes * 10 + a.viralStats.comments * 20;
-        const scoreB = b.viralStats.views + b.viralStats.likes * 10 + b.viralStats.comments * 20;
-        return scoreB - scoreA;
-      });
+      .filter((signal): signal is TrendSignal => signal !== null)
+      .sort((a, b) => viralOpportunityScore(b) - viralOpportunityScore(a));
   },
 
-  /** Crée une demande de sourcing chez Orchidy Pro (signal complet + stats virales). */
   async sendToSourcing(signal: TrendSignal): Promise<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }> {
-    return apiClient.post<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }>(`${PROXY_BASE}/requests`, { signal });
+    const persistedSignal = { ...signal, sourceSignalId: signal.sourceSignalId || signal.id };
+    return apiClient.post<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }>(`${PROXY_BASE}/requests`, { signal: persistedSignal });
   },
 
-  /** Récupère l'état d'une demande de sourcing (candidats, statut, produit publié). */
   async getSourcingRequest(requestId: string): Promise<SourcingRequest | null> {
     const data = await apiClient.get<{ success: boolean; request?: SourcingRequest }>(`${PROXY_BASE}/requests/${requestId}`);
     return data.request ?? null;
   },
 
-  /** Approuve un candidat → Orchidy Pro crée le produit et le publie sur Orchidy. */
   async approveCandidate(requestId: string, candidateId: string): Promise<{ success: boolean; productId?: string; productUrl?: string; orchidyMarketplaceProductId?: string | null; status?: string; error?: string }> {
     return apiClient.post<{ success: boolean; productId?: string; productUrl?: string; orchidyMarketplaceProductId?: string | null; status?: string; error?: string }>(`${PROXY_BASE}/requests/${requestId}/approve`, { candidateId });
   },
 
-  /** Génère la vidéo commerce ORKY (originale, inspirée par la tendance) via orchidy-pro. */
+  /** Queue an expensive generation job; the HTTP call never waits for Replicate. */
   async generateVideo(requestId: string): Promise<GeneratedTrendVideo> {
     return apiClient.post<GeneratedTrendVideo>(`${PROXY_BASE}/requests/${requestId}/generate-video`, {});
   },
 
-  /** Récupère toutes les demandes sourcées avec leurs stats de conversion (boucle ventes → tendances). */
+  async getGeneratedVideo(requestId: string): Promise<GeneratedVideoState | null> {
+    const data = await apiClient.get<{ success: boolean; video?: GeneratedVideoState | null }>(`${PROXY_BASE}/requests/${requestId}/generate-video`);
+    return data.video ?? null;
+  },
+
   async listSourcingRequests(limit = 50): Promise<SourcingRequest[]> {
     const data = await apiClient.get<{ success: boolean; requests: SourcingRequest[] }>(`${PROXY_BASE}/requests?limit=${limit}`);
     return data.requests ?? [];
