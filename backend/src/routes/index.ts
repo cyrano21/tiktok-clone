@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { authRoutes } from "./auth.routes";
 import { feedRoutes } from "./feed.routes";
 import { videoRoutes } from "./video.routes";
+import { commerceImportRoutes } from "./commerce-import.routes";
 import { userRoutes } from "./user.routes";
 import { commentRoutes } from "./comment.routes";
 import { hashtagRoutes } from "./hashtag.routes";
@@ -24,6 +25,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
   app.register(feedRoutes, { prefix: "/v1/feed" });
   app.register(videoRoutes, { prefix: "/v1/videos" });
+  app.register(commerceImportRoutes, { prefix: "/v1/commerce-imports" });
   app.register(mediaRoutes, { prefix: "/v1/media" });
   app.register(productMatchRoutes, { prefix: "/v1/product-matches" });
   app.register(userRoutes, { prefix: "/v1/users" });
