@@ -17,6 +17,8 @@ export async function GET(
   { params }: { params: { id: string } },
 ) {
   const id = decodeURIComponent(String(params.id || '').trim());
+  const market = _request.nextUrl.searchParams.get('market') || 'FR';
+  const localityId = _request.nextUrl.searchParams.get('localityId');
   if (!id) {
     return NextResponse.json(
       { success: false, source: 'orchidy', error: 'ORCHIDY_PRODUCT_ID_REQUIRED' },
@@ -26,7 +28,7 @@ export async function GET(
 
   try {
     const response = await fetch(
-      `${resolveOrchidyBaseUrl()}/api/products/${encodeURIComponent(id)}`,
+      `${resolveOrchidyBaseUrl()}/api/integrations/orky/products/${encodeURIComponent(id)}?market=${encodeURIComponent(market)}${localityId ? `&localityId=${encodeURIComponent(localityId)}` : ''}`,
       { headers: { accept: 'application/json' }, cache: 'no-store' },
     );
     const payload = await response.json().catch(() => null) as ProductResponse | null;

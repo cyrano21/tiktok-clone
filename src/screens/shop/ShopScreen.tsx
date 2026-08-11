@@ -61,6 +61,7 @@ export const ShopScreen: React.FC = () => {
           <Image source={{ uri: item.images[0] }} style={styles.image} />
           <View style={[styles.sourceBadge, item.source !== 'orchidy' && styles.demoSourceBadge]}><Text style={styles.sourceText}>{item.source === 'orchidy' ? 'Orchidy' : 'Démo'}</Text></View>
           {discount > 0 ? <View style={styles.discountBadge}><Text style={styles.discountText}>-{discount}%</Text></View> : null}
+          {item.videoAvailable ? <View style={styles.videoBadge}><Text style={styles.videoText}>▶ Vidéo</Text></View> : null}
           {item.freeShipping ? <View style={styles.shipBadge}><Text style={styles.shipText}>Livraison offerte</Text></View> : null}
         </View>
         <View style={styles.cardBody}>
@@ -141,6 +142,8 @@ const styles = StyleSheet.create({
   sourceText: { color: '#fff', fontSize: 9, fontWeight: '900' },
   discountBadge: { position: 'absolute', top: 8, right: 8, backgroundColor: tokens.colors.brand.primary, borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 },
   discountText: { color: tokens.colors.white, fontSize: 10, fontWeight: '800' },
+  videoBadge: { position: 'absolute', bottom: 7, right: 7, backgroundColor: '#6C4DF6', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3 },
+  videoText: { color: '#fff', fontSize: 9, fontWeight: '800' },
   shipBadge: { position: 'absolute', bottom: 7, left: 7, backgroundColor: 'rgba(0,0,0,.7)', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 3 },
   shipText: { color: '#fff', fontSize: 9, fontWeight: '700' },
   cardBody: { padding: 9, gap: 5 },
