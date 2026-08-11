@@ -17,12 +17,8 @@ function copySearchParam(source: URLSearchParams, target: URLSearchParams, key: 
   if (value !== null && value !== '') target.set(key, value);
 }
 
-export async function GET(request: NextRequest) {
-  const incoming = request.nextUrl.searchParams;
-  // /api/search returns an empty catalog on the deployed Orchidy; the canonical
-  // public catalog endpoint is /api/products (same response shape: products[]).
-  const upstream = new URL('/api/products', resolveOrchidyBaseUrl());
-
+function buildUpstream(incoming: URLSearchParams, endpoint: string) {
+  const upstream = new URL(endpoint, resolveOrchidyBaseUrl());
   copySearchParam(incoming, upstream.searchParams, 'q');
   copySearchParam(incoming, upstream.searchParams, 'category');
   copySearchParam(incoming, upstream.searchParams, 'market');
@@ -30,22 +26,39 @@ export async function GET(request: NextRequest) {
   copySearchParam(incoming, upstream.searchParams, 'sort');
   copySearchParam(incoming, upstream.searchParams, 'page');
   copySearchParam(incoming, upstream.searchParams, 'limit');
-
   if (!upstream.searchParams.has('limit')) upstream.searchParams.set('limit', '24');
   if (!upstream.searchParams.has('sort')) upstream.searchParams.set('sort', 'newest');
   if (!upstream.searchParams.has('market')) upstream.searchParams.set('market', 'FR');
+  return upstream;
+}
+
+async function fetchCatalog(url: URL) {
+  const response = await fetch(url.toString(), {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+    cache: 'no-store',
+  });
+  const payload = await response.json().catch(() => null) as ProductResponse | null;
+  return { response, payload };
+}
+
+export async function GET(request: NextRequest) {
+  const incoming = request.nextUrl.searchParams;
+  const preferred = buildUpstream(incoming, '/api/integrations/orky/products');
 
   try {
-    const response = await fetch(upstream.toString(), {
-      method: 'GET',
-      headers: {
-        accept: 'application/json',
-      },
-      // The shop should reflect the current Orchidy catalog, not a stale Next cache.
-      cache: 'no-store',
-    });
+    let upstream = preferred;
+    let result = await fetchCatalog(upstream);
 
-    const payload = await response.json().catch(() => null) as ProductResponse | null;
+    // Deployment compatibility while the Marketplace companion PR is rolling
+    // out. Once the dedicated endpoint is present it remains authoritative,
+    // including approved canonical video media.
+    if (result.response.status === 404) {
+      upstream = buildUpstream(incoming, '/api/products');
+      result = await fetchCatalog(upstream);
+    }
+
+    const { response, payload } = result;
     if (!response.ok || !payload) {
       return NextResponse.json(
         {
@@ -64,7 +77,7 @@ export async function GET(request: NextRequest) {
       source: 'orchidy',
       upstream: {
         baseUrl: resolveOrchidyBaseUrl(),
-        endpoint: '/api/products',
+        endpoint: upstream.pathname,
       },
       products: Array.isArray((payload as any).products) ? (payload as any).products : [],
       pagination: (payload as any).pagination ?? null,
