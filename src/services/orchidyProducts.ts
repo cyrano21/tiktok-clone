@@ -148,7 +148,18 @@ function resolveCategory(product: any): ProductCategory {
   const raw = asText(product?.category?.slug || product?.categorySlug || product?.category?.name || product?.category).toLowerCase();
   if (raw.includes('beaut')) return 'beauty';
   if (raw.includes('mode') || raw.includes('fashion') || raw.includes('cloth')) return 'fashion';
-  if (raw.includes('tech') || raw.includes('elect') || raw.includes('phone') || raw.includes('audio')) return 'tech';
+  if (
+    raw.includes('tech') ||
+    raw.includes('elect') ||
+    raw.includes('phone') ||
+    raw.includes('audio') ||
+    raw.includes('informatique') ||
+    raw.includes('ordinateur') ||
+    raw.includes('laptop') ||
+    raw.includes('printer') ||
+    raw.includes('imprimante') ||
+    raw.includes('bureau')
+  ) return 'tech';
   if (raw.includes('home') || raw.includes('maison') || raw.includes('deco')) return 'home';
   if (raw.includes('sport') || raw.includes('fitness')) return 'fitness';
   if (raw.includes('access')) return 'accessories';
@@ -160,6 +171,13 @@ function buildExternalUrl(product: any): string {
   const slug = asText(product?.slug || product?.seo?.slug || product?._id || product?.id);
   if (!slug) return base;
   return `${base}/product/${encodeURIComponent(slug)}`;
+}
+
+function orchidyCategoryParam(category: ProductCategory): string {
+  // ORKY's historical "tech" bucket maps to the authoritative Marketplace
+  // category that now contains computers, printers and office hardware.
+  if (category === 'tech') return 'informatique-bureau';
+  return category;
 }
 
 export function mapOrchidyProduct(product: any): CommerceProduct {
@@ -217,7 +235,7 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   params.set('page', String(query.page ?? 1));
   params.set('sort', query.sort ?? (query.query ? 'relevance' : 'newest'));
   if (query.query) params.set('q', query.query);
-  if (query.category && query.category !== 'all') params.set('category', query.category);
+  if (query.category && query.category !== 'all') params.set('category', orchidyCategoryParam(query.category));
 
   try {
     const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
