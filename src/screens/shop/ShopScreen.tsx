@@ -94,7 +94,20 @@ export const ShopScreen: React.FC = () => {
         {query ? <TouchableOpacity onPress={() => setQuery('')} accessibilityLabel="Effacer la recherche"><Text style={styles.clearSearch}>×</Text></TouchableOpacity> : null}
       </View>
 
-      <View style={styles.catWrap}><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catContent}>{SHOP_CATEGORIES.map((c) => <TouchableOpacity key={c.id} style={[styles.catChip, category === c.id && styles.catChipActive]} onPress={() => setCategory(c.id)}><Text style={styles.catIcon}>{c.icon}</Text><Text style={[styles.catLabel, category === c.id && styles.catLabelActive]}>{c.label}</Text></TouchableOpacity>)}</ScrollView></View>
+      <View style={styles.catWrap}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catContent}>
+          {SHOP_CATEGORIES.map((c) => {
+            const label = c.id === 'tech' ? 'Informatique' : c.label;
+            const icon = c.id === 'tech' ? '💻' : c.icon;
+            return (
+              <TouchableOpacity key={c.id} style={[styles.catChip, category === c.id && styles.catChipActive]} onPress={() => setCategory(c.id)}>
+                <Text style={styles.catIcon}>{icon}</Text>
+                <Text style={[styles.catLabel, category === c.id && styles.catLabelActive]}>{label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       {loading && products.length === 0 ? <View style={styles.loadingBlock}><Text style={styles.loadingText}>Connexion au catalogue Orchidy…</Text></View>
         : source === 'unavailable' && products.length === 0 ? <View style={styles.unavailableBlock}><Text style={styles.unavailableIcon}>🛍️</Text><Text style={styles.unavailableTitle}>{debouncedQuery ? 'Aucun produit trouvé' : 'Catalogue momentanément indisponible'}</Text><Text style={styles.unavailableText}>{debouncedQuery ? 'Modifie ta recherche ou réessaie. ORKY ne remplace pas les résultats absents par de faux produits.' : 'ORKY n’affiche pas de faux produits à la place du catalogue réel. L’achat reste désactivé jusqu’au retour d’Orchidy.'}</Text><TouchableOpacity style={styles.retryBtn} onPress={() => setReloadKey((key) => key + 1)}><Text style={styles.retryText}>Réessayer</Text></TouchableOpacity></View>
