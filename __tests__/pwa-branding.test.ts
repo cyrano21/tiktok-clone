@@ -18,7 +18,7 @@ describe('ORKY PWA presentation', () => {
 
   it('does not force demo video details in production', () => {
     const source = fs.readFileSync(path.join(process.cwd(), 'src/screens/VideoDetailScreen.tsx'), 'utf8');
-    expect(source).toContain("process.env.NEXT_PUBLIC_USE_DEMO !== 'false'");
+    expect(source).toContain("process.env.NEXT_PUBLIC_USE_DEMO === 'true'");
     expect(source).not.toContain('const USE_DEMO = true');
   });
 });

@@ -455,7 +455,7 @@ export const TrendRadarScreen: React.FC = () => {
 
             {state.videoStatus === 'completed' && (
               <TouchableOpacity
-                style={[styles.publishButton, state.orkyVideoId && styles.publishButtonDone]}
+                style={[styles.publishButton, state.orkyVideoId ? styles.publishButtonDone : undefined]}
                 onPress={() => handlePublishGeneratedVideo(item)}
                 disabled={Boolean(state.publishingVideo || state.orkyVideoId)}
               >
