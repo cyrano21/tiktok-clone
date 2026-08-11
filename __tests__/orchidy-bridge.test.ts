@@ -48,6 +48,30 @@ describe('Orchidy product bridge', () => {
     ]);
   });
 
+  it('normalizes the informatique catalog and keeps only approved video media', () => {
+    const product = mapOrchidyProduct({
+      _id: 'product-it',
+      slug: 'dock-usb-c',
+      title: 'Dock USB-C',
+      price: 49,
+      currency: 'EUR',
+      categorySlug: 'informatique-bureau',
+      orderable: true,
+      videos: [
+        { url: 'https://cdn.example/video.mp4', validationStatus: 'approved' },
+        { url: 'https://cdn.example/pending.mp4', validationStatus: 'pending' },
+        { url: 'http://unsafe.example/video.mp4', validationStatus: 'approved' },
+      ],
+    });
+
+    expect(product.category).toBe('informatique');
+    expect(product.videos).toEqual([
+      { url: 'https://cdn.example/video.mp4', validationStatus: 'approved' },
+    ]);
+    expect(product.videoAvailable).toBe(true);
+    expect(product.badges).toContain('▶ Vidéo');
+  });
+
   it('does not mark an explicitly unavailable product as orderable', () => {
     const product = mapOrchidyProduct({
       _id: 'product-43',

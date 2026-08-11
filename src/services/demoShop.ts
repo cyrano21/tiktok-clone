@@ -39,6 +39,7 @@ export type ProductCategory =
   | "all"
   | "fashion"
   | "beauty"
+  | "informatique"
   | "tech"
   | "home"
   | "fitness"
@@ -54,7 +55,7 @@ export const SHOP_CATEGORIES: ShopCategory[] = [
   { id: "all", label: "Tout", icon: "✨" },
   { id: "fashion", label: "Mode", icon: "👗" },
   { id: "beauty", label: "Beauté", icon: "💄" },
-  { id: "tech", label: "Tech", icon: "🎧" },
+  { id: "informatique", label: "💻 Informatique", icon: "💻" },
   { id: "home", label: "Maison", icon: "🛋️" },
   { id: "fitness", label: "Sport", icon: "🏋️" },
   { id: "accessories", label: "Accessoires", icon: "👜" },

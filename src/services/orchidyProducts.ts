@@ -17,6 +17,9 @@ export type CommerceProduct = Omit<Product, 'variants'> & {
   orderable?: boolean;
   availabilityLabel?: string;
   stockStatus?: string;
+  videos?: Array<Record<string, unknown>>;
+  primaryVideo?: Record<string, unknown> | null;
+  videoAvailable?: boolean;
 };
 
 interface OrchidySearchResponse {
@@ -146,9 +149,10 @@ function resolveStore(product: any) {
 
 function resolveCategory(product: any): ProductCategory {
   const raw = asText(product?.category?.slug || product?.categorySlug || product?.category?.name || product?.category).toLowerCase();
+  if (raw.includes('informatique') || raw.includes('computer') || raw.includes('bureau')) return 'informatique';
   if (raw.includes('beaut')) return 'beauty';
   if (raw.includes('mode') || raw.includes('fashion') || raw.includes('cloth')) return 'fashion';
-  if (raw.includes('tech') || raw.includes('elect') || raw.includes('phone') || raw.includes('audio')) return 'tech';
+  if (raw.includes('tech') || raw.includes('informatique') || raw.includes('elect') || raw.includes('phone') || raw.includes('audio')) return 'informatique';
   if (raw.includes('home') || raw.includes('maison') || raw.includes('deco')) return 'home';
   if (raw.includes('sport') || raw.includes('fitness')) return 'fitness';
   if (raw.includes('access')) return 'accessories';
@@ -172,6 +176,9 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
   const currencyRaw = asText(product?.currency, 'EUR').toUpperCase();
   const currency = currencyRaw === 'EUR' ? '€' : currencyRaw;
   const orderable = product?.orderable !== false && product?.stockStatus !== 'out_of_stock';
+  const videos = (Array.isArray(product?.videos) ? product.videos : []).filter((video: any) =>
+    video && typeof video === 'object' && /^https:\/\//i.test(asText(video.url)) && asText(video.validationStatus || video.videoValidationStatus).toLowerCase() === 'approved',
+  );
 
   const mapped: CommerceProduct = {
     id: `orchidy:${externalSlug}`,
@@ -190,7 +197,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     category: resolveCategory(product),
     freeShipping: Boolean(product?.freeShipping || product?.readyToShip || product?.delivery === 'fast'),
     variants: resolveVariants(product),
-    badges: [ORCHIDY_SOURCE.toUpperCase(), ...(orderable ? ['Achetable'] : ['Indisponible']), ...(store.verified ? ['Boutique vérifiée'] : [])],
+    badges: [ORCHIDY_SOURCE.toUpperCase(), ...(orderable ? ['Achetable'] : ['Indisponible']), ...(videos.length > 0 ? ['▶ Vidéo'] : []), ...(store.verified ? ['Boutique vérifiée'] : [])],
     onSale: originalPrice > price,
     source: ORCHIDY_SOURCE,
     externalId,
@@ -199,6 +206,9 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     orderable,
     availabilityLabel: asText(product?.availabilityLabel),
     stockStatus: asText(product?.stockStatus),
+    videos,
+    primaryVideo: videos[0] ?? null,
+    videoAvailable: videos.length > 0,
   };
 
   productCache.set(mapped.id, mapped);
@@ -217,7 +227,7 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   params.set('page', String(query.page ?? 1));
   params.set('sort', query.sort ?? (query.query ? 'relevance' : 'newest'));
   if (query.query) params.set('q', query.query);
-  if (query.category && query.category !== 'all') params.set('category', query.category);
+  if (query.category && query.category !== 'all') params.set('category', query.category === 'informatique' || query.category === 'tech' ? 'informatique-bureau' : query.category);
 
   try {
     const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
@@ -242,7 +252,7 @@ export async function getCommerceProductById(productId: string): Promise<Commerc
   if (productId.startsWith('orchidy:')) {
     const rawId = productId.slice('orchidy:'.length);
     try {
-      const response = await fetch(`/api/orchidy/products/${encodeURIComponent(rawId)}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
+      const response = await fetch(`/api/orchidy/products/${encodeURIComponent(rawId)}?market=FR`, { headers: { accept: 'application/json' }, cache: 'no-store' });
       if (response.ok) {
         const payload = await response.json() as { product?: unknown };
         if (payload.product) return mapOrchidyProduct(payload.product);

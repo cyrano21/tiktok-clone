@@ -19,12 +19,13 @@ function copySearchParam(source: URLSearchParams, target: URLSearchParams, key: 
 
 export async function GET(request: NextRequest) {
   const incoming = request.nextUrl.searchParams;
-  // /api/search returns an empty catalog on the deployed Orchidy; the canonical
-  // public catalog endpoint is /api/products (same response shape: products[]).
-  const upstream = new URL('/api/products', resolveOrchidyBaseUrl());
+  // ORKY consumes the dedicated read-only projection. It never reads the
+  // Marketplace live-product fallback, which could expose a non-published item.
+  const upstream = new URL('/api/integrations/orky/products', resolveOrchidyBaseUrl());
 
   copySearchParam(incoming, upstream.searchParams, 'q');
-  copySearchParam(incoming, upstream.searchParams, 'category');
+  const category = incoming.get('category');
+  if (category) upstream.searchParams.set('category', category === 'informatique' || category === 'tech' ? 'informatique-bureau' : category);
   copySearchParam(incoming, upstream.searchParams, 'market');
   copySearchParam(incoming, upstream.searchParams, 'localityId');
   copySearchParam(incoming, upstream.searchParams, 'sort');
@@ -64,7 +65,7 @@ export async function GET(request: NextRequest) {
       source: 'orchidy',
       upstream: {
         baseUrl: resolveOrchidyBaseUrl(),
-        endpoint: '/api/products',
+        endpoint: '/api/integrations/orky/products',
       },
       products: Array.isArray((payload as any).products) ? (payload as any).products : [],
       pagination: (payload as any).pagination ?? null,
