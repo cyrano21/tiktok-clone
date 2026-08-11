@@ -67,9 +67,6 @@ services:
     volumes:
       - ./livekit.prod.yaml:/etc/livekit.yaml:ro
     ports:
-      # RTC : le multiplexage UDP (7882) et le TCP (7881) doivent être
-      # accessibles aux clients Internet pour que le live fonctionne entre
-      # utilisateurs. 7880 (WebSocket) reste interne derrière TLS/proxy.
       - '7881:7881/tcp'
       - '7882:7882/udp'
     networks: [orky]
@@ -106,6 +103,9 @@ services:
       TIKTOK_REDIRECT_URI: ${TIKTOK_REDIRECT_URI:-}
       TIKTOK_FRONTEND_RETURN_URL: ${TIKTOK_FRONTEND_RETURN_URL:-}
       TIKTOK_TOKEN_ENCRYPTION_KEY: ${TIKTOK_TOKEN_ENCRYPTION_KEY:?TIKTOK_TOKEN_ENCRYPTION_KEY is required}
+      # Internal web→API gate for importing generated Pro media. This is not a
+      # user credential and must never be exposed as NEXT_PUBLIC_*.
+      ORKY_COMMERCE_IMPORT_SECRET: ${ORKY_COMMERCE_IMPORT_SECRET:?ORKY_COMMERCE_IMPORT_SECRET is required}
     depends_on:
       postgres:
         condition: service_healthy
@@ -173,10 +173,10 @@ services:
       ORKY_CHECKOUT_HANDOFF_SECRET: ${ORKY_CHECKOUT_HANDOFF_SECRET:?ORKY_CHECKOUT_HANDOFF_SECRET is required}
       SCRAPER_API_INTERNAL_URL: http://scraper-api:8502
       SCRAPER_INTERNAL_SECRET: ${SCRAPER_INTERNAL_SECRET:?SCRAPER_INTERNAL_SECRET is required}
-      # Audit P0-4 : le proxy Next /api/trends/sourcing utilise ces deux
-      # variables serveur-à-serveur pour interroger orchidy-pro.
       ORCHIDY_PRO_API_URL: ${ORCHIDY_PRO_API_URL:?ORCHIDY_PRO_API_URL is required}
       ORCHIDY_PRO_API_KEY: ${ORCHIDY_PRO_API_KEY:?ORCHIDY_PRO_API_KEY is required}
+      ORKY_PRO_DELEGATION_SECRET: ${ORKY_PRO_DELEGATION_SECRET:?ORKY_PRO_DELEGATION_SECRET is required}
+      ORKY_COMMERCE_IMPORT_SECRET: ${ORKY_COMMERCE_IMPORT_SECRET:?ORKY_COMMERCE_IMPORT_SECRET is required}
     depends_on:
       api:
         condition: service_healthy

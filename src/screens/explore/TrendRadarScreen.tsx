@@ -1,10 +1,21 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation } from '@/navigation/NavigationContext';
 import { useSessionStore } from '@/store/sessionStore';
-import { trendService, type TrendSignal, type SourcingCandidate, type SourcingRequest } from '@/services/trendService';
+import {
+  trendService,
+  type TrendSignal,
+  type SourcingCandidate,
+  type SourcingRequest,
+  type GeneratedVideoState,
+} from '@/services/trendService';
+
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF', 'KRW',
+  'PYG', 'RWF', 'UGX', 'VND', 'VUV', 'XAF', 'XOF', 'XPF',
+]);
 
 function formatCount(value: number): string {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`;
@@ -13,7 +24,23 @@ function formatCount(value: number): string {
 }
 
 function viralScore(signal: TrendSignal): number {
-  return signal.viralStats.views + signal.viralStats.likes * 10 + signal.viralStats.comments * 20;
+  const views = Math.max(1, signal.viralStats.views);
+  const engagementRate = (signal.viralStats.likes + signal.viralStats.comments * 3) / views;
+  return Math.round(Math.log10(views + 1) * 100 + Math.min(1, engagementRate) * 500);
+}
+
+function signalKey(request: SourcingRequest): string | null {
+  const key = request.signal?.sourceSignalId || request.signal?.id;
+  return key ? String(key) : null;
+}
+
+function minorUnitFactor(currency: string, explicit?: number): number {
+  if (explicit === 1 || explicit === 100) return explicit;
+  return ZERO_DECIMAL_CURRENCIES.has(String(currency || '').toUpperCase()) ? 1 : 100;
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 interface SourcingState {
@@ -23,14 +50,36 @@ interface SourcingState {
   error?: string;
   productId?: string;
   videoUrl?: string;
+  videoStatus?: GeneratedVideoState['status'];
+  videoJobId?: string;
+  orkyVideoId?: string;
   conversion?: SourcingRequest['conversion'];
   generatingVideo?: boolean;
+  publishingVideo?: boolean;
+}
+
+function stateFromRequest(request: SourcingRequest): SourcingState {
+  const video = request.generatedVideo;
+  return {
+    status: request.status,
+    requestId: request._id,
+    candidates: request.candidates || [],
+    productId: request.orchidyProProductId || undefined,
+    conversion: request.conversion ?? undefined,
+    error: request.error || undefined,
+    videoUrl: video?.hostedUrl || video?.sourceUrl || undefined,
+    videoStatus: video?.status,
+    videoJobId: video?.jobId,
+    orkyVideoId: video?.orkyVideoId || undefined,
+    generatingVideo: video?.status === 'queued' || video?.status === 'processing',
+  };
 }
 
 export const TrendRadarScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
   const session = useSessionStore();
+  const activePolls = useRef(new Set<string>());
   const [trends, setTrends] = useState<TrendSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -39,48 +88,156 @@ export const TrendRadarScreen: React.FC = () => {
   const [rankByConversion, setRankByConversion] = useState(false);
   const [conversionRank, setConversionRank] = useState<Record<string, SourcingRequest['conversion']>>({});
 
-  // Boucle de conversion : charge les demandes sourcées et leurs ventes réelles
-  // (rapportées par Orchidy), puis surclasse les tendances qui convertissent.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const requests = await trendService.listSourcingRequests(50);
         if (cancelled) return;
-        const map: Record<string, SourcingRequest['conversion']> = {};
+        const conversions: Record<string, SourcingRequest['conversion']> = {};
         const states: Record<string, SourcingState> = {};
-        for (const r of requests) {
-          if (r.conversion) map[r.signal.id] = r.conversion;
-          if ((r.status === 'product_created' || r.status === 'published') && r.signal?.id) {
-            states[r.signal.id] = {
-              status: r.status,
-              requestId: r._id,
-              candidates: r.candidates || [],
-              productId: r.orchidyProProductId || undefined,
-              conversion: r.conversion ?? undefined,
-            };
-          }
+        for (const request of requests) {
+          const key = signalKey(request);
+          if (!key) continue;
+          if (request.conversion) conversions[key] = request.conversion;
+          states[key] = stateFromRequest(request);
         }
         if (!cancelled) {
-          setConversionRank(map);
-          setSourcingByTrend((prev) => ({ ...prev, ...states }));
+          setConversionRank(conversions);
+          setSourcingByTrend((previous) => ({ ...previous, ...states }));
         }
       } catch {
-        // Le reclassement par conversion est un bonus : silencieux si indisponible.
+        // Conversion ranking is supplemental. The real trend feed remains usable.
       }
     })();
     return () => { cancelled = true; };
   }, []);
 
+  const pollGeneratedVideo = useCallback(async (trendId: string, requestId: string) => {
+    if (activePolls.current.has(requestId)) return;
+    activePolls.current.add(requestId);
+    try {
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await sleep(attempt === 0 ? 1_000 : 4_000);
+        try {
+          const video = await trendService.getGeneratedVideo(requestId);
+          if (!video) continue;
+          const done = video.status === 'completed' || video.status === 'failed';
+          setSourcingByTrend((previous) => {
+            const current = previous[trendId];
+            if (!current || current.requestId !== requestId) return previous;
+            return {
+              ...previous,
+              [trendId]: {
+                ...current,
+                videoStatus: video.status,
+                videoJobId: video.jobId,
+                orkyVideoId: video.orkyVideoId || current.orkyVideoId,
+                videoUrl: video.hostedUrl || video.sourceUrl || current.videoUrl,
+                generatingVideo: !done,
+                error: video.status === 'failed'
+                  ? video.error || 'La génération vidéo a échoué.'
+                  : current.error,
+              },
+            };
+          });
+          if (done) return;
+        } catch {
+          // Temporary status failure: the server-side worker keeps running.
+        }
+      }
+      setSourcingByTrend((previous) => {
+        const current = previous[trendId];
+        if (!current || current.requestId !== requestId) return previous;
+        return {
+          ...previous,
+          [trendId]: {
+            ...current,
+            generatingVideo: false,
+            error: 'La génération continue en arrière-plan. Recharge la page pour vérifier son état.',
+          },
+        };
+      });
+    } finally {
+      activePolls.current.delete(requestId);
+    }
+  }, []);
+
+  useEffect(() => {
+    for (const [trendId, state] of Object.entries(sourcingByTrend)) {
+      if (
+        state.requestId &&
+        state.generatingVideo &&
+        (state.videoStatus === 'queued' || state.videoStatus === 'processing')
+      ) {
+        void pollGeneratedVideo(trendId, state.requestId);
+      }
+    }
+  }, [sourcingByTrend, pollGeneratedVideo]);
+
   const handleGenerateVideo = async (signal: TrendSignal) => {
     const state = sourcingByTrend[signal.id];
     if (!state?.requestId || state.generatingVideo) return;
-    setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...state, generatingVideo: true } }));
+    setSourcingByTrend((previous) => ({
+      ...previous,
+      [signal.id]: { ...state, generatingVideo: true, error: undefined },
+    }));
     try {
       const result = await trendService.generateVideo(state.requestId);
-      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...prev[signal.id], generatingVideo: false, videoUrl: result.videoUrl || prev[signal.id]?.videoUrl } }));
-    } catch {
-      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...prev[signal.id], generatingVideo: false } }));
+      setSourcingByTrend((previous) => {
+        const current = previous[signal.id] || state;
+        return {
+          ...previous,
+          [signal.id]: {
+            ...current,
+            generatingVideo: result.status !== 'completed' && result.status !== 'failed',
+            videoStatus: result.status,
+            videoJobId: result.jobId,
+            videoUrl: result.videoUrl || current.videoUrl,
+          },
+        };
+      });
+      if (result.status !== 'completed' && result.status !== 'failed') {
+        void pollGeneratedVideo(signal.id, state.requestId);
+      }
+    } catch (generationError: any) {
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: {
+          ...previous[signal.id],
+          generatingVideo: false,
+          error: generationError?.message || 'Impossible de lancer la génération vidéo.',
+        },
+      }));
+    }
+  };
+
+  const handlePublishGeneratedVideo = async (signal: TrendSignal) => {
+    const state = sourcingByTrend[signal.id];
+    if (!state?.requestId || state.videoStatus !== 'completed' || state.publishingVideo || state.orkyVideoId) return;
+    setSourcingByTrend((previous) => ({
+      ...previous,
+      [signal.id]: { ...state, publishingVideo: true, error: undefined },
+    }));
+    try {
+      const result = await trendService.publishGeneratedVideoToOrky(state.requestId);
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: {
+          ...previous[signal.id],
+          publishingVideo: false,
+          orkyVideoId: result.videoId,
+        },
+      }));
+    } catch (publishError: any) {
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: {
+          ...previous[signal.id],
+          publishingVideo: false,
+          error: publishError?.message || 'Publication ORKY impossible.',
+        },
+      }));
     }
   };
 
@@ -99,19 +256,25 @@ export const TrendRadarScreen: React.FC = () => {
   useEffect(() => { void load(); }, [load]);
 
   const handleFindProduct = async (signal: TrendSignal) => {
-    if (sourcingInFlight) return;
-    if (!session.authenticated) return;
+    if (sourcingInFlight || !session.authenticated) return;
     setSourcingInFlight(signal.id);
-    setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { status: 'sourcing', candidates: [] } }));
+    setSourcingByTrend((previous) => ({
+      ...previous,
+      [signal.id]: { status: 'sourcing', candidates: [] },
+    }));
     try {
       const result = await trendService.sendToSourcing(signal);
-      if (!result.success) {
-        setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { status: 'failed', candidates: [], error: result.error || 'Sourcing indisponible' } }));
-      } else {
-        setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { status: result.status, requestId: result.requestId, candidates: result.candidates } }));
-      }
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: result.success
+          ? { status: result.status, requestId: result.requestId, candidates: result.candidates }
+          : { status: 'failed', candidates: [], error: result.error || 'Sourcing indisponible' },
+      }));
     } catch {
-      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { status: 'failed', candidates: [], error: 'Orchidy Pro indisponible' } }));
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: { status: 'failed', candidates: [], error: 'Orchidy Pro indisponible' },
+      }));
     } finally {
       setSourcingInFlight(null);
     }
@@ -119,54 +282,57 @@ export const TrendRadarScreen: React.FC = () => {
 
   const handleApprove = async (signal: TrendSignal, candidateId: string) => {
     const state = sourcingByTrend[signal.id];
-    if (!state || !state.requestId) return;
-    setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...state, status: 'approved' } }));
+    if (!state?.requestId) return;
+    setSourcingByTrend((previous) => ({
+      ...previous,
+      [signal.id]: { ...state, status: 'approved', error: undefined },
+    }));
     try {
       const result = await trendService.approveCandidate(state.requestId, candidateId);
-      setSourcingByTrend((prev) => ({
-        ...prev,
+      setSourcingByTrend((previous) => ({
+        ...previous,
         [signal.id]: {
-          ...state,
-          status: result.success ? (result.orchidyMarketplaceProductId ? 'published' : 'product_created') : 'failed',
+          ...previous[signal.id],
+          status: result.success
+            ? (result.orchidyMarketplaceProductId ? 'published' : 'product_created')
+            : 'failed',
           candidates: state.candidates,
           productId: result.productId,
           error: result.success ? undefined : result.error || 'Approbation impossible',
         },
       }));
     } catch {
-      setSourcingByTrend((prev) => ({ ...prev, [signal.id]: { ...state, status: 'failed', error: 'Approbation impossible' } }));
+      setSourcingByTrend((previous) => ({
+        ...previous,
+        [signal.id]: { ...previous[signal.id], status: 'failed', error: 'Approbation impossible' },
+      }));
     }
   };
 
-  const renderCandidate = (signal: TrendSignal, candidate: SourcingCandidate, index: number) => (
+  const renderCandidate = (signal: TrendSignal, candidate: SourcingCandidate) => (
     <View key={candidate.candidateId} style={styles.candidateCard}>
       <Image source={{ uri: candidate.imageUrl }} style={styles.candidateImage} />
       <View style={styles.candidateBody}>
         <Text style={styles.candidateTitle} numberOfLines={2}>{candidate.title}</Text>
+        <Text style={styles.candidateMeta}>{candidate.supplierName} · {candidate.platform}</Text>
+        <View style={styles.candidateRow}>
+          <Text style={styles.candidatePrice}>{candidate.currency} {candidate.price}</Text>
+          <Text style={[
+            styles.candidateScore,
+            candidate.matchScore >= 0.75 ? styles.scoreHigh : candidate.matchScore >= 0.45 ? styles.scoreMid : styles.scoreLow,
+          ]}>
+            correspondance estimée {(candidate.matchScore * 100).toFixed(0)}%
+          </Text>
+        </View>
         <Text style={styles.candidateMeta}>
-          {candidate.supplierName} · {candidate.platform}
+          {candidate.stockKnown ? `Stock: ${candidate.stock ?? '?'}` : 'Stock non vérifié'}
+          {candidate.shippingDays ? ` · livraison estimée ${candidate.shippingDays}j` : ' · délai à vérifier'}
         </Text>
-        <View style={styles.candidateRow}>
-          <Text style={styles.candidatePrice}>
-            {candidate.currency} {candidate.price}
-          </Text>
-          <Text style={[styles.candidateScore, candidate.matchScore >= 0.7 ? styles.scoreHigh : candidate.matchScore >= 0.5 ? styles.scoreMid : styles.scoreLow]}>
-            match {(candidate.matchScore * 100).toFixed(0)}%
-          </Text>
-        </View>
-        <View style={styles.candidateRow}>
-          <Text style={styles.candidateMeta}>
-            {candidate.stockKnown ? `Stock: ${candidate.stock ?? '?'}` : 'Stock inconnu'}
-            {candidate.shippingDays ? ` · ${candidate.shippingDays}j` : ''}
-          </Text>
-          {candidate.estimatedMargin != null && (
-            <Text style={styles.candidateMeta}>Marge ≈ {(candidate.estimatedMargin * 100).toFixed(0)}%</Text>
-          )}
-        </View>
+        {candidate.riskFlags.length > 0 && <Text style={styles.riskText}>{candidate.riskFlags.join(' · ')}</Text>}
         <TouchableOpacity
           style={styles.approveButton}
           onPress={() => handleApprove(signal, candidate.candidateId)}
-          disabled={Boolean(sourcingByTrend[signal.id] && sourcingByTrend[signal.id]!.productId)}
+          disabled={Boolean(sourcingByTrend[signal.id]?.productId)}
         >
           <Text style={styles.approveButtonText}>Créer le produit sur Orchidy</Text>
         </TouchableOpacity>
@@ -197,43 +363,44 @@ export const TrendRadarScreen: React.FC = () => {
               <Text style={styles.stat}>▶ {formatCount(item.viralStats.views)}</Text>
               <Text style={styles.stat}>♥ {formatCount(item.viralStats.likes)}</Text>
               <Text style={styles.stat}>💬 {formatCount(item.viralStats.comments)}</Text>
-              <Text style={[styles.stat, styles.scoreText]}>score {formatCount(score)}</Text>
+              <Text style={[styles.stat, styles.scoreText]}>indice {formatCount(score)}</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.hashtagRow}>
-          {(item.hashtags || []).slice(0, 6).map((h) => (
-            <View key={h} style={styles.hashtagPill}><Text style={styles.hashtagText}>#{h}</Text></View>
+          {(item.hashtags || []).slice(0, 6).map((tag) => (
+            <View key={tag} style={styles.hashtagPill}><Text style={styles.hashtagText}>#{tag}</Text></View>
           ))}
         </View>
 
         <View style={styles.productLine}>
-          <Text style={styles.productLabel}>Produit détecté</Text>
+          <Text style={styles.productLabel}>Concept produit estimé</Text>
           <Text style={styles.productName}>{item.detectedProductName}</Text>
-          <Text style={styles.signalNote}>Signal d'inspiration — produit vendu via Orchidy</Text>
+          <Text style={styles.signalNote}>Signal d'inspiration — identité produit à confirmer par le sourcing.</Text>
         </View>
 
         {!state && session.authenticated && (
           <TouchableOpacity style={styles.ctaButton} onPress={() => handleFindProduct(item)} disabled={sourcingInFlight === item.id}>
-            <Text style={styles.ctaButtonText}>
-              {sourcingInFlight === item.id ? 'Recherche en cours…' : '🔍 Trouver ce produit'}
-            </Text>
+            <Text style={styles.ctaButtonText}>{sourcingInFlight === item.id ? 'Recherche en cours…' : '🔍 Trouver ce produit'}</Text>
           </TouchableOpacity>
         )}
         {!state && !session.authenticated && (
           <View style={styles.stateRow}><Text style={styles.stateText}>Connecte-toi pour lancer le sourcing.</Text></View>
         )}
-
-        {state && state.status === 'sourcing' && (
+        {state?.status === 'sourcing' && (
           <View style={styles.stateRow}><ActivityIndicator color={tokens.colors.brand.primary} size="small" /><Text style={styles.stateText}>Sourcing fournisseurs (CJ / AliExpress)…</Text></View>
         )}
-        {state && state.status === 'failed' && (
+        {state?.status === 'approved' && (
+          <View style={styles.stateRow}><ActivityIndicator color={tokens.colors.brand.primary} size="small" /><Text style={styles.stateText}>Création et validation du produit…</Text></View>
+        )}
+        {state?.status === 'failed' && (
           <View style={styles.stateRow}><Text style={styles.errorText}>⚠ {state.error || 'Sourcing indisponible'}</Text></View>
         )}
-        {state && state.status === 'candidates_ready' && state.candidates.length === 0 && (
+        {state?.status === 'candidates_ready' && state.candidates.length === 0 && (
           <View style={styles.stateRow}><Text style={styles.stateText}>Aucun candidat fournisseur trouvé pour cette tendance.</Text></View>
         )}
+
         {state && (state.status === 'product_created' || state.status === 'published') && (
           <View style={styles.successBox}>
             <Text style={styles.successTitle}>✅ Produit créé sur Orchidy Pro</Text>
@@ -242,26 +409,73 @@ export const TrendRadarScreen: React.FC = () => {
                 ? 'Publié sur la marketplace Orchidy — disponible dans le Shop ORKY.'
                 : 'Fiche créée. La publication sur la marketplace Orchidy est en cours.'}
             </Text>
-            {state.conversion && state.conversion.ordersCount > 0 && (
+
+            {state.conversion && (
               <View style={styles.conversionRow}>
-                <Text style={styles.conversionText}>
-                  🛒 {state.conversion.ordersCount} commande{state.conversion.ordersCount > 1 ? 's' : ''} · {state.conversion.unitsSold} article{state.conversion.unitsSold > 1 ? 's' : ''} ·{' '}
-                  {state.conversion.currency} {(state.conversion.revenueCents / 100).toFixed(2)}
-                </Text>
-                <Text style={styles.conversionHint}>Ventes réelles Orchidy</Text>
+                {Object.entries(
+                  state.conversion.byCurrency && Object.keys(state.conversion.byCurrency).length > 0
+                    ? state.conversion.byCurrency
+                    : {
+                        [state.conversion.currency]: {
+                          ordersCount: state.conversion.ordersCount,
+                          unitsSold: state.conversion.unitsSold,
+                          revenueCents: state.conversion.revenueCents,
+                          minorUnitFactor: minorUnitFactor(state.conversion.currency),
+                        },
+                      },
+                ).map(([currency, stats]) => {
+                  const factor = minorUnitFactor(currency, stats.minorUnitFactor);
+                  return (
+                    <Text key={currency} style={styles.conversionText}>
+                      🛒 {stats.ordersCount} commande{stats.ordersCount > 1 ? 's' : ''} · {stats.unitsSold} article{stats.unitsSold > 1 ? 's' : ''} · {currency} {(stats.revenueCents / factor).toFixed(factor === 1 ? 0 : 2)}
+                    </Text>
+                  );
+                })}
+                <Text style={styles.conversionHint}>Ventes réelles Orchidy · par devise</Text>
               </View>
             )}
-            <TouchableOpacity style={styles.videoButton} onPress={() => handleGenerateVideo(item)} disabled={Boolean(state.generatingVideo)}>
+
+            <TouchableOpacity
+              style={styles.videoButton}
+              onPress={() => handleGenerateVideo(item)}
+              disabled={Boolean(state.generatingVideo || state.videoStatus === 'completed')}
+            >
               <Text style={styles.videoButtonText}>
-                {state.generatingVideo ? '🎬 Génération en cours… (IA)' : state.videoUrl ? '🎬 Vidéo générée ✓' : '🎬 Générer la vidéo produit'}
+                {state.videoStatus === 'completed'
+                  ? '🎬 Vidéo générée ✓'
+                  : state.videoStatus === 'queued'
+                    ? '🎬 Vidéo en file…'
+                    : state.videoStatus === 'processing'
+                      ? '🎬 Génération en cours…'
+                      : state.generatingVideo
+                        ? '🎬 Mise en file…'
+                        : '🎬 Générer la vidéo produit'}
               </Text>
             </TouchableOpacity>
+
+            {state.videoStatus === 'completed' && (
+              <TouchableOpacity
+                style={[styles.publishButton, state.orkyVideoId ? styles.publishButtonDone : undefined]}
+                onPress={() => handlePublishGeneratedVideo(item)}
+                disabled={Boolean(state.publishingVideo || state.orkyVideoId)}
+              >
+                <Text style={styles.publishButtonText}>
+                  {state.orkyVideoId
+                    ? '✓ Vidéo shoppable publiée sur ORKY'
+                    : state.publishingVideo
+                      ? 'Publication ORKY…'
+                      : 'Publier la vidéo shoppable sur ORKY'}
+                </Text>
+              </TouchableOpacity>
+            )}
+            {state.error && <Text style={styles.errorText}>{state.error}</Text>}
           </View>
         )}
-        {state && state.status === 'candidates_ready' && state.candidates.length > 0 && (
+
+        {state?.status === 'candidates_ready' && state.candidates.length > 0 && (
           <View style={styles.candidatesBlock}>
             <Text style={styles.candidatesTitle}>Candidats fournisseurs ({state.candidates.length})</Text>
-            {state.candidates.map((c, i) => renderCandidate(item, c, i))}
+            {state.candidates.map((candidate) => renderCandidate(item, candidate))}
           </View>
         )}
       </View>
@@ -277,7 +491,7 @@ export const TrendRadarScreen: React.FC = () => {
           <Text style={styles.headerSubtitle}>Signaux TikTok · sourcing Orchidy</Text>
         </View>
         <TouchableOpacity
-          onPress={() => setRankByConversion((v) => !v)}
+          onPress={() => setRankByConversion((value) => !value)}
           style={[styles.rankToggle, rankByConversion && styles.rankToggleActive]}
         >
           <Text style={[styles.rankToggleText, rankByConversion && styles.rankToggleTextActive]}>
@@ -347,9 +561,10 @@ const styles = StyleSheet.create({
   candidateBody: { flex: 1, gap: 2 },
   candidateTitle: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },
   candidateMeta: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
-  candidateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  riskText: { color: tokens.colors.action.tip, fontSize: tokens.typography.caption.fontSize },
+  candidateRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: tokens.spacing.xs },
   candidatePrice: { color: tokens.colors.semantic.success, fontWeight: '700', fontSize: tokens.typography.body.fontSize },
-  candidateScore: { fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
+  candidateScore: { flexShrink: 1, textAlign: 'right', fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
   scoreHigh: { color: tokens.colors.semantic.success },
   scoreMid: { color: tokens.colors.action.tip },
   scoreLow: { color: tokens.colors.semantic.error },
@@ -363,6 +578,9 @@ const styles = StyleSheet.create({
   conversionHint: { color: tokens.colors.text.tertiary, fontSize: tokens.typography.caption.fontSize },
   videoButton: { backgroundColor: tokens.colors.action.tip, borderRadius: tokens.radius.sm, paddingVertical: tokens.spacing.xs, alignItems: 'center', marginTop: tokens.spacing.xs },
   videoButtonText: { color: tokens.colors.white, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
+  publishButton: { backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.sm, paddingVertical: tokens.spacing.xs, alignItems: 'center', marginTop: tokens.spacing.xs },
+  publishButtonDone: { backgroundColor: tokens.colors.semantic.success },
+  publishButtonText: { color: tokens.colors.white, fontWeight: '700', fontSize: tokens.typography.caption.fontSize },
   rankToggle: { borderColor: tokens.colors.brand.primary, borderWidth: 1, borderRadius: 999, paddingHorizontal: tokens.spacing.sm, paddingVertical: 2 },
   rankToggleActive: { backgroundColor: tokens.colors.brand.primary },
   rankToggleText: { color: tokens.colors.brand.primary, fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },

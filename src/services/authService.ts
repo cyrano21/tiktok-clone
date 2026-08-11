@@ -1,10 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from './api';
+import {
+  USER_KEY,
+  clearSecretTokens,
+  getAccessToken,
+  isWebRuntime,
+  setAccessToken,
+  setRefreshToken,
+} from './authTokenStore';
 import { useSessionStore } from '@/store/sessionStore';
-
-const TOKEN_KEY = '@auth_token';
-const REFRESH_TOKEN_KEY = '@refresh_token';
-const USER_KEY = '@auth_user';
 
 export interface AuthUser {
   id: string;
@@ -21,26 +25,43 @@ interface LoginResponse {
   refreshToken?: string;
 }
 
-/** Real auth against the Fastify backend. Tokens persist in AsyncStorage. */
+async function webAuthRequest(path: 'login' | 'register', body: unknown): Promise<LoginResponse> {
+  const response = await fetch(`/api/auth/session/${path}`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(payload?.message || payload?.error || 'Authentication failed');
+    (error as any).status = response.status;
+    throw error;
+  }
+  return payload as LoginResponse;
+}
+
 export const authService = {
   async login(identifier: string, password: string): Promise<AuthUser> {
-    const res = await apiClient.post<LoginResponse>('/auth/login', {
-      email: identifier,
-      password,
-    });
+    const params = { email: identifier, password };
+    const res = isWebRuntime()
+      ? await webAuthRequest('login', params)
+      : await apiClient.post<LoginResponse>('/auth/login', params);
     await this.persistSession(res);
     return res.user;
   },
 
   async register(params: { email: string; username: string; password: string }): Promise<AuthUser> {
-    const res = await apiClient.post<LoginResponse>('/auth/register', params);
+    const res = isWebRuntime()
+      ? await webAuthRequest('register', params)
+      : await apiClient.post<LoginResponse>('/auth/register', params);
     await this.persistSession(res);
     return res.user;
   },
 
   async persistSession(res: LoginResponse): Promise<void> {
-    await AsyncStorage.setItem(TOKEN_KEY, res.accessToken);
-    if (res.refreshToken) await AsyncStorage.setItem(REFRESH_TOKEN_KEY, res.refreshToken);
+    await setAccessToken(res.accessToken);
+    await setRefreshToken(res.refreshToken || null);
     await AsyncStorage.setItem(USER_KEY, JSON.stringify(res.user));
     useSessionStore.getState().setUser(res.user);
   },
@@ -61,30 +82,59 @@ export const authService = {
 
   async logout(): Promise<void> {
     try {
-      // Revoke the Redis-backed refresh session while the access token is still
-      // available. Local cleanup remains guaranteed even if the network is down.
-      await apiClient.post('/auth/logout');
+      if (isWebRuntime()) {
+        const token = await getAccessToken();
+        await fetch('/api/auth/session/logout', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: token ? { authorization: `Bearer ${token}` } : undefined,
+        });
+      } else {
+        await apiClient.post('/auth/logout');
+      }
     } catch {
-      // Best effort: never trap a user in a local authenticated state.
+      // Best effort: local logout must never be blocked by network availability.
     } finally {
-      await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
+      await clearSecretTokens();
+      await AsyncStorage.removeItem(USER_KEY);
       useSessionStore.getState().clearUser();
     }
   },
 
   async isLoggedIn(): Promise<boolean> {
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
-    return !!token;
+    if (isWebRuntime()) {
+      return apiClient.bootstrapWebSession();
+    }
+    return Boolean(await getAccessToken());
   },
 
   async hydrateSession(): Promise<void> {
-    const token = await AsyncStorage.getItem(TOKEN_KEY);
-    const cached = await this.getCachedUser();
-    if (token && cached) {
-      useSessionStore.getState().setUser(cached);
+    let authenticated = false;
+    if (isWebRuntime()) {
+      authenticated = await apiClient.bootstrapWebSession();
     } else {
-      useSessionStore.getState().clearUser();
+      authenticated = Boolean(await getAccessToken());
     }
+
+    if (!authenticated) {
+      await AsyncStorage.removeItem(USER_KEY);
+      useSessionStore.getState().clearUser();
+      return;
+    }
+
+    let user = await this.getCachedUser();
+    if (!user) {
+      try {
+        const response = await apiClient.get<{ user: AuthUser }>('/auth/me');
+        user = response.user;
+        await AsyncStorage.setItem(USER_KEY, JSON.stringify(user));
+      } catch {
+        await clearSecretTokens();
+        useSessionStore.getState().clearUser();
+        return;
+      }
+    }
+    useSessionStore.getState().setUser(user);
   },
 
   async getCachedUser(): Promise<AuthUser | null> {

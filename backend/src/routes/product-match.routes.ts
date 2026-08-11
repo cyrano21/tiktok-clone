@@ -32,13 +32,7 @@ interface OrchidyProduct {
   status?: string;
 }
 
-/**
- * Validates that an Orchidy catalog item exists, is published and is still
- * purchasable before ORKY attaches it to a video. Fail-closed: if Orchidy is
- * unreachable or reports anything other than an orderable product, the match
- * is rejected so no invalid product is ever shown on a video.
- */
-async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const url = `${ORCHIDY_BASE_URL.replace(/\/$/, '')}/api/products/${encodeURIComponent(itemId)}`;
   let response: Response;
   try {

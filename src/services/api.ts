@@ -1,5 +1,14 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosResponse } from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  USER_KEY,
+  clearSecretTokens,
+  getAccessToken,
+  getRefreshToken,
+  isWebRuntime,
+  setAccessToken,
+  setRefreshToken,
+} from './authTokenStore';
 
 function resolveBaseUrl(): string {
   const runtimeOverride =
@@ -13,19 +22,40 @@ function resolveBaseUrl(): string {
 }
 
 const BASE_URL = resolveBaseUrl();
-const TOKEN_KEY = '@auth_token';
-const REFRESH_TOKEN_KEY = '@refresh_token';
-const USER_KEY = '@auth_user';
 
 async function clearInvalidSession() {
-  await AsyncStorage.multiRemove([TOKEN_KEY, REFRESH_TOKEN_KEY, USER_KEY]);
-  // Lazy import avoids a static api -> session store -> service dependency cycle.
+  await clearSecretTokens();
+  await AsyncStorage.removeItem(USER_KEY);
   try {
     const { useSessionStore } = await import('@/store/sessionStore');
     useSessionStore.getState().clearUser();
   } catch {
     // Storage cleanup is authoritative even if the UI store is unavailable.
   }
+}
+
+async function refreshAccessToken(): Promise<string> {
+  if (isWebRuntime()) {
+    const response = await axios.post('/api/auth/session/refresh', undefined, {
+      headers: { 'content-type': 'application/json' },
+      withCredentials: true,
+      timeout: 15_000,
+    });
+    const accessToken = String(response.data?.accessToken || '');
+    if (!accessToken) throw new Error('Invalid web refresh response');
+    await setAccessToken(accessToken);
+    return accessToken;
+  }
+
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) throw new Error('No refresh token available');
+  const response = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken }, { timeout: 15_000 });
+  const accessToken = String(response.data?.accessToken || '');
+  const newRefreshToken = String(response.data?.refreshToken || '');
+  if (!accessToken || !newRefreshToken) throw new Error('Invalid refresh response');
+  await setAccessToken(accessToken);
+  await setRefreshToken(newRefreshToken);
+  return accessToken;
 }
 
 class ApiClient {
@@ -40,18 +70,15 @@ class ApiClient {
     this.client = axios.create({
       baseURL: BASE_URL,
       timeout: 30000,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
     });
-
     this.setupInterceptors();
   }
 
   private setupInterceptors(): void {
     this.client.interceptors.request.use(
       async (config) => {
-        const token = await AsyncStorage.getItem(TOKEN_KEY);
+        const token = await getAccessToken();
         if (token && config.headers) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -61,7 +88,6 @@ class ApiClient {
           if (typeof headers.set === 'function') headers.set('Content-Type', undefined);
           else delete headers['Content-Type'];
         }
-
         return config;
       },
       (error) => Promise.reject(error),
@@ -71,8 +97,8 @@ class ApiClient {
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
-        // A failed refresh request itself must never recurse through this interceptor.
-        const isRefreshRequest = typeof originalRequest?.url === 'string' && originalRequest.url.includes('/auth/refresh');
+        const isRefreshRequest =
+          typeof originalRequest?.url === 'string' && originalRequest.url.includes('/auth/refresh');
 
         if (error.response?.status === 401 && originalRequest && !originalRequest._retry && !isRefreshRequest) {
           if (this.isRefreshing) {
@@ -89,16 +115,7 @@ class ApiClient {
           this.isRefreshing = true;
 
           try {
-            const refreshToken = await AsyncStorage.getItem(REFRESH_TOKEN_KEY);
-            if (!refreshToken) throw new Error('No refresh token available');
-
-            const response = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
-            const { accessToken, refreshToken: newRefreshToken } = response.data;
-            if (!accessToken || !newRefreshToken) throw new Error('Invalid refresh response');
-
-            await AsyncStorage.setItem(TOKEN_KEY, accessToken);
-            await AsyncStorage.setItem(REFRESH_TOKEN_KEY, newRefreshToken);
-
+            const accessToken = await refreshAccessToken();
             this.processQueue(null, accessToken);
             originalRequest.headers = originalRequest.headers || {};
             originalRequest.headers.Authorization = `Bearer ${accessToken}`;
@@ -123,6 +140,21 @@ class ApiClient {
       else resolve(token);
     });
     this.failedQueue = [];
+  }
+
+  async bootstrapWebSession(): Promise<boolean> {
+    if (!isWebRuntime()) return Boolean(await getAccessToken());
+    try {
+      await refreshAccessToken();
+      return true;
+    } catch {
+      await clearSecretTokens();
+      return false;
+    }
+  }
+
+  async currentAccessToken(): Promise<string | null> {
+    return getAccessToken();
   }
 
   async get<T>(url: string, config?: AxiosRequestConfig): Promise<T> {
@@ -155,8 +187,7 @@ class ApiClient {
       timeout: 5 * 60 * 1000,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
-          const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-          onProgress(progress);
+          onProgress(Math.round((progressEvent.loaded * 100) / progressEvent.total));
         }
       },
     });
