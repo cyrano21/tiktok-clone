@@ -17,6 +17,8 @@ export type CommerceProduct = Omit<Product, 'variants'> & {
   orderable?: boolean;
   availabilityLabel?: string;
   stockStatus?: string;
+  /** Only Marketplace-approved public video URLs are exposed here. */
+  videos?: string[];
 };
 
 interface OrchidySearchResponse {
@@ -61,6 +63,22 @@ function firstImage(product: any): string[] {
   const image = asText(product?.image || product?.thumbnailUrl || product?.coverUrl);
   if (image && !images.includes(image)) images.unshift(image);
   return images.length > 0 ? images : ['/logo_orky.png'];
+}
+
+function productVideos(product: any): string[] {
+  const values = [
+    ...(Array.isArray(product?.videos) ? product.videos : []),
+    product?.videoUrl,
+  ]
+    .map((entry: any) => {
+      if (typeof entry === 'string') return entry.trim();
+      if (entry && typeof entry === 'object') {
+        return asText(entry.hostedUrl || entry.sourceUrl || entry.url);
+      }
+      return '';
+    })
+    .filter((url: string) => /^https:\/\//i.test(url));
+  return Array.from(new Set(values)).slice(0, 6);
 }
 
 function normalizeSelectedOptions(value: unknown): Record<string, string> | undefined {
@@ -108,14 +126,8 @@ function resolveVariants(product: any): CommerceVariant[] {
     if (!id) return [];
     const named = asText(variant?.title || variant?.name || variant?.label);
     const sku = asText(variant?.sku);
-    // Orchidy variants expose only { sku, price, stock, image }: no color/option
-    // names. Prefer an explicit label, else show a readable reference code
-    // instead of a bare SKU.
     const label = named || (sku ? `Réf. ${sku}` : `Variante ${index + 1}`);
     const imageRaw = variant?.image || variant?.imageUrl || variant?.thumbnailUrl || variant?.thumb;
-    // When the API gives no variant image (Orchidy returns null), fall back to
-    // a real product image so every variant gets a visual swatch. Cycling by
-    // index keeps variants visually distinct.
     const resolvedImage =
       imageRaw
         ? String(imageRaw)
@@ -148,7 +160,18 @@ function resolveCategory(product: any): ProductCategory {
   const raw = asText(product?.category?.slug || product?.categorySlug || product?.category?.name || product?.category).toLowerCase();
   if (raw.includes('beaut')) return 'beauty';
   if (raw.includes('mode') || raw.includes('fashion') || raw.includes('cloth')) return 'fashion';
-  if (raw.includes('tech') || raw.includes('elect') || raw.includes('phone') || raw.includes('audio')) return 'tech';
+  if (
+    raw.includes('tech') ||
+    raw.includes('elect') ||
+    raw.includes('phone') ||
+    raw.includes('audio') ||
+    raw.includes('informatique') ||
+    raw.includes('ordinateur') ||
+    raw.includes('laptop') ||
+    raw.includes('printer') ||
+    raw.includes('imprimante') ||
+    raw.includes('bureau')
+  ) return 'tech';
   if (raw.includes('home') || raw.includes('maison') || raw.includes('deco')) return 'home';
   if (raw.includes('sport') || raw.includes('fitness')) return 'fitness';
   if (raw.includes('access')) return 'accessories';
@@ -162,6 +185,13 @@ function buildExternalUrl(product: any): string {
   return `${base}/product/${encodeURIComponent(slug)}`;
 }
 
+function orchidyCategoryParam(category: ProductCategory): string {
+  // ORKY's historical "tech" bucket maps to the authoritative Marketplace
+  // category that now contains computers, printers and office hardware.
+  if (category === 'tech') return 'informatique-bureau';
+  return category;
+}
+
 export function mapOrchidyProduct(product: any): CommerceProduct {
   const externalId = asText(product?.id || product?._id || product?.slug || crypto.randomUUID());
   const externalSlug = asText(product?.slug || product?.seo?.slug || externalId);
@@ -172,6 +202,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
   const currencyRaw = asText(product?.currency, 'EUR').toUpperCase();
   const currency = currencyRaw === 'EUR' ? '€' : currencyRaw;
   const orderable = product?.orderable !== false && product?.stockStatus !== 'out_of_stock';
+  const videos = productVideos(product);
 
   const mapped: CommerceProduct = {
     id: `orchidy:${externalSlug}`,
@@ -190,7 +221,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     category: resolveCategory(product),
     freeShipping: Boolean(product?.freeShipping || product?.readyToShip || product?.delivery === 'fast'),
     variants: resolveVariants(product),
-    badges: [ORCHIDY_SOURCE.toUpperCase(), ...(orderable ? ['Achetable'] : ['Indisponible']), ...(store.verified ? ['Boutique vérifiée'] : [])],
+    badges: [ORCHIDY_SOURCE.toUpperCase(), ...(orderable ? ['Achetable'] : ['Indisponible']), ...(videos.length ? ['Vidéo'] : []), ...(store.verified ? ['Boutique vérifiée'] : [])],
     onSale: originalPrice > price,
     source: ORCHIDY_SOURCE,
     externalId,
@@ -199,6 +230,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     orderable,
     availabilityLabel: asText(product?.availabilityLabel),
     stockStatus: asText(product?.stockStatus),
+    videos,
   };
 
   productCache.set(mapped.id, mapped);
@@ -217,7 +249,7 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   params.set('page', String(query.page ?? 1));
   params.set('sort', query.sort ?? (query.query ? 'relevance' : 'newest'));
   if (query.query) params.set('q', query.query);
-  if (query.category && query.category !== 'all') params.set('category', query.category);
+  if (query.category && query.category !== 'all') params.set('category', orchidyCategoryParam(query.category));
 
   try {
     const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
