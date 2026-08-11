@@ -43,7 +43,9 @@ function safeOptions(value: unknown): Record<string, string> | undefined {
 
 function publicVariant(value: unknown) {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  const id = text(source.id || source._id || source.sku || source.externalId, 300);
+  // externalId may be the upstream supplier/provider id. Only canonical public
+  // variant identifiers can cross the ORKY browser boundary.
+  const id = text(source.id || source._id || source.sku, 300);
   if (!id) return null;
   const stockValue = source.stock ?? source.quantity;
   const stock = Number(stockValue);
