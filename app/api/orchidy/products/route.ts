@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { NextRequest, NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
@@ -41,11 +43,26 @@ function safeOptions(value: unknown): Record<string, string> | undefined {
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
-function publicVariant(value: unknown) {
-  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
-  // externalId may be the upstream supplier/provider id. Only canonical public
-  // variant identifiers can cross the ORKY browser boundary.
-  const id = text(source.id || source._id || source.sku, 300);
+function opaqueVariantId(productPublicId: string, source: Record<string, unknown>) {
+  const alreadyOpaque = text(source.id, 300);
+  if (/^v_[a-f0-9]{24}$/i.test(alreadyOpaque)) return alreadyOpaque;
+  const sourceKey = text(
+    source.sourceVariantId || source.id || source._id || source.sku || source.externalId,
+    300,
+  );
+  if (!productPublicId || !sourceKey) return '';
+  return `v_${createHash('sha256')
+    .update(`${productPublicId}:${sourceKey}`)
+    .digest('hex')
+    .slice(0, 24)}`;
+}
+
+function publicVariant(value: unknown, productPublicId: string) {
+  const source =
+    value && typeof value === 'object'
+      ? (value as Record<string, unknown>)
+      : {};
+  const id = opaqueVariantId(productPublicId, source);
   if (!id) return null;
   const stockValue = source.stock ?? source.quantity;
   const stock = Number(stockValue);
@@ -68,8 +85,18 @@ function publicVariant(value: unknown) {
  * or internal publication metadata to the browser.
  */
 function publicProduct(value: unknown) {
-  const source = value && typeof value === 'object' ? (value as Record<string, any>) : {};
-  const id = text(source.id || source._id || source.catalogProductOriginId || source.slug, 300);
+  const source =
+    value && typeof value === 'object'
+      ? (value as Record<string, any>)
+      : {};
+  const id = text(
+    source.catalogProductOriginId ||
+      source.id ||
+      source._id ||
+      source.publishedItemId ||
+      source.slug,
+    300,
+  );
   if (!id) return null;
   const images = Array.from(
     new Set(
@@ -87,19 +114,23 @@ function publicProduct(value: unknown) {
         .map((entry: any) =>
           typeof entry === 'string'
             ? httpsUrl(entry)
-            : httpsUrl(entry?.hostedUrl || entry?.sourceUrl || entry?.url),
+            : httpsUrl(
+                entry?.hostedUrl || entry?.sourceUrl || entry?.url,
+              ),
         )
         .filter((entry): entry is string => Boolean(entry)),
     ),
   ).slice(0, 6);
   const variants = (Array.isArray(source.variants) ? source.variants : [])
-    .map(publicVariant)
+    .map((variant: unknown) => publicVariant(variant, id))
     .filter(Boolean)
     .slice(0, 100);
   const storeSource =
     source.store && typeof source.store === 'object' ? source.store : null;
   const categorySource =
-    source.category && typeof source.category === 'object' ? source.category : null;
+    source.category && typeof source.category === 'object'
+      ? source.category
+      : null;
 
   return {
     _id: id,
@@ -111,7 +142,9 @@ function publicProduct(value: unknown) {
     images,
     image: images[0] || null,
     price: number(source.price ?? source.priceClient ?? source.sellingPrice),
-    priceClient: number(source.priceClient ?? source.price ?? source.sellingPrice),
+    priceClient: number(
+      source.priceClient ?? source.price ?? source.sellingPrice,
+    ),
     compareAtPrice:
       source.compareAtPrice == null && source.originalPrice == null
         ? null
@@ -126,7 +159,8 @@ function publicProduct(value: unknown) {
           slug: text(source.categorySlug || source.category, 160) || null,
           name: null,
         },
-    categorySlug: text(source.categorySlug || categorySource?.slug, 160) || null,
+    categorySlug:
+      text(source.categorySlug || categorySource?.slug, 160) || null,
     variants,
     stock:
       Number.isFinite(Number(source.stock)) && Number(source.stock) >= 0
@@ -143,7 +177,10 @@ function publicProduct(value: unknown) {
     videoPoster: httpsUrl(source.videoPoster),
     soldCount: Math.max(0, Math.floor(number(source.soldCount))),
     rating: Math.max(0, Math.min(5, number(source.rating))),
-    reviewCount: Math.max(0, Math.floor(number(source.reviewCount || source.reviewsCount))),
+    reviewCount: Math.max(
+      0,
+      Math.floor(number(source.reviewCount || source.reviewsCount)),
+    ),
     featured: source.featured === true,
     store: storeSource
       ? {
@@ -157,7 +194,11 @@ function publicProduct(value: unknown) {
   };
 }
 
-function copySearchParam(source: URLSearchParams, target: URLSearchParams, key: string) {
+function copySearchParam(
+  source: URLSearchParams,
+  target: URLSearchParams,
+  key: string,
+) {
   const value = source.get(key);
   if (value !== null && value !== '') target.set(key, value);
 }
@@ -171,9 +212,15 @@ function buildUpstream(incoming: URLSearchParams, endpoint: string) {
   copySearchParam(incoming, upstream.searchParams, 'sort');
   copySearchParam(incoming, upstream.searchParams, 'page');
   copySearchParam(incoming, upstream.searchParams, 'limit');
-  if (!upstream.searchParams.has('limit')) upstream.searchParams.set('limit', '24');
-  if (!upstream.searchParams.has('sort')) upstream.searchParams.set('sort', 'newest');
-  if (!upstream.searchParams.has('market')) upstream.searchParams.set('market', 'FR');
+  if (!upstream.searchParams.has('limit')) {
+    upstream.searchParams.set('limit', '24');
+  }
+  if (!upstream.searchParams.has('sort')) {
+    upstream.searchParams.set('sort', 'newest');
+  }
+  if (!upstream.searchParams.has('market')) {
+    upstream.searchParams.set('market', 'FR');
+  }
   return upstream;
 }
 
@@ -183,13 +230,18 @@ async function fetchCatalog(url: URL) {
     headers: { accept: 'application/json' },
     cache: 'no-store',
   });
-  const payload = (await response.json().catch(() => null)) as ProductResponse | null;
+  const payload = (await response.json().catch(() => null)) as
+    | ProductResponse
+    | null;
   return { response, payload };
 }
 
 export async function GET(request: NextRequest) {
   const incoming = request.nextUrl.searchParams;
-  const preferred = buildUpstream(incoming, '/api/integrations/orky/products');
+  const preferred = buildUpstream(
+    incoming,
+    '/api/integrations/orky/products',
+  );
 
   try {
     let upstream = preferred;
@@ -214,9 +266,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const products = (Array.isArray((payload as any).products)
-      ? (payload as any).products
-      : []
+    const products = (
+      Array.isArray((payload as any).products)
+        ? (payload as any).products
+        : []
     )
       .map(publicProduct)
       .filter(Boolean);
