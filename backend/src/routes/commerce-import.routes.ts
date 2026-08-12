@@ -55,7 +55,6 @@ function validateGeneratedMediaUrl(raw: string): URL {
 async function fetchGeneratedVideo(url: URL): Promise<{ stream: Readable; mimetype: string }> {
   const response = await fetch(url, {
     redirect: 'manual',
-    cache: 'no-store',
     signal: AbortSignal.timeout(20_000),
   });
   if (response.status >= 300 && response.status < 400) {

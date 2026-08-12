@@ -38,7 +38,6 @@ export async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: 
   try {
     response = await fetch(url, {
       headers: { accept: 'application/json' },
-      cache: 'no-store',
       signal: AbortSignal.timeout(8_000),
     });
   } catch {
