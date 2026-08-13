@@ -1,4 +1,3 @@
-import { describe, expect, it } from 'vitest';
 import { getPublicProductImages, isOrchidyBridgeProductUsable } from './orchidyCatalogIntegrity';
 
 const product = {
@@ -28,6 +27,9 @@ describe('Orchidy catalog integrity', () => {
   });
 
   it('keeps only unique remote images', () => {
-    expect(getPublicProductImages({ images: ['https://cdn.example.com/a.jpg', 'https://cdn.example.com/a.jpg', '/local.jpg'], image: 'https://cdn.example.com/b.jpg' })).toHaveLength(2);
+    expect(getPublicProductImages({
+      images: ['https://cdn.example.com/a.jpg', 'https://cdn.example.com/a.jpg', '/local.jpg'],
+      image: 'https://cdn.example.com/b.jpg',
+    })).toHaveLength(2);
   });
 });
