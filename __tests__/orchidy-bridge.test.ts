@@ -122,9 +122,13 @@ describe('Orchidy product bridge', () => {
   it('maps every ORKY shelf to the canonical Marketplace taxonomy', () => {
     expect(resolveOrchidyCategoryFilter('fashion')).toContain('mode-femme');
     expect(resolveOrchidyCategoryFilter('fashion')).toContain('mode-homme');
+    expect(resolveOrchidyCategoryFilter('fashion')).toContain('mode-accessoires');
     expect(resolveOrchidyCategoryFilter('informatique')).toContain('informatique-bureau');
+    expect(resolveOrchidyCategoryFilter('informatique')).toContain('electronique');
     expect(resolveOrchidyCategoryFilter('home')).toContain('maison-decoration');
-    expect(resolveOrchidyCategoryFilter('beauty')).toBe('beaute-soins-personnels');
+    expect(resolveOrchidyCategoryFilter('home')).toContain('maison-deco');
+    expect(resolveOrchidyCategoryFilter('beauty')).toContain('beaute-soins');
     expect(resolveOrchidyCategoryFilter('fitness')).toContain('sport-fitness');
+    expect(resolveOrchidyCategoryFilter('fitness')).toContain('sports-loisirs');
   });
 });
