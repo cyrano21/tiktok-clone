@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { isOrchidyBridgeProductUsable } from '@/src/services/orchidyCatalogIntegrity';
+
 export const dynamic = 'force-dynamic';
 
 type ProductResponse = Record<string, unknown>;
@@ -38,10 +40,19 @@ export async function GET(
         { status: 502 },
       );
     }
+
+    const product = (payload as any).product ?? payload;
+    if (!isOrchidyBridgeProductUsable(product, market)) {
+      return NextResponse.json(
+        { success: false, source: 'orchidy', error: 'ORCHIDY_PRODUCT_NOT_PUBLISHABLE' },
+        { status: 404 },
+      );
+    }
+
     return NextResponse.json({
       success: true,
       source: 'orchidy',
-      product: (payload as any).product ?? payload,
+      product,
     });
   } catch {
     return NextResponse.json(
