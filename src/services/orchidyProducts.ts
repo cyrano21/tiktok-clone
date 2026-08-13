@@ -47,6 +47,20 @@ const ORCHIDY_SOURCE = 'orchidy' as const;
 // Missing configuration must never manufacture commercial products.
 const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
+const ORCHIDY_CATEGORY_FILTERS: Partial<Record<ProductCategory, string[]>> = {
+  fashion: ['mode-femme', 'mode-homme', 'chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres'],
+  beauty: ['beaute-soins-personnels'],
+  informatique: ['informatique-bureau', 'high-tech-gadgets', 'telephonie-accessoires', 'audio-photo-createurs', 'gaming-loisirs-numeriques'],
+  home: ['maison-decoration', 'cuisine-repas', 'rangement-organisation', 'nettoyage-entretien', 'bricolage-outils', 'jardin-exterieur', 'eclairage-energie-domestique', 'eco-maison-reutilisable'],
+  fitness: ['sport-fitness', 'camping-plage-plein-air', 'bien-etre-confort'],
+  accessories: ['chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres', 'telephonie-accessoires'],
+};
+
+export function resolveOrchidyCategoryFilter(category: ProductCategory): string | undefined {
+  const slugs = ORCHIDY_CATEGORY_FILTERS[category];
+  return slugs?.join(',');
+}
+
 function asNumber(value: unknown, fallback = 0): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -55,6 +69,56 @@ function asNumber(value: unknown, fallback = 0): number {
 function asText(value: unknown, fallback = ''): string {
   const text = String(value ?? '').trim();
   return text || fallback;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'");
+}
+
+function unwrapSeoDescription(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith('{') || !/"(?:longDescription|shortDescription|description)"/.test(trimmed)) {
+    return value;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    for (const key of ['longDescription', 'shortDescription', 'description']) {
+      const candidate = parsed[key];
+      if (typeof candidate === 'string' && candidate.trim()) return candidate;
+    }
+  } catch {
+    // The Marketplace normally unwraps these blobs. Keep this client-side
+    // guard for a partially migrated record or a stale deployment.
+  }
+
+  return value;
+}
+
+export function cleanCommerceDescription(value: unknown): string {
+  const unwrapped = unwrapSeoDescription(String(value ?? ''));
+  return decodeHtmlEntities(unwrapped)
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:p|div|ul|ol|h[1-6])>/gi, '\n')
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\\u0026/gi, '&')
+    .replace(/\\u003c/gi, '<')
+    .replace(/\\u003e/gi, '>')
+    .replace(/\r\n/g, '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function firstImage(product: any): string[] {
@@ -161,6 +225,19 @@ function resolveCategory(product: any): ProductCategory {
 
 function buildExternalUrl(product: any): string {
   const base = (process.env.NEXT_PUBLIC_ORCHIDY_BASE_URL || 'https://orchidy.fr').replace(/\/$/, '');
+  const canonicalPath = asText(product?.publicUrl || product?.marketplaceUrl);
+  if (canonicalPath.startsWith('/')) return `${base}${canonicalPath}`;
+  if (canonicalPath) {
+    try {
+      const candidate = new URL(canonicalPath);
+      const expected = new URL(base);
+      if (candidate.origin === expected.origin && candidate.pathname.startsWith('/product/')) {
+        return candidate.toString();
+      }
+    } catch {
+      // Fall back to the canonical slug below.
+    }
+  }
   const slug = asText(product?.slug || product?.seo?.slug || product?._id || product?.id);
   if (!slug) return base;
   return `${base}/product/${encodeURIComponent(slug)}`;
@@ -183,7 +260,7 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
   const mapped: CommerceProduct = {
     id: `orchidy:${externalSlug}`,
     title: asText(product?.title || product?.name, 'Produit Orchidy'),
-    description: asText(product?.description, 'Produit disponible sur Orchidy.'),
+    description: cleanCommerceDescription(product?.description) || 'Produit disponible sur Orchidy.',
     price,
     originalPrice,
     currency,
@@ -227,7 +304,10 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   params.set('page', String(query.page ?? 1));
   params.set('sort', query.sort ?? (query.query ? 'relevance' : 'newest'));
   if (query.query) params.set('q', query.query);
-  if (query.category && query.category !== 'all') params.set('category', query.category === 'informatique' || query.category === 'tech' ? 'informatique-bureau' : query.category);
+  if (query.category && query.category !== 'all') {
+    const categoryFilter = resolveOrchidyCategoryFilter(query.category);
+    if (categoryFilter) params.set('category', categoryFilter);
+  }
 
   try {
     const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });

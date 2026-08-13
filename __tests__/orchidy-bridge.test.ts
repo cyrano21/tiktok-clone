@@ -1,4 +1,4 @@
-import { mapOrchidyProduct } from '../src/services/orchidyProducts';
+import { cleanCommerceDescription, mapOrchidyProduct, resolveOrchidyCategoryFilter } from '../src/services/orchidyProducts';
 
 describe('Orchidy product bridge', () => {
   it('maps the public catalog contract and links to the canonical product page', () => {
@@ -84,5 +84,47 @@ describe('Orchidy product bridge', () => {
 
     expect(product.orderable).toBe(false);
     expect(product.badges).toContain('Indisponible');
+  });
+
+  it('renders supplier HTML as readable text instead of exposing tags', () => {
+    const product = mapOrchidyProduct({
+      _id: 'power-bank-42',
+      slug: 'power-bank-solaire',
+      title: 'Power bank solaire',
+      description: '<p>Autonomie prolongée.</p><ul><li><strong>Charge rapide :</strong> USB-C.</li><li>Étanche.</li></ul>',
+      price: 25.99,
+      currency: 'EUR',
+    });
+
+    expect(product.description).toBe('Autonomie prolongée.\n• Charge rapide : USB-C.\n• Étanche.');
+    expect(product.description).not.toMatch(/<\/?(?:p|ul|li|strong)>/);
+  });
+
+  it('unwraps an SEO JSON description and honors an Orchidy canonical URL', () => {
+    expect(cleanCommerceDescription(JSON.stringify({
+      shortDescription: 'Résumé court',
+      longDescription: '<p>Description complète.</p>',
+    }))).toBe('Description complète.');
+
+    const product = mapOrchidyProduct({
+      _id: 'origin-42',
+      slug: 'legacy-slug',
+      publicUrl: '/product/canonical-slug-origin-42',
+      title: 'Produit canonique',
+      description: 'Description.',
+      price: 10,
+      currency: 'EUR',
+    });
+
+    expect(product.externalUrl).toBe('https://orchidy.fr/product/canonical-slug-origin-42');
+  });
+
+  it('maps every ORKY shelf to the canonical Marketplace taxonomy', () => {
+    expect(resolveOrchidyCategoryFilter('fashion')).toContain('mode-femme');
+    expect(resolveOrchidyCategoryFilter('fashion')).toContain('mode-homme');
+    expect(resolveOrchidyCategoryFilter('informatique')).toContain('informatique-bureau');
+    expect(resolveOrchidyCategoryFilter('home')).toContain('maison-decoration');
+    expect(resolveOrchidyCategoryFilter('beauty')).toBe('beaute-soins-personnels');
+    expect(resolveOrchidyCategoryFilter('fitness')).toContain('sport-fitness');
   });
 });
