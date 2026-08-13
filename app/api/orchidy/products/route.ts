@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { isOrchidyBridgeProductUsable } from '@/src/services/orchidyCatalogIntegrity';
+
 export const dynamic = 'force-dynamic';
 
 type ProductResponse = Record<string, unknown>;
@@ -19,8 +21,6 @@ function copySearchParam(source: URLSearchParams, target: URLSearchParams, key: 
 
 export async function GET(request: NextRequest) {
   const incoming = request.nextUrl.searchParams;
-  // ORKY consumes the dedicated read-only projection. It never reads the
-  // Marketplace live-product fallback, which could expose a non-published item.
   const upstream = new URL('/api/integrations/orky/products', resolveOrchidyBaseUrl());
 
   copySearchParam(incoming, upstream.searchParams, 'q');
@@ -42,7 +42,6 @@ export async function GET(request: NextRequest) {
       headers: {
         accept: 'application/json',
       },
-      // The shop should reflect the current Orchidy catalog, not a stale Next cache.
       cache: 'no-store',
     });
 
@@ -60,6 +59,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const market = upstream.searchParams.get('market') || 'FR';
+    const upstreamProducts = Array.isArray((payload as any).products)
+      ? (payload as any).products
+      : [];
+    const products = upstreamProducts.filter((product: unknown) =>
+      isOrchidyBridgeProductUsable(product, market),
+    );
+
     return NextResponse.json({
       success: true,
       source: 'orchidy',
@@ -67,7 +74,7 @@ export async function GET(request: NextRequest) {
         baseUrl: resolveOrchidyBaseUrl(),
         endpoint: '/api/integrations/orky/products',
       },
-      products: Array.isArray((payload as any).products) ? (payload as any).products : [],
+      products,
       pagination: (payload as any).pagination ?? null,
       filters: (payload as any).filters ?? null,
       query: (payload as any).query ?? incoming.get('q') ?? '',
