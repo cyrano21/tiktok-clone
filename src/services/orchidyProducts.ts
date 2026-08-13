@@ -48,12 +48,12 @@ const ORCHIDY_SOURCE = 'orchidy' as const;
 const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
 const ORCHIDY_CATEGORY_FILTERS: Partial<Record<ProductCategory, string[]>> = {
-  fashion: ['mode-femme', 'mode-homme', 'chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres'],
-  beauty: ['beaute-soins-personnels'],
-  informatique: ['informatique-bureau', 'high-tech-gadgets', 'telephonie-accessoires', 'audio-photo-createurs', 'gaming-loisirs-numeriques'],
-  home: ['maison-decoration', 'cuisine-repas', 'rangement-organisation', 'nettoyage-entretien', 'bricolage-outils', 'jardin-exterieur', 'eclairage-energie-domestique', 'eco-maison-reutilisable'],
-  fitness: ['sport-fitness', 'camping-plage-plein-air', 'bien-etre-confort'],
-  accessories: ['chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres', 'telephonie-accessoires'],
+  fashion: ['mode-femme', 'mode-homme', 'mode-accessoires', 'chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux', 'bijoux-montres'],
+  beauty: ['beaute-soins', 'beaute-soins-personnels'],
+  informatique: ['informatique-bureau', 'electronique', 'high-tech-gadgets', 'telephonie-accessoires', 'audio-photo-createurs', 'gaming-loisirs-numeriques'],
+  home: ['maison-deco', 'maison-decoration', 'cuisine', 'cuisine-repas', 'rangement-organisation', 'nettoyage-entretien', 'bricolage-outils', 'jardin-exterieur', 'eclairage-energie-domestique', 'eco-maison-reutilisable'],
+  fitness: ['sports-loisirs', 'sport-fitness', 'camping-plage-plein-air', 'bien-etre-confort'],
+  accessories: ['accessoires', 'mode-accessoires', 'chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux', 'bijoux-montres', 'telephonie-accessoires'],
 };
 
 export function resolveOrchidyCategoryFilter(category: ProductCategory): string | undefined {
