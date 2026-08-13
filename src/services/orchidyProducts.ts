@@ -47,6 +47,20 @@ const ORCHIDY_SOURCE = 'orchidy' as const;
 // Missing configuration must never manufacture commercial products.
 const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
+const ORCHIDY_CATEGORY_FILTERS: Partial<Record<ProductCategory, string[]>> = {
+  fashion: ['mode-femme', 'mode-homme', 'chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres'],
+  beauty: ['beaute-soins-personnels'],
+  informatique: ['informatique-bureau', 'high-tech-gadgets', 'telephonie-accessoires', 'audio-photo-createurs', 'gaming-loisirs-numeriques'],
+  home: ['maison-decoration', 'cuisine-repas', 'rangement-organisation', 'nettoyage-entretien', 'bricolage-outils', 'jardin-exterieur', 'eclairage-energie-domestique', 'eco-maison-reutilisable'],
+  fitness: ['sport-fitness', 'camping-plage-plein-air', 'bien-etre-confort'],
+  accessories: ['chaussures-accessoires', 'sacs-bagages-voyage', 'bijoux-montres', 'telephonie-accessoires'],
+};
+
+export function resolveOrchidyCategoryFilter(category: ProductCategory): string | undefined {
+  const slugs = ORCHIDY_CATEGORY_FILTERS[category];
+  return slugs?.join(',');
+}
+
 function asNumber(value: unknown, fallback = 0): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -290,7 +304,10 @@ export async function getCommerceProducts(query: ProductQuery = {}): Promise<Com
   params.set('page', String(query.page ?? 1));
   params.set('sort', query.sort ?? (query.query ? 'relevance' : 'newest'));
   if (query.query) params.set('q', query.query);
-  if (query.category && query.category !== 'all') params.set('category', query.category === 'informatique' || query.category === 'tech' ? 'informatique-bureau' : query.category);
+  if (query.category && query.category !== 'all') {
+    const categoryFilter = resolveOrchidyCategoryFilter(query.category);
+    if (categoryFilter) params.set('category', categoryFilter);
+  }
 
   try {
     const response = await fetch(`/api/orchidy/products?${params.toString()}`, { headers: { accept: 'application/json' }, cache: 'no-store' });
