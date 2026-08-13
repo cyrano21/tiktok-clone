@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { isOrchidyBridgeProductUsable } from '@/src/services/orchidyCatalogIntegrity';
+import { isOrchidyBridgeProductUsable } from '@/services/orchidyCatalogIntegrity';
 
 export const dynamic = 'force-dynamic';
 
