@@ -14,6 +14,9 @@ export const metadata: Metadata = {
     title: 'ORKY',
     statusBarStyle: 'black-translucent',
   },
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
   openGraph: {
     title: 'ORKY by Orchidy',
     description: 'Feed vidéo, studio de création, live, shop, modération et analytics.',
