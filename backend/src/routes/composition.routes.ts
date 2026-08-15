@@ -104,7 +104,11 @@ export async function compositionRoutes(app: FastifyInstance) {
       return reply.status(415).send({ error: 'UNSUPPORTED_MEDIA_TYPE', message: 'Expected multipart/form-data' });
     }
 
-    const { files, values } = await req.saveRequestFiles({
+    // ORKY currently uses @fastify/multipart v8. In that version
+    // saveRequestFiles() returns the saved-file array; non-file fields live on
+    // each saved file's `fields` object. The client deliberately appends every
+    // metadata field before the first file so those values are complete here.
+    const files = await req.saveRequestFiles({
       limits: {
         fileSize: 100 * 1024 * 1024,
         files: 8,
@@ -117,17 +121,18 @@ export async function compositionRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'MEDIA_REQUIRED', message: 'At least one composition source is required' });
     }
 
+    const values = (files[0].fields || {}) as Record<string, any>;
     const metadata = metadataSchema.parse({
-      title: savedValue(values as Record<string, any>, 'title') || undefined,
-      description: savedValue(values as Record<string, any>, 'description') ?? '',
-      visibility: savedValue(values as Record<string, any>, 'visibility') || 'public',
-      allowDuet: parseBoolean(savedValue(values as Record<string, any>, 'allowDuet'), true),
-      allowStitch: parseBoolean(savedValue(values as Record<string, any>, 'allowStitch'), true),
-      allowComment: parseBoolean(savedValue(values as Record<string, any>, 'allowComment'), true),
+      title: savedValue(values, 'title') || undefined,
+      description: savedValue(values, 'description') ?? '',
+      visibility: savedValue(values, 'visibility') || 'public',
+      allowDuet: parseBoolean(savedValue(values, 'allowDuet'), true),
+      allowStitch: parseBoolean(savedValue(values, 'allowStitch'), true),
+      allowComment: parseBoolean(savedValue(values, 'allowComment'), true),
     });
     if (metadata.visibility !== 'public') return privateVisibilityNotReady(reply);
 
-    const composition = parseComposition(savedValue(values as Record<string, any>, 'composition'));
+    const composition = parseComposition(savedValue(values, 'composition'));
     const duplicatedFields = new Set<string>();
     const seenFields = new Set<string>();
     for (const file of files) {
