@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { authRoutes } from "./auth.routes";
 import { feedRoutes } from "./feed.routes";
 import { videoRoutes } from "./video.routes";
+import { compositionRoutes } from "./composition.routes";
 import { commerceImportRoutes } from "./commerce-import.routes";
 import { userRoutes } from "./user.routes";
 import { commentRoutes } from "./comment.routes";
@@ -24,6 +25,8 @@ import { mediaRoutes } from "./media.routes";
 export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
   app.register(feedRoutes, { prefix: "/v1/feed" });
+  // Register the static /compose endpoint before generic /:id video routes.
+  app.register(compositionRoutes, { prefix: "/v1/videos" });
   app.register(videoRoutes, { prefix: "/v1/videos" });
   app.register(commerceImportRoutes, { prefix: "/v1/commerce-imports" });
   app.register(mediaRoutes, { prefix: "/v1/media" });
