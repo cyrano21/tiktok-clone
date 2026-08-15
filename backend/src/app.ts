@@ -59,7 +59,16 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
-  await app.register(multipart, { limits: { fileSize: 104857600, files: 1 } });
+  // Single-media uploads still use one file. The advanced timeline may upload
+  // up to eight unique source files; per-file size remains capped at 100 MB.
+  await app.register(multipart, {
+    limits: {
+      fileSize: 104857600,
+      files: 8,
+      fields: 32,
+      parts: 48,
+    },
+  });
   await app.register(websocket);
   await setupRateLimiter(app);
 
