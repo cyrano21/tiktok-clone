@@ -59,16 +59,10 @@ export async function buildApp(): Promise<FastifyInstance> {
     },
   });
 
-  // Single-media uploads still use one file. The advanced timeline may upload
-  // up to eight unique source files; per-file size remains capped at 100 MB.
-  await app.register(multipart, {
-    limits: {
-      fileSize: 104857600,
-      files: 8,
-      fields: 32,
-      parts: 48,
-    },
-  });
+  // The ordinary /v1/videos upload consumes exactly one file with req.file().
+  // The timeline endpoint overrides this limit per-request when it deliberately
+  // consumes every source with req.saveRequestFiles().
+  await app.register(multipart, { limits: { fileSize: 104857600, files: 1 } });
   await app.register(websocket);
   await setupRateLimiter(app);
 
