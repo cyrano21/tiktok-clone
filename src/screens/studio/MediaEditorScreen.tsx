@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
 import { useStudioStore } from '@/store/studioStore';
-import { WebMediaEditor, EditorResult } from '@/components/media/WebMediaEditor';
+import { AdvancedMediaEditor } from '@/components/media/AdvancedMediaEditor';
+import type { AdvancedEditorResult } from '@/components/media/AdvancedMediaEditor.types';
 import { buildCaption, copyToClipboard, openTikTokUpload, downloadMedia } from '@/services/tiktokPublish';
 import { studioService } from '@/services/studioService';
 import { useTikTokConnect } from '@/hooks/useTikTokConnect';
@@ -30,7 +31,7 @@ function absolutePublicMediaUrl(url: string | undefined): string | undefined {
   return url;
 }
 
-function filenameFor(blob: Blob, type: EditorResult['type']) {
+function filenameFor(blob: Blob, type: 'video' | 'image') {
   if (blob.type === 'video/mp4') return `upload-${Date.now()}.mp4`;
   if (blob.type === 'video/webm') return `upload-${Date.now()}.webm`;
   if (blob.type === 'video/quicktime') return `upload-${Date.now()}.mov`;
@@ -51,7 +52,7 @@ export const MediaEditorScreen: React.FC = () => {
   const [product, setProduct] = useState<CommerceProduct | null>(null);
   const [productLoading, setProductLoading] = useState(Boolean(productId));
   const [productError, setProductError] = useState<string | null>(null);
-  const [edited, setEdited] = useState<EditorResult | null>(null);
+  const [edited, setEdited] = useState<AdvancedEditorResult | null>(null);
   const [caption, setCaption] = useState('');
   const [published, setPublished] = useState(false);
   const [publishedSourceUrl, setPublishedSourceUrl] = useState<string | null>(null);
@@ -104,23 +105,32 @@ export const MediaEditorScreen: React.FC = () => {
     setPublishError(null);
 
     try {
-      const sourceResponse = await fetch(edited.sourceUrl);
-      if (!sourceResponse.ok) throw new Error(`Impossible de lire le média (${sourceResponse.status})`);
-      const blob = await sourceResponse.blob();
-      if (!blob.size) throw new Error('Le média exporté est vide.');
-
-      const video = await studioService.publishMedia(blob, {
-        filename: filenameFor(blob, edited.type),
-        description: caption,
-        visibility: 'public',
-        allowComment: true,
-        allowDuet: true,
-        allowStitch: true,
-        trimStart: edited.trimStart,
-        trimEnd: edited.trimEnd,
-        overlayText: edited.overlayText,
-        filters: edited.filters,
-      });
+      const video = edited.mode === 'timeline'
+        ? await studioService.publishComposition(edited.assets, edited.composition, {
+            description: caption,
+            visibility: 'public',
+            allowComment: true,
+            allowDuet: true,
+            allowStitch: true,
+          })
+        : await (async () => {
+            const sourceResponse = await fetch(edited.sourceUrl);
+            if (!sourceResponse.ok) throw new Error(`Impossible de lire le média (${sourceResponse.status})`);
+            const blob = await sourceResponse.blob();
+            if (!blob.size) throw new Error('Le média exporté est vide.');
+            return studioService.publishMedia(blob, {
+              filename: filenameFor(blob, edited.type),
+              description: caption,
+              visibility: 'public',
+              allowComment: true,
+              allowDuet: true,
+              allowStitch: true,
+              trimStart: edited.trimStart,
+              trimEnd: edited.trimEnd,
+              overlayText: edited.overlayText,
+              filters: edited.filters,
+            });
+          })();
 
       let linked = false;
       if (product && canonicalCatalogId) {
@@ -244,8 +254,8 @@ export const MediaEditorScreen: React.FC = () => {
       <View style={styles.header}><TouchableOpacity onPress={() => nav.back()}><Text style={styles.backIcon}>←</Text></TouchableOpacity><Text style={styles.headerTitle}>{product ? 'Vidéo produit Orchidy' : 'Studio création'}</Text><View style={styles.placeholder} /></View>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {product ? <View style={styles.productBanner}><Text style={styles.productBannerText} numberOfLines={1}>🛍️ {product.title}</Text><Text style={styles.productBannerSub}>Cette vidéo sera reliée au catalogue Orchidy après publication réussie.</Text></View> : null}
-        <WebMediaEditor productMode={Boolean(product)} onExport={setEdited} />
-        {edited ? <View style={styles.publishBlock}><Text style={styles.sectionLabel}>Légende</Text><TextInput style={styles.captionInput} placeholder="Écris une légende…" placeholderTextColor={tokens.colors.text.tertiary} value={caption} onChangeText={setCaption} multiline maxLength={5000} />{publishError ? <Text style={styles.publishError}>{publishError}</Text> : null}<TouchableOpacity style={[styles.publishBtn, publishingInApp && styles.btnDisabled]} onPress={() => void handlePublish()} disabled={publishingInApp}><Text style={styles.publishBtnText}>{publishingInApp ? 'Traitement et envoi…' : product ? 'Publier et relier au produit' : 'Publier'}</Text></TouchableOpacity><Text style={styles.processingHint}>Le serveur normalise le média, génère la miniature, persiste la vidéo puis crée la liaison produit seulement après succès.</Text></View> : null}
+        <AdvancedMediaEditor productMode={Boolean(product)} onExport={setEdited} />
+        {edited ? <View style={styles.publishBlock}><Text style={styles.sectionLabel}>Légende</Text><TextInput style={styles.captionInput} placeholder="Écris une légende…" placeholderTextColor={tokens.colors.text.tertiary} value={caption} onChangeText={setCaption} multiline maxLength={5000} />{publishError ? <Text style={styles.publishError}>{publishError}</Text> : null}<TouchableOpacity style={[styles.publishBtn, publishingInApp && styles.btnDisabled]} onPress={() => void handlePublish()} disabled={publishingInApp}><Text style={styles.publishBtnText}>{publishingInApp ? 'Rendu et envoi…' : product ? 'Publier et relier au produit' : 'Publier'}</Text></TouchableOpacity><Text style={styles.processingHint}>{edited.mode === 'timeline' ? `Le serveur assemblera ${edited.composition.clips.length} clip${edited.composition.clips.length > 1 ? 's' : ''} avec FFmpeg, normalisera le MP4 vertical, générera la miniature puis persistera la vidéo.` : 'Le serveur normalise le média, génère la miniature et persiste la vidéo avant de confirmer la publication.'}</Text></View> : null}
       </ScrollView>
     </View>
   );
