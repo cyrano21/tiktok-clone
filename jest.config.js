@@ -11,7 +11,7 @@ module.exports = {
     '^react-native-video$': '<rootDir>/src/mocks/react-native-video.web.tsx',
   },
   setupFiles: ['<rootDir>/jest.setup.ts'],
-  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/.next/', '<rootDir>/e2e/'],
+  testPathIgnorePatterns: ['<rootDir>/node_modules/', '<rootDir>/.next/', '<rootDir>/e2e/', '<rootDir>/backend/'],
   modulePathIgnorePatterns: ['<rootDir>/.next/'],
   transformIgnorePatterns: ['<rootDir>/node_modules/(?!(react-native|react-native-web)/)'],
   transform: {
