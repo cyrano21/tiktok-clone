@@ -94,7 +94,12 @@ function privateVisibilityNotReady(reply: FastifyReply) {
 }
 
 export async function compositionRoutes(app: FastifyInstance) {
-  app.post('/compose', { preHandler: authMiddleware }, async (req: FastifyRequest, reply: FastifyReply) => {
+  app.post('/compose', {
+    preHandler: authMiddleware,
+    // The media service enforces 400 MB aggregate source bytes. This slightly
+    // higher request cap leaves room for multipart boundaries and metadata.
+    bodyLimit: 420 * 1024 * 1024,
+  }, async (req: FastifyRequest, reply: FastifyReply) => {
     if (!req.isMultipart()) {
       return reply.status(415).send({ error: 'UNSUPPORTED_MEDIA_TYPE', message: 'Expected multipart/form-data' });
     }
