@@ -8,6 +8,7 @@ export interface TrendSignal {
   sourceSignalId?: string;
   sourceApp: 'orky';
   sourcePlatform: TrendSignalSource;
+  observedAt: string;
   sourceVideoUrl: string;
   sourceEmbedUrl?: string;
   creatorUsername?: string;
@@ -18,7 +19,37 @@ export interface TrendSignal {
   detectedKeywords: string[];
   detectedCategory?: string;
   thumbnailUrl?: string;
-  viralStats: { views: number; likes: number; comments: number };
+  viralStats: { views: number; likes: number; comments: number; shares?: number };
+}
+
+export interface IntelligenceEvidence {
+  key: string;
+  source: string;
+  verification: 'observed' | 'derived' | 'unavailable';
+  observedAt: string;
+  value: number | null;
+  unit?: string;
+  confidence: number;
+  note?: string;
+}
+
+export interface ProductIntelligence {
+  version: 1;
+  calculatedAt: string;
+  overallScore: number;
+  confidence: number;
+  evidenceCoverage: number;
+  decision: 'test' | 'watch' | 'manual_review' | 'reject';
+  evidence: IntelligenceEvidence[];
+  riskFlags: string[];
+  missingEvidence: string[];
+  components: Record<string, {
+    score: number | null;
+    confidence: number;
+    weight: number;
+    evidenceKeys: string[];
+    reason: string;
+  }>;
 }
 
 export interface SourcingCandidate {
@@ -39,6 +70,7 @@ export interface SourcingCandidate {
   riskFlags: string[];
   suggestedRetailPrice?: number;
   estimatedMargin?: number;
+  intelligence?: ProductIntelligence;
 }
 
 export interface GeneratedVideoState {
@@ -146,6 +178,7 @@ function toTrendSignal(video: Awaited<ReturnType<typeof scraperBridge.getVideos>
     sourceSignalId: id,
     sourceApp: 'orky',
     sourcePlatform: 'tiktok',
+    observedAt: new Date().toISOString(),
     sourceVideoUrl: externalUrl,
     sourceEmbedUrl,
     creatorUsername: video.user?.username,
@@ -179,7 +212,11 @@ export const trendService = {
   },
 
   async sendToSourcing(signal: TrendSignal): Promise<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }> {
-    const persistedSignal = { ...signal, sourceSignalId: signal.sourceSignalId || signal.id };
+    const persistedSignal = {
+      ...signal,
+      sourceSignalId: signal.sourceSignalId || signal.id,
+      observedAt: signal.observedAt || new Date().toISOString(),
+    };
     return apiClient.post<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }>(`${PROXY_BASE}/requests`, { signal: persistedSignal });
   },
 
