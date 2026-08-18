@@ -184,7 +184,13 @@ def _load_orchidy_catalog() -> list[dict]:
                 f"{ORCHIDY_API_BASE_URL}/api/integrations/orky/products"
                 f"?market=FR&sort=relevance&limit=50&page={page}"
             )
-            with urllib.request.urlopen(url, timeout=10) as resp:
+            # User-Agent navigateur : le WAF d'orchidy.fr répond 403 aux agents
+            # de scripts (python-urllib) — observé en réel.
+            request = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                "Accept": "application/json",
+            })
+            with urllib.request.urlopen(request, timeout=10) as resp:
                 payload = json.loads(resp.read().decode("utf-8", "replace"))
             if not isinstance(payload, dict):
                 break
