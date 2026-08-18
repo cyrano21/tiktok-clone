@@ -14,6 +14,7 @@ import { RecordScreen } from '@/screens/create/RecordScreen';
 import { EditScreen } from '@/screens/create/EditScreen';
 import { PublishScreen } from '@/screens/create/PublishScreen';
 import { ShopScreen } from '@/screens/shop/ShopScreen';
+import { ProductsFeedScreen } from '@/screens/shop/ProductsFeedScreen';
 import { ProductScreen } from '@/screens/shop/ProductScreen';
 import { CartScreen } from '@/screens/shop/CartScreen';
 import { SellerShopScreen } from '@/screens/shop/SellerShopScreen';
@@ -64,6 +65,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
   'create.edit': EditScreen,
   'create.publish': PublishScreen,
   shop: ShopScreen,
+  'shop.products': ProductsFeedScreen,
   'shop.product': ProductScreen,
   'shop.cart': CartScreen,
   'shop.seller': SellerShopScreen,
@@ -100,7 +102,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
 };
 
 /** Routes that show the main bottom tab bar. */
-export const TAB_ROUTES: RouteName[] = ['feed.foryou', 'explore', 'shop', 'create', 'inbox', 'profile'];
+export const TAB_ROUTES: RouteName[] = ['feed.foryou', 'explore', 'shop', 'shop.products', 'create', 'inbox', 'profile'];
 
 /** Maps any route to the tab it belongs under, for active-state highlighting. */
 export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
@@ -116,6 +118,7 @@ export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
   'create.edit': 'create',
   'create.publish': 'create',
   shop: 'shop',
+  'shop.products': 'shop.products',
   'shop.product': 'shop',
   'shop.cart': 'shop',
   'shop.seller': 'shop',

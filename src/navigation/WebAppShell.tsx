@@ -16,6 +16,7 @@ const TABS: TabDef[] = [
   { route: 'feed.foryou', icon: '🏠', label: 'Accueil' },
   { route: 'explore', icon: '🔍', label: 'Découvrir' },
   { route: 'shop', icon: '🛍️', label: 'Shop' },
+  { route: 'shop.products', icon: '🔥', label: 'Produits' },
   { route: 'create', icon: '+', label: '' },
   { route: 'inbox', icon: '💬', label: 'Boîte' },
   { route: 'profile', icon: '👤', label: 'Profil' },

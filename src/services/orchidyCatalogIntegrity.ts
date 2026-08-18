@@ -1,4 +1,8 @@
-const MIN_PUBLIC_PRODUCT_IMAGES = 3;
+// Upstream Orchidy published items legitimately ship with a single primary
+// image (CJ/AliExpress quick products). Requiring 3 images emptied the whole
+// catalog on ORKY. Keep the gate at the minimum that still guarantees a
+// renderable product: at least one valid HTTPS image.
+const MIN_PUBLIC_PRODUCT_IMAGES = 1;
 
 function cleanUrl(value: unknown): string {
   const url = String(value || '').trim();

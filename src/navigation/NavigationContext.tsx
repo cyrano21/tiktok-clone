@@ -13,6 +13,7 @@ export type RouteName =
   | 'create.edit'
   | 'create.publish'
   | 'shop'
+  | 'shop.products'
   | 'shop.product'
   | 'shop.cart'
   | 'shop.seller'

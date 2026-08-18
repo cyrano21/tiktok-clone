@@ -23,8 +23,12 @@ describe('Orchidy catalog integrity', () => {
     expect(isOrchidyBridgeProductUsable({ ...product, currency: 'USD' }, 'FR')).toBe(false);
   });
 
-  it('rejects incomplete image galleries', () => {
-    expect(isOrchidyBridgeProductUsable({ ...product, images: ['https://cdn.example.com/a.jpg'] }, 'FR')).toBe(false);
+  it('rejects image-less products', () => {
+    expect(isOrchidyBridgeProductUsable({ ...product, images: [] }, 'FR')).toBe(false);
+  });
+
+  it('accepts single-image products (upstream published items)', () => {
+    expect(isOrchidyBridgeProductUsable({ ...product, images: ['https://cdn.example.com/a.jpg'] }, 'FR')).toBe(true);
   });
 
   it('keeps only unique remote images', () => {
