@@ -26,6 +26,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     // Exercise the real API code paths; individual specs provide deterministic API fixtures.
-    env: { NEXT_PUBLIC_USE_DEMO: 'false' },
+    // NEXT_PUBLIC_USE_SCRAPER_FEED mirrors production: the For You feed surfaces
+    // the external scraper catalog (associate-product spec relies on it).
+    env: { NEXT_PUBLIC_USE_DEMO: 'false', NEXT_PUBLIC_USE_SCRAPER_FEED: 'true' },
   },
 });

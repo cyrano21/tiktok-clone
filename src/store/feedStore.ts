@@ -21,6 +21,7 @@ interface FeedActions {
   toggleSave: (videoId: string) => void;
   toggleFollow: (userId: string) => void;
   setProductMatches: (videoId: string, matches: VideoProductMatch[]) => void;
+  replaceVideo: (videoId: string, replacement: Video) => void;
 }
 
 type FeedStore = FeedState & FeedActions;
@@ -170,6 +171,12 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
       videos: state.videos.map((video) =>
         video.id === videoId ? { ...video, productMatches: matches } : video,
       ),
+    }));
+  },
+
+  replaceVideo: (videoId: string, replacement: Video) => {
+    set((state) => ({
+      videos: state.videos.map((video) => (video.id === videoId ? replacement : video)),
     }));
   },
 

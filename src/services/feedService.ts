@@ -234,6 +234,25 @@ export const feedService = {
     return mapFeed(raw);
   },
 
+  /** Importe une référence externe (scraper) en vidéo ORKY native avec son
+   *  produit approuvé. Retourne l'id de la vidéo native (idempotent). */
+  async importExternalVideo(input: {
+    externalVideoId: string;
+    sourceUrl: string;
+    title: string;
+    duration: number;
+    hashtags: string[];
+    creatorUsername: string;
+    creatorDisplayName: string;
+    creatorAvatarUrl?: string;
+    orchidyCatalogItemId?: string;
+    variantKey?: string;
+    confidence?: number;
+  }): Promise<{ videoId: string }> {
+    const raw = await apiClient.post<{ success: boolean; videoId: string }>('/videos/import-external', input);
+    return { videoId: raw.videoId };
+  },
+
   getVideoById: async (videoId: string): Promise<Video> => {
     if (videoId.startsWith('scraper-')) {
       const { scraperBridge } = await import('./scraperBridge');

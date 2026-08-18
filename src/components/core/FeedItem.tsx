@@ -10,6 +10,7 @@ import { useDoubleTap } from '@/hooks/useDoubleTap';
 import { useFeedStore } from '@/store/feedStore';
 import { formatPrice, getProductById } from '@/services/demoShop';
 import { CommerceProduct, getCommerceProductById } from '@/services/orchidyProducts';
+import { feedService } from '@/services/feedService';
 import { ProductAssociateSheet } from './ProductAssociateSheet';
 
 interface FeedItemProps {
@@ -32,7 +33,7 @@ function formatCount(count: number): string {
 }
 
 export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight, externalPause = false, onCommentPress, onSharePress, onProfilePress, onProductPress }) => {
-  const { toggleLike, toggleSave, toggleFollow } = useFeedStore();
+  const { toggleLike, toggleSave, toggleFollow, replaceVideo } = useFeedStore();
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
   const [muted, setMuted] = useState(true);
@@ -64,6 +65,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   const [blockedNotice, setBlockedNotice] = useState(false);
   const [commerceProduct, setCommerceProduct] = useState<CommerceProduct | null>(null);
   const [associateVisible, setAssociateVisible] = useState(false);
+  const [importState, setImportState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const readOnly = video.interactionMode === 'read_only' || video.sourceType === 'external_reference';
 
   useEffect(() => {
@@ -89,6 +91,34 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
     }
     return () => { active = false; };
   }, [targetMatch?.orchidyCatalogItemId, video.productId]);
+
+  const handleImport = useCallback(async () => {
+    if (!approvedMatch || importState === 'busy') return;
+    setImportState('busy');
+    try {
+      const realId = video.id.startsWith('scraper-') ? video.id.slice(8) : video.id;
+      const { videoId } = await feedService.importExternalVideo({
+        externalVideoId: realId,
+        sourceUrl: video.externalUrl || `https://www.tiktok.com/@${video.user.username.replace(/^@/, '')}/video/${realId}`,
+        title: (video.description || `Vidéo de @${video.user.username}`).slice(0, 150),
+        duration: video.duration,
+        hashtags: (video.hashtags || []).map((tag) => tag.name),
+        creatorUsername: video.user.username,
+        creatorDisplayName: video.user.displayName,
+        creatorAvatarUrl: video.user.avatarUrl || undefined,
+        orchidyCatalogItemId: approvedMatch.orchidyCatalogItemId,
+        variantKey: approvedMatch.variantKey ?? '',
+        confidence: approvedMatch.confidence,
+      });
+      const native = await feedService.getVideoById(videoId);
+      replaceVideo(video.id, native);
+      setImportState('done');
+      setTimeout(() => setImportState('idle'), 2500);
+    } catch {
+      setImportState('error');
+      setTimeout(() => setImportState('idle'), 3500);
+    }
+  }, [approvedMatch, importState, video, replaceVideo]);
 
   const handleDoubleTap = useCallback((event: { nativeEvent: { locationX: number; locationY: number } }) => {
     if (readOnly) return;
@@ -172,7 +202,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {video.viewsCount > 0 && (!readOnly || video.metricAvailability?.views !== false) ? <Text style={styles.viewsLabel}>{formatCount(video.viewsCount)} vues</Text> : null}
 
         {commerceProduct && approvedMatch ? (
-          <TouchableOpacity style={styles.productPill} activeOpacity={0.85} onPress={() => onProductPress?.(commerceProduct.id)}>
+          <TouchableOpacity style={styles.productPill} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Voir" onPress={() => onProductPress?.(commerceProduct.id)}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
               <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>
@@ -184,7 +214,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         ) : null}
 
         {!approvedMatch && suggestedMatch && commerceProduct ? (
-          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} onPress={() => setAssociateVisible(true)}>
+          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Associer ce produit" onPress={() => setAssociateVisible(true)}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
               <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>
@@ -198,6 +228,19 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {readOnly && !approvedMatch && !suggestedMatch ? (
           <TouchableOpacity style={styles.associateButton} activeOpacity={0.85} onPress={() => setAssociateVisible(true)}>
             <Text style={styles.associateButtonText}>＋ Associer un produit</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {readOnly && approvedMatch ? (
+          <TouchableOpacity
+            style={[styles.importButton, importState === 'busy' && styles.importButtonDisabled]}
+            activeOpacity={0.85}
+            disabled={importState === 'busy'}
+            onPress={() => void handleImport()}
+          >
+            <Text style={styles.importButtonText}>
+              {importState === 'busy' ? 'Import en cours…' : importState === 'done' ? 'Importé ✓' : importState === 'error' ? 'Connexion requise' : 'Importer dans ORKY'}
+            </Text>
           </TouchableOpacity>
         ) : null}
 
@@ -255,4 +298,7 @@ const styles = StyleSheet.create({
   suggestionCta: { backgroundColor: tokens.colors.surface },
   associateButton: { alignSelf: 'flex-start', borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.md, paddingVertical: 8, backgroundColor: 'rgba(0,0,0,0.55)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.6)', marginTop: tokens.spacing.sm },
   associateButtonText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
+  importButton: { alignSelf: 'flex-start', borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.md, paddingVertical: 8, backgroundColor: 'rgba(0,0,0,0.55)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)', marginTop: tokens.spacing.xs },
+  importButtonDisabled: { opacity: 0.6 },
+  importButtonText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
 });

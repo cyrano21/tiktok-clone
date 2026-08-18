@@ -31,16 +31,6 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
     [video.description],
   );
 
-  useEffect(() => {
-    if (isVisible) {
-      setQuery(initialQuery);
-      setCandidates([]);
-      setError(null);
-      setMessage(null);
-      setBusy(false);
-    }
-  }, [isVisible, initialQuery]);
-
   const runSearch = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (trimmed.length < 2) {
@@ -67,6 +57,17 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => void runSearch(text), SEARCH_DEBOUNCE_MS);
   }, [runSearch]);
+
+  useEffect(() => {
+    if (isVisible) {
+      setQuery(initialQuery);
+      setCandidates([]);
+      setError(null);
+      setMessage(null);
+      setBusy(false);
+      void runSearch(initialQuery);
+    }
+  }, [isVisible, initialQuery, runSearch]);
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -150,6 +151,8 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
                 </View>
                 <TouchableOpacity
                   style={[styles.approveButton, approved && styles.approveButtonDone]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Associer"
                   onPress={() => void approve(candidate)}
                   disabled={approvingId !== null || approved}
                 >
