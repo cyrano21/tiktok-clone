@@ -35,8 +35,13 @@ SCRAPER_INTERNAL_SECRET = os.environ.get("SCRAPER_INTERNAL_SECRET", "").strip()
 ORCHIDY_API_BASE_URL = os.environ.get("ORCHIDY_API_BASE_URL", "https://orchidy.fr").strip().rstrip("/")
 ORCHIDY_CATALOG_TTL = int(os.environ.get("ORCHIDY_CATALOG_TTL_SECONDS", "3600") or 3600)
 AUTO_MATCH_ENABLED = os.environ.get("SCRAPER_AUTO_MATCH", "0") == "1"
-AUTO_MATCH_MIN_SCORE = float(os.environ.get("SCRAPER_AUTO_MATCH_MIN_SCORE", "0.45") or 0.45)
+# Seuil volontairement modéré : le pill « Produit suggéré » exige une
+# approbation humaine avant de devenir achetable. Un seuil trop haut ne
+# produirait jamais de suggestion sur les titres TikTok bruités.
+AUTO_MATCH_MIN_SCORE = float(os.environ.get("SCRAPER_AUTO_MATCH_MIN_SCORE", "0.30") or 0.30)
 AUTO_MATCH_MAX = int(os.environ.get("SCRAPER_AUTO_MATCH_MAX", "3") or 3)
+ORCHIDY_CATALOG_MAX_PRODUCTS = int(os.environ.get("ORCHIDY_CATALOG_MAX_PRODUCTS", "500") or 500)
+ORCHIDY_CATALOG_MAX_PAGES = int(os.environ.get("ORCHIDY_CATALOG_MAX_PAGES", "10") or 10)
 MATCHES_FILE = DATA_DIR / "matches.json"
 _CATALOG_CACHE: dict = {"at": 0.0, "products": []}
 _APPROVED_MATCHES: dict[str, list[dict]] = {}
@@ -171,34 +176,49 @@ def _load_orchidy_catalog() -> list[dict]:
         return _CATALOG_CACHE["products"]
     products: list[dict] = []
     try:
-        url = f"{ORCHIDY_API_BASE_URL}/api/integrations/orky/products?market=FR&sort=relevance&limit=200"
-        with urllib.request.urlopen(url, timeout=10) as resp:
-            payload = json.loads(resp.read().decode("utf-8", "replace"))
-        items = payload.get("products") if isinstance(payload, dict) else None
-        for product in items or []:
-            if not isinstance(product, dict):
-                continue
-            item_id = str(
-                product.get("slug")
-                or (product.get("seo") or {}).get("slug")
-                or product.get("id")
-                or product.get("_id")
-                or ""
-            ).strip()
-            title = str(product.get("title") or product.get("name") or "").strip()
-            if not item_id or not title:
-                continue
-            images = [str(u) for u in (product.get("images") or []) if str(u).startswith("https://")]
-            image = str(product.get("image") or product.get("thumbnailUrl") or product.get("coverUrl") or "").strip()
-            if image.startswith("https://") and image not in images:
-                images.insert(0, image)
-            products.append({
-                "id": item_id,
-                "title": title,
-                "images": images,
-                "price": product.get("price") or product.get("priceClient") or product.get("salePrice") or 0,
-                "currency": str(product.get("currency") or "EUR").upper(),
-            })
+        # Le catalogue est paginé (50/page) ; on le parcourt jusqu'à épuisement
+        # ou plafond, pour donner au matching lexical un vrai socle de produits.
+        page = 1
+        while len(products) < ORCHIDY_CATALOG_MAX_PRODUCTS and page <= ORCHIDY_CATALOG_MAX_PAGES:
+            url = (
+                f"{ORCHIDY_API_BASE_URL}/api/integrations/orky/products"
+                f"?market=FR&sort=relevance&limit=50&page={page}"
+            )
+            with urllib.request.urlopen(url, timeout=10) as resp:
+                payload = json.loads(resp.read().decode("utf-8", "replace"))
+            if not isinstance(payload, dict):
+                break
+            items = payload.get("products") or []
+            if not items:
+                break
+            for product in items:
+                if not isinstance(product, dict):
+                    continue
+                item_id = str(
+                    product.get("slug")
+                    or (product.get("seo") or {}).get("slug")
+                    or product.get("id")
+                    or product.get("_id")
+                    or ""
+                ).strip()
+                title = str(product.get("title") or product.get("name") or "").strip()
+                if not item_id or not title:
+                    continue
+                images = [str(u) for u in (product.get("images") or []) if str(u).startswith("https://")]
+                image = str(product.get("image") or product.get("thumbnailUrl") or product.get("coverUrl") or "").strip()
+                if image.startswith("https://") and image not in images:
+                    images.insert(0, image)
+                products.append({
+                    "id": item_id,
+                    "title": title,
+                    "images": images,
+                    "price": product.get("price") or product.get("priceClient") or product.get("salePrice") or 0,
+                    "currency": str(product.get("currency") or "EUR").upper(),
+                })
+            pagination = payload.get("pagination") or {}
+            if not pagination.get("hasMore"):
+                break
+            page += 1
     except Exception:
         products = []
     _CATALOG_CACHE.update(at=now, products=products)
