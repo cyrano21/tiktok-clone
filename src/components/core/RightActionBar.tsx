@@ -17,6 +17,7 @@ interface RightActionBarProps {
   onShare: () => void;
   onSave: () => void;
   onAvatarPress: () => void;
+  onFollow?: () => void;
   onMore: () => void;
   readOnly?: boolean;
 }
@@ -30,6 +31,7 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
   onShare,
   onSave,
   onAvatarPress,
+  onFollow,
   onMore,
   readOnly = false,
 }) => {
@@ -72,20 +74,41 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
     if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
     return count.toString();
   };
+  const observedCount = (key: keyof NonNullable<Video['metricAvailability']>, count: number): string | null => {
+    // Native ORKY videos predate metricAvailability and their counters are
+    // canonical. External observations must explicitly provide a counter before
+    // it is rendered; a zero here must not look like an observed provider value.
+    if (readOnly && video.metricAvailability?.[key] === false) return null;
+    return formatCount(count);
+  };
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.avatarContainer} onPress={onAvatarPress}>
-        <Image source={{ uri: video.user.avatarUrl }} style={styles.avatar} />
-        {!readOnly && !video.user.isFollowing && <View style={styles.followBadge}><Text style={styles.followBadgeText}>+</Text></View>}
-      </TouchableOpacity>
+      <View style={styles.avatarContainer}>
+        <TouchableOpacity onPress={onAvatarPress} accessibilityRole="button" accessibilityLabel={`Ouvrir le profil de @${video.user.username}`}>
+          <Image source={{ uri: video.user.avatarUrl }} style={styles.avatar} />
+        </TouchableOpacity>
+        {!readOnly && !video.user.isFollowing && (
+          <TouchableOpacity
+            style={styles.followBadge}
+            onPress={onFollow}
+            accessibilityRole="button"
+            accessibilityLabel={`Suivre @${video.user.username}`}
+          >
+            <Text style={styles.followBadgeText}>+</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
-      {!readOnly ? (
-        <AnimatedTouchable style={[styles.actionButton, likeAnimatedStyle]} onPress={handleLike}>
-          <Text style={[styles.actionIcon, video.isLiked && styles.likedIcon]}>♥</Text>
-          <Text style={styles.actionCount}>{formatCount(video.likesCount)}</Text>
-        </AnimatedTouchable>
-      ) : null}
+      <AnimatedTouchable
+        style={[styles.actionButton, likeAnimatedStyle, readOnly && styles.readOnlyAction]}
+        onPress={readOnly ? undefined : handleLike}
+        disabled={readOnly}
+        accessibilityLabel={readOnly ? 'Likes observés (lecture seule)' : 'Aimer la vidéo'}
+      >
+        <Text style={[styles.actionIcon, video.isLiked && styles.likedIcon]}>♥</Text>
+        {observedCount('likes', video.likesCount) !== null ? <Text style={styles.actionCount}>{observedCount('likes', video.likesCount)}</Text> : null}
+      </AnimatedTouchable>
 
       <TouchableOpacity
         style={styles.actionButton}
@@ -94,19 +117,22 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
         accessibilityLabel="Ouvrir les commentaires"
       >
         <Text style={styles.actionIcon}>💬</Text>
-        <Text style={styles.actionCount}>{formatCount(video.commentsCount)}</Text>
+        {observedCount('comments', video.commentsCount) !== null ? <Text style={styles.actionCount}>{observedCount('comments', video.commentsCount)}</Text> : null}
       </TouchableOpacity>
 
-      {!readOnly ? (
-        <AnimatedTouchable style={[styles.actionButton, saveAnimatedStyle]} onPress={handleSave}>
-          <Text style={[styles.actionIcon, video.isSaved && styles.savedIcon]}>🔖</Text>
-          <Text style={styles.actionCount}>{formatCount(video.savesCount)}</Text>
-        </AnimatedTouchable>
-      ) : null}
+      <AnimatedTouchable
+        style={[styles.actionButton, saveAnimatedStyle, readOnly && styles.readOnlyAction]}
+        onPress={readOnly ? undefined : handleSave}
+        disabled={readOnly}
+        accessibilityLabel={readOnly ? 'Enregistrements observés (lecture seule)' : 'Enregistrer la vidéo'}
+      >
+        <Text style={[styles.actionIcon, video.isSaved && styles.savedIcon]}>🔖</Text>
+        {observedCount('saves', video.savesCount) !== null ? <Text style={styles.actionCount}>{observedCount('saves', video.savesCount)}</Text> : null}
+      </AnimatedTouchable>
 
       <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
         <Text style={styles.actionIcon}>{shareCopied ? '✓' : '↗'}</Text>
-        <Text style={styles.actionCount}>{shareCopied ? 'Copié' : formatCount(video.sharesCount)}</Text>
+        <Text style={styles.actionCount}>{shareCopied ? 'Copié' : (observedCount('shares', video.sharesCount) ?? 'Partager')}</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
@@ -118,22 +144,9 @@ export const RightActionBar: React.FC<RightActionBarProps> = ({
       </TouchableOpacity>
 
       {video.sound && (
-        <div className="disc-spin" style={{
-          width: 40,
-          height: 40,
-          borderRadius: 20,
-          overflow: 'hidden',
-          marginTop: tokens.spacing.sm,
-          borderWidth: 6,
-          borderStyle: 'solid',
-          borderColor: tokens.colors.elevated,
-        }}>
-          <img src={video.sound.coverUrl} style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-          }} alt="" />
-        </div>
+        <View style={styles.soundDisc} accessibilityLabel={`Son ${video.sound.title}`}>
+          <Image source={{ uri: video.sound.coverUrl }} style={styles.soundDiscImage} />
+        </View>
       )}
     </View>
   );
@@ -177,6 +190,9 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
     gap: 2,
+  },
+  readOnlyAction: {
+    opacity: 0.92,
   },
   actionIcon: {
     fontSize: tokens.feed.rightBarIconSize,

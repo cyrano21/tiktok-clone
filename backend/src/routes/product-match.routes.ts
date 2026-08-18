@@ -32,14 +32,48 @@ interface OrchidyProduct {
   status?: string;
 }
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Upstream timeout')), milliseconds);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
+  });
+}
+
+function normalizeText(value: string): string {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function tokenize(value: string): string[] {
+  return normalizeText(value).split(/\s+/).filter(Boolean);
+}
+
+/** Score lexical ∈ [0,1] : moyenne de précision et rappel des jetons partagés.
+ *  Pure et déterministe — utilisée pour classer les candidats du catalogue. */
+export function lexicalScore(query: string, candidateTitle: string): number {
+  const queryTokens = new Set(tokenize(query));
+  const candidateTokens = tokenize(candidateTitle);
+  if (queryTokens.size === 0 || candidateTokens.length === 0) return 0;
+  const hits = candidateTokens.filter((token) => queryTokens.has(token)).length;
+  const precision = hits / candidateTokens.length;
+  const recall = hits / queryTokens.size;
+  return Math.min(1, 0.5 * precision + 0.5 * recall);
+}
+
 export async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
   const url = `${ORCHIDY_BASE_URL.replace(/\/$/, '')}/api/products/${encodeURIComponent(itemId)}`;
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await withTimeout(fetch(url, {
       headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(8_000),
-    });
+    }), 8_000);
   } catch {
     return { ok: false, reason: 'ORCHIDY_CATALOG_UNAVAILABLE' };
   }
@@ -62,6 +96,64 @@ export async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: 
 }
 
 export async function productMatchRoutes(app: FastifyInstance) {
+  app.get('/candidates', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
+    const query = z.object({
+      title: z.string().trim().min(2).max(500),
+      hashtags: z.string().trim().max(500).optional().default(''),
+      limit: z.coerce.number().int().min(1).max(20).optional().default(8),
+    }).parse(req.query);
+
+    const upstream = new URL('/api/integrations/orky/products', ORCHIDY_BASE_URL);
+    upstream.searchParams.set('q', query.title);
+    upstream.searchParams.set('market', 'FR');
+    upstream.searchParams.set('sort', 'relevance');
+    // Demander un surplus en amont : le scoring lexical filtre ensuite.
+    upstream.searchParams.set('limit', String(Math.min(40, query.limit * 3)));
+
+    let payload: any = null;
+    try {
+      const response = await withTimeout(fetch(upstream.toString(), {
+        headers: { accept: 'application/json' },
+      }), 8_000);
+      if (response.ok) payload = await response.json().catch(() => null);
+    } catch {
+      payload = null;
+    }
+
+    const products = Array.isArray(payload?.products) ? payload.products : [];
+    const searchText = `${query.title} ${query.hashtags.replace(/,/g, ' ')}`;
+    const candidates = products
+      .map((product: any) => {
+        const itemId = String(product?.slug || product?.seo?.slug || product?.id || product?._id || '').trim();
+        const candidateTitle = String(product?.title || product?.name || '').trim();
+        if (!itemId || !candidateTitle) return null;
+        const images = Array.isArray(product?.images)
+          ? product.images.map(String).filter((image: string) => /^https?:\/\//i.test(image))
+          : [];
+        const image = String(product?.image || product?.thumbnailUrl || product?.coverUrl || '').trim();
+        if (/^https?:\/\//i.test(image) && !images.includes(image)) images.unshift(image);
+        const price = Number(product?.price ?? product?.priceClient ?? product?.salePrice);
+        const currency = String(product?.currency || 'EUR').trim().toUpperCase();
+        const score = lexicalScore(searchText, candidateTitle);
+        return {
+          orchidyCatalogItemId: itemId,
+          title: candidateTitle,
+          slug: String(product?.slug || product?.seo?.slug || '').trim() || undefined,
+          images,
+          price: Number.isFinite(price) && price > 0 ? price : undefined,
+          currency: currency || undefined,
+          score: Number(score.toFixed(3)),
+          source: 'catalog_lexical_match' as const,
+          requiresApproval: true as const,
+        };
+      })
+      .filter((candidate: any) => candidate !== null && candidate.score >= 0.2)
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, query.limit);
+
+    return reply.send({ candidates });
+  });
+
   app.get('/video/:videoId', { preHandler: optionalAuth }, async (req: FastifyRequest, reply: FastifyReply) => {
     const { videoId } = z.object({ videoId: z.string().uuid() }).parse(req.params);
     const viewerId = (req as any).userId as string | undefined;

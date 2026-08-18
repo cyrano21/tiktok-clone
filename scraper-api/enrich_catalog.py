@@ -128,18 +128,27 @@ def apify_search_hashtag(tag: str, count: int) -> list[dict]:
             continue
         am = it.get("authorMeta") or {}
         vm = it.get("videoMeta") or {}
+        music = it.get("musicMeta") or {}
         out.append({
             "id": vid,
             "title": str(it.get("text") or ""),
             "thumbnail": str(vm.get("coverUrl") or vm.get("originalCoverUrl") or ""),
             "views": int(it.get("playCount") or 0),
             "likes": int(it.get("diggCount") or 0),
+            "shares": int(it.get("shareCount") or 0),
+            "saves": int(it.get("collectCount") or 0),
             "duration": int(vm.get("duration") or 0),
             "author": str(am.get("name") or ""),
             "author_name": str(am.get("nickName") or am.get("name") or ""),
             "create_time": str(it.get("createTimeISO") or ""),
             "url": str(it.get("webVideoUrl") or ""),
             "hashtags": [h.get("name") for h in (it.get("hashtags") or []) if h.get("name")],
+            "music": {
+                "id": str(music.get("musicId") or ""),
+                "title": str(music.get("musicName") or ""),
+                "artist": str(music.get("musicAuthor") or ""),
+                "cover": str(music.get("coverMedium") or music.get("coverLarge") or music.get("coverThumb") or ""),
+            },
         })
     return out
 
@@ -179,8 +188,14 @@ def fetch_video_comments(video: dict, count: int) -> list[dict]:
             "video_title": video.get("title") or "",
             "video_views": video.get("views") or 0,
             "video_likes": video.get("likes") or 0,
+            "video_shares": video.get("shares") or 0,
+            "video_saves": video.get("saves") or 0,
             "video_duration": video.get("duration") or 0,
             "video_thumbnail": video.get("thumbnail") or "",
+            "video_music_id": (video.get("music") or {}).get("id") or "",
+            "video_music_title": (video.get("music") or {}).get("title") or "",
+            "video_music_artist": (video.get("music") or {}).get("artist") or "",
+            "video_music_cover": (video.get("music") or {}).get("cover") or "",
             "video_url": url,
             "video_author_username": video.get("author") or "",
             "video_author_nickname": video.get("author_name") or video.get("author") or "",
@@ -336,8 +351,14 @@ def main() -> int:
             "video_title": title,
             "video_views": v["views"],
             "video_likes": v["likes"],
+            "video_shares": v.get("shares") or 0,
+            "video_saves": v.get("saves") or 0,
             "video_duration": v["duration"],
             "video_thumbnail": v["thumbnail"],
+            "video_music_id": (v.get("music") or {}).get("id") or "",
+            "video_music_title": (v.get("music") or {}).get("title") or "",
+            "video_music_artist": (v.get("music") or {}).get("artist") or "",
+            "video_music_cover": (v.get("music") or {}).get("cover") or "",
             "video_url": v["url"],
             "video_author_username": v["author"],
             "video_author_nickname": v["author_name"],

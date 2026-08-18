@@ -29,13 +29,38 @@ function scraperUrl(path: string): string {
     : `${SCRAPER_API.replace(/\/$/, '')}/api/${cleanPath}`;
 }
 
-interface ScraperVideo {
+export interface ScraperProductMatch {
+  /** Canonical published Orchidy id, never a supplier/drop-shipping id. */
+  orchidyCatalogItemId: string;
+  id?: string;
+  variantKey?: string;
+  confidence?: number;
+  source?: string;
+  /** 'suggested' = auto-match du catalogue, en attente d'approbation. */
+  status?: 'suggested' | 'approved';
+}
+
+export interface ScraperVideo {
   id: string;
   title: string;
   views: number;
   likes: number;
   duration: number;
   commentCount: number;
+  /** Optional provider metrics; never filled with estimates. */
+  shares?: number;
+  shareCount?: number;
+  saves?: number;
+  saveCount?: number;
+  sound?: {
+    id?: string;
+    title?: string;
+    artist?: string;
+    coverUrl?: string;
+  } | null;
+  /** Optional explicit match from the observation service to a published item. */
+  productMatches?: ScraperProductMatch[];
+  orchidyCatalogItemId?: string;
   url: string;
   thumbnailUrl: string;
   hashtags?: string[];
@@ -105,6 +130,12 @@ async function fetchComments(videoId: string): Promise<ScraperComment[]> {
   return data.comments ?? [];
 }
 
+function hasNumericMetric(value: unknown): boolean {
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value === 'string' && value.trim() !== '') return Number.isFinite(Number(value));
+  return false;
+}
+
 function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
   if (!hashtags || hashtags.length === 0) return [];
   return hashtags.map((name) => ({
@@ -116,12 +147,32 @@ function mapHashtags(hashtags: string[] | undefined): Video['hashtags'] {
   }));
 }
 
-function toOrkyVideo(sv: ScraperVideo): Video {
+export function toOrkyVideo(sv: ScraperVideo): Video {
   const creatorFromUrl = sv.url.match(/\/@@?([^/]+)/)?.[1] || '';
   const creatorUsername = sv.creatorUsername || creatorFromUrl || 'source-externe';
   const creatorDisplayName = sv.creatorDisplayName || (creatorUsername === 'source-externe' ? 'Créateur externe' : creatorUsername);
   const creatorAvatarUrl = sv.creatorAvatarUrl || '';
   const dur = sv.duration > 0 ? sv.duration : 0;
+  const explicitMatches = (sv.productMatches ?? [])
+    .filter((match) => typeof match.orchidyCatalogItemId === 'string' && match.orchidyCatalogItemId.trim() !== '')
+    .map((match, index) => ({
+      id: match.id || `scraper-match-${sv.id}-${index}`,
+      orchidyCatalogItemId: match.orchidyCatalogItemId,
+      variantKey: match.variantKey,
+      confidence: hasNumericMetric(match.confidence) ? Number(match.confidence) : 0,
+      source: match.source || 'scraper_observation',
+      status: match.status === 'suggested' || match.status === 'approved' ? match.status : undefined,
+    }));
+  const productMatches = explicitMatches.length > 0
+    ? explicitMatches
+    : (sv.orchidyCatalogItemId
+      ? [{
+          id: `scraper-match-${sv.id}`,
+          orchidyCatalogItemId: sv.orchidyCatalogItemId,
+          confidence: 0,
+          source: 'scraper_observation',
+        }]
+      : []);
 
   return {
     id: `scraper-${sv.id}`,
@@ -143,16 +194,36 @@ function toOrkyVideo(sv: ScraperVideo): Video {
     videoUrl: scraperUrl(`stream/${sv.id}`),
     thumbnailUrl: sv.thumbnailUrl || '',
     description: sv.title || '',
-    likesCount: sv.likes,
-    commentsCount: sv.commentCount,
-    sharesCount: 0,
-    savesCount: 0,
-    viewsCount: sv.views,
+    likesCount: Number(sv.likes || 0),
+    commentsCount: Number(sv.commentCount || 0),
+    // Keep provider metrics when present; do not invent values for fields the
+    // observation API did not return.
+    sharesCount: Number(sv.shareCount ?? sv.shares ?? 0),
+    savesCount: Number(sv.saveCount ?? sv.saves ?? 0),
+    viewsCount: Number(sv.views || 0),
+    metricAvailability: {
+      likes: hasNumericMetric(sv.likes),
+      comments: hasNumericMetric(sv.commentCount),
+      shares: hasNumericMetric(sv.shareCount ?? sv.shares),
+      saves: hasNumericMetric(sv.saveCount ?? sv.saves),
+      views: hasNumericMetric(sv.views),
+    },
     duration: Math.round(dur),
     isLiked: false,
     isSaved: false,
     hashtags: mapHashtags(sv.hashtags),
-    sound: null,
+    sound: sv.sound?.title
+      ? {
+          id: sv.sound.id || `sound-${sv.id}`,
+          title: sv.sound.title,
+          artist: sv.sound.artist || '',
+          coverUrl: sv.sound.coverUrl || sv.thumbnailUrl || '',
+          audioUrl: '',
+          duration: 0,
+          usageCount: 0,
+          isOriginal: false,
+        }
+      : null,
     location: null,
     createdAt: sv.createdAt || new Date(0).toISOString(),
     allowComments: true,
@@ -162,7 +233,7 @@ function toOrkyVideo(sv: ScraperVideo): Video {
     interactionMode: 'read_only',
     externalPlatform: 'tiktok',
     externalUrl: sv.url,
-    productMatches: [],
+    productMatches,
   };
 }
 
@@ -257,6 +328,50 @@ export const scraperBridge = {
       return { ok: true, message: (data as any).message };
     } catch {
       return { ok: false, error: 'Service de recherche externe indisponible.' };
+    }
+  },
+
+  /** Approuve un produit Orchidy pour une vidéo externe (persisté par le
+   *  service d'observation). Nécessite une session ORKY (proxy same-origin). */
+  async approveProductMatch(
+    videoId: string,
+    input: { orchidyCatalogItemId: string; variantKey?: string; confidence?: number },
+  ): Promise<boolean> {
+    const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+    try {
+      const token = await authBearer();
+      const headers: Record<string, string> = { 'content-type': 'application/json' };
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(scraperUrl(`videos/${realId}/product-matches`), {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          orchidyCatalogItemId: input.orchidyCatalogItemId,
+          variantKey: input.variantKey ?? '',
+          confidence: input.confidence ?? 1,
+        }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Retire une approbation produit d'une vidéo externe. */
+  async removeProductMatch(videoId: string, orchidyCatalogItemId: string): Promise<boolean> {
+    const realId = videoId.startsWith('scraper-') ? videoId.slice(8) : videoId;
+    try {
+      const token = await authBearer();
+      const headers: Record<string, string> = {};
+      if (token) headers.authorization = `Bearer ${token}`;
+      const res = await fetch(
+        scraperUrl(`videos/${realId}/product-matches?item=${encodeURIComponent(orchidyCatalogItemId)}`),
+        { method: 'DELETE', headers, signal: AbortSignal.timeout(10_000) },
+      );
+      return res.ok;
+    } catch {
+      return false;
     }
   },
 

@@ -52,11 +52,20 @@ function validateGeneratedMediaUrl(raw: string): URL {
   return url;
 }
 
-async function fetchGeneratedVideo(url: URL): Promise<{ stream: Readable; mimetype: string }> {
-  const response = await fetch(url, {
-    redirect: 'manual',
-    signal: AbortSignal.timeout(20_000),
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Upstream timeout')), milliseconds);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); },
+    );
   });
+}
+
+async function fetchGeneratedVideo(url: URL): Promise<{ stream: Readable; mimetype: string }> {
+  const response = await withTimeout(fetch(url, {
+    redirect: 'manual',
+  }), 20_000);
   if (response.status >= 300 && response.status < 400) {
     const error = new Error('Generated media redirects are not accepted');
     (error as any).statusCode = 422;

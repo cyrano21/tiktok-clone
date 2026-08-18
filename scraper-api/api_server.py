@@ -16,9 +16,11 @@ import subprocess
 import sys
 import threading
 import time
+import unicodedata
+import urllib.request
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qsl
 
 ROOT = Path(__file__).parent
 # Volume persistant (voir Dockerfile.scraper) : le catalogue régénéré y est
@@ -27,6 +29,17 @@ DATA_DIR = Path(os.environ.get("SCRAPER_DATA_DIR", str(ROOT / "data")))
 VIDEO_CACHE = Path(os.environ.get("VIDEO_CACHE_DIR", str(ROOT / "video_cache")))
 VIDEO_CACHE_TTL = int(os.environ.get("VIDEO_CACHE_TTL_SECONDS", "86400"))
 SCRAPER_INTERNAL_SECRET = os.environ.get("SCRAPER_INTERNAL_SECRET", "").strip()
+# Association vidéo → produit Orchidy (voir docs/trend-sourcing-contract.md).
+# Auto-match désactivé par défaut : SCRAPER_AUTO_MATCH=1 l'active. Les
+# approbations utilisateur sont persistées dans DATA_DIR/matches.json.
+ORCHIDY_API_BASE_URL = os.environ.get("ORCHIDY_API_BASE_URL", "https://orchidy.fr").strip().rstrip("/")
+ORCHIDY_CATALOG_TTL = int(os.environ.get("ORCHIDY_CATALOG_TTL_SECONDS", "3600") or 3600)
+AUTO_MATCH_ENABLED = os.environ.get("SCRAPER_AUTO_MATCH", "0") == "1"
+AUTO_MATCH_MIN_SCORE = float(os.environ.get("SCRAPER_AUTO_MATCH_MIN_SCORE", "0.45") or 0.45)
+AUTO_MATCH_MAX = int(os.environ.get("SCRAPER_AUTO_MATCH_MAX", "3") or 3)
+MATCHES_FILE = DATA_DIR / "matches.json"
+_CATALOG_CACHE: dict = {"at": 0.0, "products": []}
+_APPROVED_MATCHES: dict[str, list[dict]] = {}
 # Régénération quotidienne du catalogue (coûteuse : runs Apify). Désactivée
 # par défaut ; SCRAPER_AUTO_REFRESH=1 + SCRAPER_AUTO_REFRESH_HOUR (UTC) active.
 AUTO_REFRESH_ENABLED = os.environ.get("SCRAPER_AUTO_REFRESH", "0") == "1"
@@ -120,6 +133,133 @@ def _safe_int(value, default=0):
         return default
 
 
+def _safe_float(value, default=0.0):
+    try:
+        number = float(value)
+        return number if 0 <= number <= 1 else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _load_approved_matches() -> dict:
+    """Approbations persistées : {video_id: [record, …]} depuis matches.json."""
+    try:
+        if MATCHES_FILE.exists():
+            data = json.loads(MATCHES_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
+def _save_approved_matches() -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        MATCHES_FILE.write_text(
+            json.dumps(_APPROVED_MATCHES, ensure_ascii=False, indent=1),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def _load_orchidy_catalog() -> list[dict]:
+    """Catalogue publié Orchidy (cache TTL). Retourne [] si indisponible."""
+    now = time.time()
+    if _CATALOG_CACHE["products"] and now - _CATALOG_CACHE["at"] < ORCHIDY_CATALOG_TTL:
+        return _CATALOG_CACHE["products"]
+    products: list[dict] = []
+    try:
+        url = f"{ORCHIDY_API_BASE_URL}/api/integrations/orky/products?market=FR&sort=relevance&limit=200"
+        with urllib.request.urlopen(url, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+        items = payload.get("products") if isinstance(payload, dict) else None
+        for product in items or []:
+            if not isinstance(product, dict):
+                continue
+            item_id = str(
+                product.get("slug")
+                or (product.get("seo") or {}).get("slug")
+                or product.get("id")
+                or product.get("_id")
+                or ""
+            ).strip()
+            title = str(product.get("title") or product.get("name") or "").strip()
+            if not item_id or not title:
+                continue
+            images = [str(u) for u in (product.get("images") or []) if str(u).startswith("https://")]
+            image = str(product.get("image") or product.get("thumbnailUrl") or product.get("coverUrl") or "").strip()
+            if image.startswith("https://") and image not in images:
+                images.insert(0, image)
+            products.append({
+                "id": item_id,
+                "title": title,
+                "images": images,
+                "price": product.get("price") or product.get("priceClient") or product.get("salePrice") or 0,
+                "currency": str(product.get("currency") or "EUR").upper(),
+            })
+    except Exception:
+        products = []
+    _CATALOG_CACHE.update(at=now, products=products)
+    return products
+
+
+def _normalize_text(value: str) -> str:
+    return "".join(
+        char for char in unicodedata.normalize("NFD", str(value or "").lower())
+        if unicodedata.category(char) != "Mn"
+    )
+
+
+def _tokens(value: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", _normalize_text(value))
+
+
+def _lexical_score(query: str, candidate_title: str) -> float:
+    """Score ∈ [0,1] : moyenne précision/rappel des jetons partagés."""
+    query_tokens = set(_tokens(query))
+    candidate_tokens = _tokens(candidate_title)
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+    hits = sum(1 for token in candidate_tokens if token in query_tokens)
+    precision = hits / len(candidate_tokens)
+    recall = hits / len(query_tokens)
+    return min(1.0, 0.5 * precision + 0.5 * recall)
+
+
+def _auto_match_video(video: dict) -> list[dict]:
+    """Suggestions produit (jamais approuvées) pour une vidéo externe."""
+    if not AUTO_MATCH_ENABLED:
+        return []
+    query = f"{video.get('title') or ''} {' '.join(video.get('hashtags') or [])}"
+    scored = []
+    for product in _load_orchidy_catalog():
+        score = _lexical_score(query, product["title"])
+        if score >= AUTO_MATCH_MIN_SCORE:
+            scored.append({
+                "orchidyCatalogItemId": product["id"],
+                "variantKey": "",
+                "confidence": round(score, 3),
+                "source": "catalog_lexical_match",
+                "status": "suggested",
+            })
+    scored.sort(key=lambda match: match["confidence"], reverse=True)
+    return scored[:AUTO_MATCH_MAX]
+
+
+def _attach_product_matches(video: dict) -> None:
+    """Approbes (matches.json) puis suggestions auto — jamais de doublons."""
+    approved = [dict(match) for match in _APPROVED_MATCHES.get(str(video.get("id") or ""), [])]
+    approved_ids = {match["orchidyCatalogItemId"] for match in approved}
+    suggested = [
+        match for match in _auto_match_video(video)
+        if match["orchidyCatalogItemId"] not in approved_ids
+    ]
+    if approved or suggested:
+        video["productMatches"] = approved + suggested
+
+
 def _load_comments():
     """Loads available research exports. JSON > CSV > XLSX."""
     # Le catalogue régénéré (volume persistant) prime sur l'export embarqué.
@@ -195,6 +335,30 @@ def _video_source_url(record: dict, video_id: str) -> str:
     return f"https://www.tiktok.com/@tiktok/video/{video_id}"
 
 
+def _sound_public(c: dict) -> dict | None:
+    title = str(c.get("video_music_title") or "").strip()
+    if not title:
+        return None
+    return {
+        "id": str(c.get("video_music_id") or ""),
+        "title": title,
+        "artist": str(c.get("video_music_artist") or "").strip(),
+        "coverUrl": str(c.get("video_music_cover") or "").strip(),
+    }
+
+
+def _merge_optional_metrics(video: dict, c: dict) -> None:
+    """Complète shares/saves/sound d'une vidéo quand une ligne de l'export en
+    fournit, sans jamais inventer de 0 (le front utilise l'absence de champ
+    comme signal « non observé »)."""
+    for field, key in (("shares", "video_shares"), ("saves", "video_saves")):
+        value = _safe_int(c.get(key) or c.get("video_share_count" if field == "shares" else "video_save_count"))
+        if value and not video.get(field):
+            video[field] = value
+    if video.get("sound") is None:
+        video["sound"] = _sound_public(c)
+
+
 def _unique_videos(comments: list[dict]) -> list[dict]:
     seen: dict[str, dict] = {}
     for c in comments:
@@ -203,7 +367,7 @@ def _unique_videos(comments: list[dict]) -> list[dict]:
             continue
         title = str(c.get("video_title") or "")
         if vid not in seen:
-            seen[vid] = {
+            video = {
                 "id": vid,
                 "title": title,
                 "views": _safe_int(c.get("video_views")),
@@ -219,7 +383,14 @@ def _unique_videos(comments: list[dict]) -> list[dict]:
                 "createdAt": c.get("video_created_at") or c.get("video_create_time") or "",
                 "comments": [],
             }
-        video = seen[vid]
+            # Métriques optionnelles : uniquement lorsque l'export en fournit
+            # une valeur (jamais 0 inventé) pour que le front puisse distinguer
+            # « compteur observé » de « non fourni » (metricAvailability).
+            _merge_optional_metrics(video, c)
+            seen[vid] = video
+        else:
+            video = seen[vid]
+            _merge_optional_metrics(video, c)
         video["commentCount"] += 1
         for hashtag in _extract_hashtags(str(c.get("text") or "")):
             if hashtag not in video["hashtags"]:
@@ -231,7 +402,11 @@ def _unique_videos(comments: list[dict]) -> list[dict]:
             if kw and kw not in video["hashtags"]:
                 video["hashtags"].append(kw)
         video["comments"].append(_comment_public(c))
-    return sorted(seen.values(), key=lambda item: item["views"], reverse=True)
+    videos = sorted(seen.values(), key=lambda item: item["views"], reverse=True)
+    if AUTO_MATCH_ENABLED:
+        for video in videos:
+            _attach_product_matches(video)
+    return videos
 
 
 def _comments_for_video(comments: list[dict], video_id: str) -> list[dict]:
@@ -318,6 +493,8 @@ class ScraperAPI(BaseHTTPRequestHandler):
 
     @classmethod
     def reload(cls):
+        _APPROVED_MATCHES.clear()
+        _APPROVED_MATCHES.update(_load_approved_matches())
         cls.comments = _load_comments()
         cls.videos = _unique_videos(cls.comments)
         cls.stats = _summary(cls.comments)
@@ -486,10 +663,79 @@ class ScraperAPI(BaseHTTPRequestHandler):
         else:
             self._json({"error": "Not found"}, 404)
 
+    def _product_match_payload(self, body_len: int) -> dict:
+        payload = {}
+        if body_len:
+            try:
+                payload = json.loads(self.rfile.read(body_len).decode("utf-8") or "{}")
+            except (ValueError, UnicodeDecodeError):
+                payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        return payload
+
+    def _handle_product_matches_write(self, video_id: str, body_len: int) -> bool:
+        """POST /api/videos/<id>/product-matches — approuve un produit Orchidy."""
+        if not _VIDEO_ID_RE.fullmatch(video_id):
+            self._json({"error": "Invalid video id"}, 400)
+            return True
+        payload = self._product_match_payload(body_len)
+        item_id = str(payload.get("orchidyCatalogItemId") or "").strip()
+        if not item_id:
+            self._json({"error": "orchidyCatalogItemId required"}, 400)
+            return True
+        matches = _APPROVED_MATCHES.setdefault(video_id, [])
+        matches[:] = [match for match in matches if match.get("orchidyCatalogItemId") != item_id]
+        matches.append({
+            "orchidyCatalogItemId": item_id,
+            "variantKey": str(payload.get("variantKey") or "").strip(),
+            "confidence": _safe_float(payload.get("confidence"), 1.0),
+            "source": str(payload.get("source") or "manual").strip() or "manual",
+            "status": "approved",
+        })
+        _save_approved_matches()
+        for video in ScraperAPI.videos:
+            if str(video.get("id")) == video_id:
+                _attach_product_matches(video)
+        self._json({"ok": True, "videoId": video_id, "productMatches": _APPROVED_MATCHES[video_id]})
+        return True
+
+    def _handle_product_matches_delete(self, video_id: str, body_len: int) -> bool:
+        """DELETE /api/videos/<id>/product-matches — retire une approbation."""
+        if not _VIDEO_ID_RE.fullmatch(video_id):
+            self._json({"error": "Invalid video id"}, 400)
+            return True
+        query = urlparse(self.path).query
+        item_id = str(dict(parse_qsl(query)).get("item") or "").strip()
+        if not item_id:
+            item_id = str(self._product_match_payload(body_len).get("orchidyCatalogItemId") or "").strip()
+        if not item_id:
+            self._json({"error": "item required"}, 400)
+            return True
+        matches = _APPROVED_MATCHES.get(video_id, [])
+        before = len(matches)
+        matches[:] = [match for match in matches if match.get("orchidyCatalogItemId") != item_id]
+        if len(matches) != before:
+            # Une vidéo sans approbation ne doit pas rester une clé vide.
+            if not matches:
+                _APPROVED_MATCHES.pop(video_id, None)
+            _save_approved_matches()
+        for video in ScraperAPI.videos:
+            if str(video.get("id")) == video_id:
+                _attach_product_matches(video)
+        self._json({"ok": True, "videoId": video_id, "removed": len(matches) != before})
+        return True
+
     def do_POST(self):
         path = urlparse(self.path).path.rstrip("/")
         if not self._authorized():
             self._json({"error": "Unauthorized"}, 401)
+            return
+
+        parts = path.split("/")
+        if len(parts) == 5 and parts[:3] == ["", "api", "videos"] and parts[4] == "product-matches":
+            body_len = int(self.headers.get("Content-Length") or 0)
+            self._handle_product_matches_write(parts[3], body_len)
             return
 
         if path == "/api/admin/refresh":
@@ -510,6 +756,20 @@ class ScraperAPI(BaseHTTPRequestHandler):
                 return
             _run_catalog_refresh(comments_per_video=comments)
             self._json({"ok": True, "status": "started", "message": "Régénération lancée en arrière-plan."})
+            return
+
+        self._json({"error": "Not found"}, 404)
+
+    def do_DELETE(self):
+        path = urlparse(self.path).path.rstrip("/")
+        if not self._authorized():
+            self._json({"error": "Unauthorized"}, 401)
+            return
+
+        parts = path.split("/")
+        if len(parts) == 5 and parts[:3] == ["", "api", "videos"] and parts[4] == "product-matches":
+            body_len = int(self.headers.get("Content-Length") or 0)
+            self._handle_product_matches_delete(parts[3], body_len)
             return
 
         self._json({"error": "Not found"}, 404)

@@ -10,6 +10,7 @@ import { useDoubleTap } from '@/hooks/useDoubleTap';
 import { useFeedStore } from '@/store/feedStore';
 import { formatPrice, getProductById } from '@/services/demoShop';
 import { CommerceProduct, getCommerceProductById } from '@/services/orchidyProducts';
+import { ProductAssociateSheet } from './ProductAssociateSheet';
 
 interface FeedItemProps {
   video: Video;
@@ -24,9 +25,16 @@ interface FeedItemProps {
 
 const USE_DEMO = process.env.NEXT_PUBLIC_USE_DEMO === 'true';
 
+function formatCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${(count / 1_000).toFixed(1)}K`;
+  return count.toString();
+}
+
 export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight, externalPause = false, onCommentPress, onSharePress, onProfilePress, onProductPress }) => {
-  const { toggleLike, toggleSave } = useFeedStore();
+  const { toggleLike, toggleSave, toggleFollow } = useFeedStore();
   const [isPaused, setIsPaused] = useState(false);
+  const [progress, setProgress] = useState(0);
   const [muted, setMuted] = useState(true);
   const [rate, setRate] = useState(1);
   const [heartVisible, setHeartVisible] = useState(false);
@@ -55,14 +63,24 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   const [safetyVisible, setSafetyVisible] = useState(false);
   const [blockedNotice, setBlockedNotice] = useState(false);
   const [commerceProduct, setCommerceProduct] = useState<CommerceProduct | null>(null);
+  const [associateVisible, setAssociateVisible] = useState(false);
   const readOnly = video.interactionMode === 'read_only' || video.sourceType === 'external_reference';
-  const primaryMatch = useMemo(() => video.productMatches?.[0] ?? null, [video.productMatches]);
+
+  useEffect(() => {
+    setProgress(0);
+    if (isActive) setIsPaused(false);
+  }, [video.id, isActive]);
+  const matches = useMemo(() => video.productMatches ?? [], [video.productMatches]);
+  // Approuvé = statut absent (match natif DB) ou 'approved'. Suggestion = auto-match.
+  const approvedMatch = useMemo(() => matches.find((match) => match.status !== 'suggested') ?? null, [matches]);
+  const suggestedMatch = useMemo(() => matches.find((match) => match.status === 'suggested') ?? null, [matches]);
+  const targetMatch = approvedMatch ?? suggestedMatch;
 
   useEffect(() => {
     let active = true;
     setCommerceProduct(null);
-    if (primaryMatch?.orchidyCatalogItemId) {
-      void getCommerceProductById(`orchidy:${primaryMatch.orchidyCatalogItemId}`).then((product) => {
+    if (targetMatch?.orchidyCatalogItemId) {
+      void getCommerceProductById(`orchidy:${targetMatch.orchidyCatalogItemId}`).then((product) => {
         if (active && product?.source === 'orchidy') setCommerceProduct(product);
       }).catch(() => undefined);
     } else if (USE_DEMO && video.productId) {
@@ -70,7 +88,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
       if (demo && active) setCommerceProduct({ ...demo, source: 'demo' } as CommerceProduct);
     }
     return () => { active = false; };
-  }, [primaryMatch?.orchidyCatalogItemId, video.productId]);
+  }, [targetMatch?.orchidyCatalogItemId, video.productId]);
 
   const handleDoubleTap = useCallback((event: { nativeEvent: { locationX: number; locationY: number } }) => {
     if (readOnly) return;
@@ -81,6 +99,10 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   }, [readOnly, video.id, video.isLiked, toggleLike]);
 
   const handleSingleTap = useCallback(() => setIsPaused((prev) => !prev), []);
+  const handleProgress = useCallback((value: number) => {
+    if (isActive) setProgress(Math.max(0, Math.min(1, value)));
+  }, [isActive]);
+  const handleLoad = useCallback(() => setProgress(0), [video.id]);
   const { onPress } = useDoubleTap({ onSingleTap: handleSingleTap, onDoubleTap: handleDoubleTap as (event: unknown) => void, maxDelay: 300, excludeRight: true });
   const containerStyle = itemHeight ? [styles.container, { height: itemHeight }] : styles.container;
 
@@ -91,7 +113,16 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   return (
     <View style={containerStyle}>
       {video.thumbnailUrl ? <Image source={{ uri: video.thumbnailUrl }} style={styles.thumbnailBg} resizeMode="cover" /> : null}
-      <VideoPlayer uri={video.videoUrl} isActive={isActive && !safetyVisible} isPaused={isPaused || safetyVisible || externalPause} isMuted={muted} rate={rate} onPress={onPress} />
+      <VideoPlayer
+        uri={video.videoUrl}
+        isActive={isActive && !safetyVisible}
+        isPaused={isPaused || safetyVisible || externalPause}
+        isMuted={muted}
+        rate={rate}
+        onPress={onPress}
+        onProgress={handleProgress}
+        onLoad={handleLoad}
+      />
       <DoubleTapHeart isVisible={heartVisible} x={heartPosition.x} y={heartPosition.y} onAnimationEnd={() => setHeartVisible(false)} />
 
       <View style={styles.playerControls}>
@@ -110,6 +141,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         onComment={onCommentPress}
         onShare={handleShare}
         onSave={() => toggleSave(video.id)}
+        onFollow={() => toggleFollow(video.user.id)}
         onAvatarPress={() => {
           if (readOnly) {
             // External creator: open their public TikTok profile instead of a fake ORKY page.
@@ -137,8 +169,9 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {readOnly ? <View style={styles.externalPill}><Text style={styles.externalPillText}>RÉFÉRENCE EXTERNE · LECTURE SEULE</Text></View> : null}
         <TouchableOpacity disabled={readOnly} onPress={() => onProfilePress(video.user.id)}><Text style={styles.username}>@{video.user.username}</Text></TouchableOpacity>
         <Text style={styles.description} numberOfLines={2}>{video.description}</Text>
+        {video.viewsCount > 0 && (!readOnly || video.metricAvailability?.views !== false) ? <Text style={styles.viewsLabel}>{formatCount(video.viewsCount)} vues</Text> : null}
 
-        {commerceProduct ? (
+        {commerceProduct && approvedMatch ? (
           <TouchableOpacity style={styles.productPill} activeOpacity={0.85} onPress={() => onProductPress?.(commerceProduct.id)}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
@@ -150,12 +183,37 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
           </TouchableOpacity>
         ) : null}
 
+        {!approvedMatch && suggestedMatch && commerceProduct ? (
+          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} onPress={() => setAssociateVisible(true)}>
+            <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
+            <View style={styles.productInfo}>
+              <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>
+              <Text style={styles.productPrice}>{formatPrice(commerceProduct.price, commerceProduct.currency)}</Text>
+              <Text style={styles.productSource}>Produit suggéré · à associer</Text>
+            </View>
+            <View style={[styles.productCta, styles.suggestionCta]}><Text style={styles.productCtaText}>Associer</Text></View>
+          </TouchableOpacity>
+        ) : null}
+
+        {readOnly && !approvedMatch && !suggestedMatch ? (
+          <TouchableOpacity style={styles.associateButton} activeOpacity={0.85} onPress={() => setAssociateVisible(true)}>
+            <Text style={styles.associateButtonText}>＋ Associer un produit</Text>
+          </TouchableOpacity>
+        ) : null}
+
         {video.hashtags.length > 0 ? <View style={styles.hashtagRow}>{video.hashtags.slice(0, 3).map((tag) => <Text key={tag.id} style={styles.hashtag}>#{tag.name}</Text>)}</View> : null}
         {video.sound ? <View style={styles.soundRow}><Text style={styles.soundIcon}>♪</Text><Text style={styles.soundText} numberOfLines={1}>{video.sound.title} - {video.sound.artist}</Text></View> : null}
       </View>
 
+      <View pointerEvents="none" style={styles.progressTrack}>
+        <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
+      </View>
+
       {!readOnly ? (
         <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} />
+      ) : null}
+      {readOnly ? (
+        <ProductAssociateSheet isVisible={associateVisible} onClose={() => setAssociateVisible(false)} video={video} />
       ) : null}
     </View>
   );
@@ -177,6 +235,9 @@ const styles = StyleSheet.create({
   externalPillText: { color: tokens.colors.text.secondary, fontSize: 8, fontWeight: '900', letterSpacing: 0.8 },
   username: { color: tokens.colors.white, fontSize: tokens.typography.subhead.fontSize, fontWeight: '700' },
   description: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, lineHeight: tokens.typography.body.lineHeight },
+  viewsLabel: { color: 'rgba(255,255,255,0.78)', fontSize: tokens.typography.caption.fontSize, fontWeight: '600' },
+  progressTrack: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 3, backgroundColor: 'rgba(255,255,255,0.28)', zIndex: 70 },
+  progressFill: { height: '100%', backgroundColor: tokens.colors.white },
   hashtagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: tokens.spacing.xs },
   hashtag: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '600' },
   soundRow: { flexDirection: 'row', alignItems: 'center', gap: tokens.spacing.xs, marginTop: tokens.spacing.xs },
@@ -190,4 +251,8 @@ const styles = StyleSheet.create({
   productSource: { color: tokens.colors.text.tertiary, fontSize: 9, marginTop: 1 },
   productCta: { backgroundColor: tokens.colors.brand.primary, borderRadius: tokens.radius.xs, paddingHorizontal: tokens.spacing.sm, paddingVertical: 7 },
   productCtaText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '800' },
+  suggestionPill: { borderColor: 'rgba(255,255,255,0.35)' },
+  suggestionCta: { backgroundColor: tokens.colors.surface },
+  associateButton: { alignSelf: 'flex-start', borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.md, paddingVertical: 8, backgroundColor: 'rgba(0,0,0,0.55)', borderWidth: 1, borderColor: 'rgba(124,58,237,0.6)', marginTop: tokens.spacing.sm },
+  associateButtonText: { color: tokens.colors.white, fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
 });

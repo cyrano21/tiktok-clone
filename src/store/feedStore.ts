@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Video, LoadingState, FeedAction } from '@/types';
+import { Video, LoadingState, FeedAction, VideoProductMatch } from '@/types';
 import { feedService } from '@/services/feedService';
 
 interface FeedState {
@@ -20,6 +20,7 @@ interface FeedActions {
   toggleLike: (videoId: string) => void;
   toggleSave: (videoId: string) => void;
   toggleFollow: (userId: string) => void;
+  setProductMatches: (videoId: string, matches: VideoProductMatch[]) => void;
 }
 
 type FeedStore = FeedState & FeedActions;
@@ -162,6 +163,14 @@ export const useFeedStore = create<FeedStore>((set, get) => ({
         ),
       }));
     });
+  },
+
+  setProductMatches: (videoId: string, matches: VideoProductMatch[]) => {
+    set((state) => ({
+      videos: state.videos.map((video) =>
+        video.id === videoId ? { ...video, productMatches: matches } : video,
+      ),
+    }));
   },
 
   toggleFollow: (userId: string) => {

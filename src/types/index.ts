@@ -20,6 +20,8 @@ export interface VideoProductMatch {
   variantKey?: string;
   confidence: number;
   source: string;
+  /** Une suggestion auto du catalogue doit être approuvée avant affichage. */
+  status?: 'suggested' | 'approved';
 }
 
 export interface Video {
@@ -33,6 +35,14 @@ export interface Video {
   sharesCount: number;
   savesCount: number;
   viewsCount: number;
+  /** Whether externally observed counters were actually supplied by the source. */
+  metricAvailability?: {
+    likes?: boolean;
+    comments?: boolean;
+    shares?: boolean;
+    saves?: boolean;
+    views?: boolean;
+  };
   duration: number;
   isLiked: boolean;
   isSaved: boolean;

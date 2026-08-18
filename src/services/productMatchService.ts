@@ -1,5 +1,17 @@
 import { apiClient } from './api';
 
+export interface VideoProductMatchCandidate {
+  orchidyCatalogItemId: string;
+  title: string;
+  slug?: string;
+  images: string[];
+  price?: number;
+  currency?: string;
+  score: number;
+  source: 'catalog_lexical_match';
+  requiresApproval: true;
+}
+
 export interface VideoProductMatchRecord {
   id: string;
   videoId: string;
@@ -11,6 +23,20 @@ export interface VideoProductMatchRecord {
 }
 
 export const productMatchService = {
+  async candidates(input: {
+    title: string;
+    hashtags?: string[];
+    limit?: number;
+  }): Promise<VideoProductMatchCandidate[]> {
+    const params = new URLSearchParams({
+      title: input.title,
+      hashtags: (input.hashtags || []).join(','),
+      limit: String(input.limit ?? 8),
+    });
+    const raw = await apiClient.get<{ candidates: VideoProductMatchCandidate[] }>(`/product-matches/candidates?${params.toString()}`);
+    return raw.candidates;
+  },
+
   async attach(input: {
     videoId: string;
     orchidyCatalogItemId: string;
