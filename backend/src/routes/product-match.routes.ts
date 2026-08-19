@@ -55,16 +55,39 @@ function tokenize(value: string): string[] {
   return normalizeText(value).split(/\s+/).filter(Boolean);
 }
 
-/** Score lexical ∈ [0,1] : moyenne de précision et rappel des jetons partagés.
- *  Pure et déterministe — utilisée pour classer les candidats du catalogue. */
-export function lexicalScore(query: string, candidateTitle: string): number {
-  const queryTokens = new Set(tokenize(query));
-  const candidateTokens = tokenize(candidateTitle);
+function titleScore(queryTokens: Set<string>, candidateTokens: string[]): number {
   if (queryTokens.size === 0 || candidateTokens.length === 0) return 0;
   const hits = candidateTokens.filter((token) => queryTokens.has(token)).length;
   const precision = hits / candidateTokens.length;
   const recall = hits / queryTokens.size;
-  return Math.min(1, 0.5 * precision + 0.5 * recall);
+  return 0.5 * precision + 0.5 * recall;
+}
+
+function categoryBonus(queryTokens: Set<string>, category: string): number {
+  if (!category) return 0;
+  const catTokens = new Set(tokenize(category));
+  for (const t of catTokens) { if (queryTokens.has(t)) return 0.3; }
+  return 0;
+}
+
+function descriptionBoost(queryTokens: Set<string>, description: string): number {
+  if (!description) return 0;
+  const descTokens = tokenize(description).filter((t) => t.length > 4);
+  const rareQuery = [...queryTokens].filter((t) => t.length > 4);
+  if (descTokens.length === 0 || rareQuery.length === 0) return 0;
+  const descSet = new Set(descTokens);
+  const hits = rareQuery.filter((t) => descSet.has(t)).length;
+  return Math.min(0.15, hits * 0.05);
+}
+
+/** Score lexical composite ∈ [0,1] : titre + catégorie + description. */
+export function lexicalScore(query: string, product: { title?: string; category?: string; description?: string }): number {
+  const queryTokens = new Set(tokenize(query));
+  if (queryTokens.size === 0) return 0;
+  const s = titleScore(queryTokens, tokenize(product.title || ''))
+    + categoryBonus(queryTokens, product.category || '')
+    + descriptionBoost(queryTokens, product.description || '');
+  return Math.min(1, s);
 }
 
 export async function validateOrchidyCatalogItem(itemId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -134,7 +157,9 @@ export async function productMatchRoutes(app: FastifyInstance) {
         if (/^https?:\/\//i.test(image) && !images.includes(image)) images.unshift(image);
         const price = Number(product?.price ?? product?.priceClient ?? product?.salePrice);
         const currency = String(product?.currency || 'EUR').trim().toUpperCase();
-        const score = lexicalScore(searchText, candidateTitle);
+        const category = String(product?.categoryName || '').trim();
+        const description = String(product?.description || '').trim().slice(0, 500);
+        const score = lexicalScore(searchText, { title: candidateTitle, category, description });
         return {
           orchidyCatalogItemId: itemId,
           title: candidateTitle,

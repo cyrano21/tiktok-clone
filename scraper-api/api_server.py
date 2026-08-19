@@ -220,6 +220,8 @@ def _load_orchidy_catalog() -> list[dict]:
                     "images": images,
                     "price": product.get("price") or product.get("priceClient") or product.get("salePrice") or 0,
                     "currency": str(product.get("currency") or "EUR").upper(),
+                    "category": str(product.get("categoryName") or "").strip(),
+                    "description": str(product.get("description") or "").strip()[:500],
                 })
             pagination = payload.get("pagination") or {}
             if not pagination.get("hasMore"):
@@ -242,16 +244,50 @@ def _tokens(value: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", _normalize_text(value))
 
 
-def _lexical_score(query: str, candidate_title: str) -> float:
-    """Score ∈ [0,1] : moyenne précision/rappel des jetons partagés."""
-    query_tokens = set(_tokens(query))
-    candidate_tokens = _tokens(candidate_title)
+def _title_score(query_tokens: set[str], candidate_tokens: list[str]) -> float:
+    """Score titre : précision/rappel des jetons partagés."""
     if not query_tokens or not candidate_tokens:
         return 0.0
-    hits = sum(1 for token in candidate_tokens if token in query_tokens)
+    hits = sum(1 for t in candidate_tokens if t in query_tokens)
     precision = hits / len(candidate_tokens)
     recall = hits / len(query_tokens)
-    return min(1.0, 0.5 * precision + 0.5 * recall)
+    return 0.5 * precision + 0.5 * recall
+
+
+def _category_bonus(query_tokens: set[str], category: str) -> float:
+    """Bonus 0-0.3 si la catégorie apparaît dans la requête."""
+    if not category:
+        return 0.0
+    cat_tokens = set(_tokens(category))
+    if cat_tokens & query_tokens:
+        return 0.3
+    return 0.0
+
+
+def _description_boost(query_tokens: set[str], description: str) -> float:
+    """Bonus 0-0.15 si des mots rares du description matchent."""
+    if not description:
+        return 0.0
+    desc_tokens = set(_tokens(description))
+    # Mots rares (> 4 lettres) uniquement pour éviter le bruit
+    rare = {t for t in desc_tokens if len(t) > 4}
+    rare_query = {t for t in query_tokens if len(t) > 4}
+    if not rare or not rare_query:
+        return 0.0
+    hits = len(rare & rare_query)
+    return min(0.15, hits * 0.05)
+
+
+def _lexical_score(query: str, product: dict) -> float:
+    """Score composite [0,1] : titre + catégorie + description."""
+    query_tokens = set(_tokens(query))
+    if not query_tokens:
+        return 0.0
+    candidate_tokens = _tokens(product.get("title") or "")
+    s = _title_score(query_tokens, candidate_tokens)
+    s += _category_bonus(query_tokens, product.get("category") or "")
+    s += _description_boost(query_tokens, product.get("description") or "")
+    return min(1.0, s)
 
 
 def _auto_match_video(video: dict) -> list[dict]:
@@ -261,7 +297,7 @@ def _auto_match_video(video: dict) -> list[dict]:
     query = f"{video.get('title') or ''} {' '.join(video.get('hashtags') or [])}"
     scored = []
     for product in _load_orchidy_catalog():
-        score = _lexical_score(query, product["title"])
+        score = _lexical_score(query, product)
         if score >= AUTO_MATCH_MIN_SCORE:
             scored.append({
                 "orchidyCatalogItemId": product["id"],

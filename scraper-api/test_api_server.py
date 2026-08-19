@@ -7,9 +7,9 @@ import api_server
 
 
 CATALOG = [
-    {"id": "lampe-sunset-projection", "title": "Lampe Sunset Projection LED", "images": [], "price": 12.99, "currency": "EUR"},
-    {"id": "casque-audio-bluetooth", "title": "Casque Audio Bluetooth Sans Fil", "images": [], "price": 19.99, "currency": "EUR"},
-    {"id": "tapis-de-bain", "title": "Tapis de bain antidérapant", "images": [], "price": 8.5, "currency": "EUR"},
+    {"id": "lampe-sunset-projection", "title": "Lampe Sunset Projection LED", "images": [], "price": 12.99, "currency": "EUR", "category": "Lighting", "description": "Lampe LED projection sunset"},
+    {"id": "casque-audio-bluetooth", "title": "Casque Audio Bluetooth Sans Fil", "images": [], "price": 19.99, "currency": "EUR", "category": "Audio", "description": "Casque sans fil bluetooth"},
+    {"id": "tapis-de-bain", "title": "Tapis de bain antidérapant", "images": [], "price": 8.5, "currency": "EUR", "category": "Bathroom", "description": "Tapis antidérapant"},
 ]
 
 
@@ -95,10 +95,26 @@ class ScraperVideoSourceTests(unittest.TestCase):
 
     def test_lexical_score_ranks_relevant_products(self):
         query = "Lampe sunset projection"
-        scores = {product["id"]: api_server._lexical_score(query, product["title"]) for product in CATALOG}
+        scores = {product["id"]: api_server._lexical_score(query, product) for product in CATALOG}
         self.assertGreater(scores["lampe-sunset-projection"], scores["casque-audio-bluetooth"])
         self.assertGreater(scores["lampe-sunset-projection"], 0.45)
         self.assertEqual(scores["tapis-de-bain"], 0.0)
+
+    def test_category_bonus_boosts_score(self):
+        product_with_cat = {"id": "x", "title": "Lampe", "images": [], "price": 0, "currency": "EUR", "category": "Lighting", "description": ""}
+        product_no_cat = {"id": "y", "title": "Lampe", "images": [], "price": 0, "currency": "EUR", "category": "Kitchen", "description": ""}
+        self.assertGreater(
+            api_server._lexical_score("lampe retro lighting", product_with_cat),
+            api_server._lexical_score("lampe retro lighting", product_no_cat),
+        )
+
+    def test_description_boost_increases_score(self):
+        product_rich = {"id": "z", "title": "Enceinte", "images": [], "price": 0, "currency": "EUR", "category": "", "description": "JBL bluetooth speakers haute qualite"}
+        product_poor = {"id": "w", "title": "Enceinte", "images": [], "price": 0, "currency": "EUR", "category": "", "description": "Petit appareil cuisine"}
+        self.assertGreater(
+            api_server._lexical_score("enceinte jbl bluetooth", product_rich),
+            api_server._lexical_score("enceinte jbl bluetooth", product_poor),
+        )
 
     def test_auto_match_emits_suggested_product_matches(self):
         comments = [{
