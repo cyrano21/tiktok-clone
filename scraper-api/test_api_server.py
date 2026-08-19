@@ -116,6 +116,34 @@ class ScraperVideoSourceTests(unittest.TestCase):
             api_server._lexical_score("enceinte jbl bluetooth", product_poor),
         )
 
+    def test_engagement_multiplier_boosts_engaging_videos(self):
+        engaging = {"views": 10000, "likes": 1500, "duration": 30}
+        flat = {"views": 10000, "likes": 50, "duration": 5}
+        self.assertGreater(
+            api_server._engagement_multiplier(engaging),
+            api_server._engagement_multiplier(flat),
+        )
+        self.assertLessEqual(api_server._engagement_multiplier(engaging), 1.08)
+        self.assertGreaterEqual(api_server._engagement_multiplier(flat), 0.9)
+
+    def test_auto_match_applies_engagement_to_confidence(self):
+        comments = [{
+            "video_id": "7200000000000000011",
+            "video_title": "Testez la lampe sunset projection aujourd'hui",
+            "video_views": 20000,
+            "video_likes": 4000,
+            "video_duration": 20,
+        }]
+        with patch.object(api_server, "AUTO_MATCH_ENABLED", True), \
+                patch.object(api_server, "_load_orchidy_catalog", return_value=CATALOG):
+            with patch.object(api_server, "_load_comments", return_value=comments):
+                api_server.ScraperAPI.reload()
+
+        video = api_server.ScraperAPI.videos[0]
+        matches = video["productMatches"]
+        self.assertTrue(matches)
+        self.assertGreater(matches[0]["confidence"], 0.45)
+
     def test_auto_match_emits_suggested_product_matches(self):
         comments = [{
             "video_id": "7200000000000000004",

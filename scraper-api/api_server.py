@@ -290,11 +290,38 @@ def _lexical_score(query: str, product: dict) -> float:
     return min(1.0, s)
 
 
+def _engagement_multiplier(video: dict) -> float:
+    """Multiplicateur [0.9, 1.08] selon l'engagement et la durée.
+
+    Une vidéo très engagée (ratio likes/vues élevé) et assez longue est plus
+    probablement une démonstration produit : on augmente légèrement la
+    confiance. Une vidéo courte et peu engagée voit sa confiance réduite.
+    """
+    views = _safe_int(video.get("views"))
+    likes = _safe_int(video.get("likes"))
+    duration = _safe_int(video.get("duration"))
+    mult = 1.0
+    if views > 100 and likes > 0:
+        ratio = likes / views
+        if ratio >= 0.10:
+            mult += 0.05
+        elif ratio >= 0.05:
+            mult += 0.025
+        elif ratio <= 0.01:
+            mult -= 0.05
+    if duration >= 15:
+        mult += 0.03
+    elif duration > 0 and duration < 8:
+        mult -= 0.03
+    return round(min(1.08, max(0.9, mult)), 3)
+
+
 def _auto_match_video(video: dict) -> list[dict]:
     """Suggestions produit (jamais approuvées) pour une vidéo externe."""
     if not AUTO_MATCH_ENABLED:
         return []
     query = f"{video.get('title') or ''} {' '.join(video.get('hashtags') or [])}"
+    engagement = _engagement_multiplier(video)
     scored = []
     for product in _load_orchidy_catalog():
         score = _lexical_score(query, product)
@@ -302,7 +329,7 @@ def _auto_match_video(video: dict) -> list[dict]:
             scored.append({
                 "orchidyCatalogItemId": product["id"],
                 "variantKey": "",
-                "confidence": round(score, 3),
+                "confidence": round(min(1.0, score * engagement), 3),
                 "source": "catalog_lexical_match",
                 "status": "suggested",
             })
