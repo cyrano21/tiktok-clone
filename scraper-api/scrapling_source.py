@@ -7,17 +7,26 @@ only reads public HTML and never turns scraped identities into native ORKY data.
 
 from __future__ import annotations
 
+import os
 import re
+from pathlib import Path
 from urllib.parse import urljoin
 
 _VIDEO_RE = re.compile(r"/video/(\d+)")
+_STORAGE_FILE = os.environ.get("SCRAPLING_STORAGE_FILE", "/app/data/scrapling-adaptive.db")
 
 
-def _first(values) -> str:
-    if not values:
-        return ""
-    value = values[0] if isinstance(values, (list, tuple)) else values
-    return str(value or "").strip()
+def _fetch(url: str):
+    from scrapling.fetchers import Fetcher
+
+    Path(_STORAGE_FILE).parent.mkdir(parents=True, exist_ok=True)
+    Fetcher.configure(
+        adaptive=True,
+        storage_args={"storage_file": _STORAGE_FILE},
+        keep_comments=False,
+        keep_cdata=False,
+    )
+    return Fetcher.get(url, impersonate="chrome", stealthy_headers=True)
 
 
 def _meta(page, selector: str) -> str:
@@ -28,26 +37,23 @@ def _meta(page, selector: str) -> str:
 
 
 def discover_profile_video_urls(username: str, limit: int = 10) -> list[str]:
-    """Discover public TikTok video URLs from a profile page.
-
-    This is a best-effort fallback for cases where yt-dlp can no longer enumerate
-    a profile. It deliberately returns only URLs; media download remains yt-dlp's
-    responsibility.
-    """
+    """Discover public TikTok video URLs from a profile page."""
     username = str(username or "").strip().lstrip("@")
     if not username or limit <= 0:
         return []
 
-    from scrapling.fetchers import FetcherSession
-
     profile_url = f"https://www.tiktok.com/@{username}"
-    with FetcherSession(impersonate="chrome") as session:
-        page = session.get(profile_url, stealthy_headers=True)
-
+    page = _fetch(profile_url)
+    selector = 'a[href*="/video/"]::attr(href)'
     try:
-        hrefs = page.css('a[href*="/video/"]::attr(href)', auto_save=True).getall()
+        hrefs = page.css(selector, auto_save=True, identifier="orky:tiktok:profile-video-links").getall()
     except Exception:
-        hrefs = page.css('a[href*="/video/"]::attr(href)').getall()
+        hrefs = []
+    if not hrefs:
+        try:
+            hrefs = page.css(selector, adaptive=True, identifier="orky:tiktok:profile-video-links").getall()
+        except Exception:
+            hrefs = page.css(selector).getall()
 
     output: list[str] = []
     seen: set[str] = set()
@@ -71,11 +77,7 @@ def fetch_public_video_metadata(url: str) -> dict:
     if not str(url or "").startswith("https://"):
         return {}
 
-    from scrapling.fetchers import FetcherSession
-
-    with FetcherSession(impersonate="chrome") as session:
-        page = session.get(url, stealthy_headers=True)
-
+    page = _fetch(url)
     title = _meta(page, 'meta[property="og:title"]::attr(content)')
     description = _meta(page, 'meta[property="og:description"]::attr(content)')
     image = _meta(page, 'meta[property="og:image"]::attr(content)')
