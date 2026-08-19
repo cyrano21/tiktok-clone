@@ -1,4 +1,5 @@
 import { apiClient } from './api';
+import type { CommerceProduct } from './orchidyProducts';
 
 export interface VideoProductMatchCandidate {
   orchidyCatalogItemId: string;
@@ -20,6 +21,25 @@ export interface VideoProductMatchRecord {
   confidence: number;
   source: string;
   status: string;
+}
+
+/** Convertit des produits Orchidy (shop) en candidats associables : utilisé
+ *  par la feuille d'association pour « Parcourir le catalogue » quand la
+ *  recherche par titre ne renvoie rien. score = 0 (aucune correspondance
+ *  lexicale affirmée — le produit reste en attente d'approbation). */
+export function toBrowseCandidates(products: CommerceProduct[]): VideoProductMatchCandidate[] {
+  return products
+    .filter((p) => p.source === 'orchidy' && (p.externalId || p.externalSlug))
+    .map((p) => ({
+      orchidyCatalogItemId: p.externalId || p.externalSlug || p.id,
+      title: p.title,
+      images: p.images,
+      price: p.price,
+      currency: p.currency === '€' ? 'EUR' : p.currency,
+      score: 0,
+      source: 'catalog_lexical_match' as const,
+      requiresApproval: true as const,
+    }));
 }
 
 export const productMatchService = {

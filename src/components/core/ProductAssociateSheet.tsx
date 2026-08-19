@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Image,
 import { BottomSheet } from '@/components/shared/BottomSheet';
 import { tokens } from '@/theme/tokens';
 import { Video, VideoProductMatch } from '@/types';
-import { productMatchService, VideoProductMatchCandidate } from '@/services/productMatchService';
+import { productMatchService, toBrowseCandidates, VideoProductMatchCandidate } from '@/services/productMatchService';
+import { getCommerceProducts } from '@/services/orchidyProducts';
 import { scraperBridge } from '@/services/scraperBridge';
 import { useFeedStore } from '@/store/feedStore';
 import { formatPrice } from '@/services/demoShop';
@@ -21,6 +22,9 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
   const [query, setQuery] = useState('');
   const [candidates, setCandidates] = useState<VideoProductMatchCandidate[]>([]);
   const [busy, setBusy] = useState(false);
+  // Parcours du catalogue : utilisé quand la recherche (titre TikTok bruité)
+  // ne renvoie rien, pour choisir manuellement un produit Orchidy.
+  const [browsing, setBrowsing] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -31,8 +35,31 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
     [video.description],
   );
 
+  const loadBrowse = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    setBrowsing(true);
+    try {
+      const products = await getCommerceProducts({ sort: 'bestseller', limit: 12 });
+      const browsable = toBrowseCandidates(products);
+      setCandidates(browsable);
+      if (browsable.length === 0) setError('Catalogue Orchidy indisponible pour le moment.');
+    } catch {
+      setCandidates([]);
+      setError('Catalogue Orchidy indisponible. Réessaie dans un instant.');
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
   const runSearch = useCallback(async (text: string) => {
     const trimmed = text.trim();
+    if (trimmed.length === 0) {
+      // Champ vidé → parcourir le catalogue au lieu d'une liste vide.
+      void loadBrowse();
+      return;
+    }
+    setBrowsing(false);
     if (trimmed.length < 2) {
       setCandidates([]);
       return;
@@ -43,14 +70,16 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
       const hashtags = (video.hashtags || []).map((tag) => tag.name);
       const results = await productMatchService.candidates({ title: trimmed, hashtags, limit: 8 });
       setCandidates(results);
-      if (results.length === 0) setError('Aucun produit correspondant dans le catalogue Orchidy.');
+      if (results.length === 0) {
+        setError('Aucun produit ne correspond au titre de la vidéo. Parcours le catalogue pour choisir manuellement.');
+      }
     } catch {
       setCandidates([]);
       setError('Recherche indisponible. Le catalogue Orchidy est-il joignable ?');
     } finally {
       setBusy(false);
     }
-  }, [video.hashtags]);
+  }, [video.hashtags, loadBrowse]);
 
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
@@ -124,6 +153,16 @@ export const ProductAssociateSheet: React.FC<ProductAssociateSheetProps> = ({ is
           maxLength={200}
         />
 
+        <View style={styles.browseRow}>
+          <TouchableOpacity
+            style={[styles.browseButton, browsing && styles.browseButtonActive]}
+            accessibilityRole="button"
+            onPress={() => { setQuery(''); void loadBrowse(); }}
+          >
+            <Text style={styles.browseText}>{browsing ? 'Catalogue Orchidy · meilleures ventes' : 'Parcourir le catalogue'}</Text>
+          </TouchableOpacity>
+        </View>
+
         {message ? <Text style={styles.successMessage}>{message}</Text> : null}
         {error && candidates.length === 0 ? <Text style={styles.errorMessage}>{error}</Text> : null}
 
@@ -182,6 +221,10 @@ const styles = StyleSheet.create({
   closeButton: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   closeText: { color: tokens.colors.white, fontSize: 30, lineHeight: 32 },
   searchInput: { borderRadius: tokens.radius.md, backgroundColor: tokens.colors.surface, color: tokens.colors.white, paddingHorizontal: tokens.spacing.md, paddingVertical: 12, fontSize: tokens.typography.body.fontSize },
+  browseRow: { flexDirection: 'row', marginTop: tokens.spacing.sm },
+  browseButton: { borderRadius: tokens.radius.full, paddingHorizontal: tokens.spacing.md, paddingVertical: 6, borderWidth: 1, borderColor: 'rgba(124,58,237,0.5)', alignSelf: 'flex-start' },
+  browseButtonActive: { backgroundColor: 'rgba(124,58,237,0.18)' },
+  browseText: { color: tokens.colors.brand.primary, fontSize: tokens.typography.caption.fontSize, fontWeight: '700' },
   successMessage: { color: '#4ade80', marginTop: tokens.spacing.sm, fontWeight: '700' },
   errorMessage: { color: tokens.colors.text.secondary, marginTop: tokens.spacing.sm },
   centerState: { alignItems: 'center', paddingVertical: tokens.spacing.xl, gap: tokens.spacing.sm },
