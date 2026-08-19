@@ -310,6 +310,100 @@ class ScraperVideoSourceTests(unittest.TestCase):
         self.assertEqual(video["commentCount"], 2)
 
 
+class ScraperMediaProxyTests(unittest.TestCase):
+    """Covers son et avatars : mêmes URLs TikTok signées que les miniatures —
+    le scraper les télécharge côté serveur et les sert depuis son cache local."""
+
+    COMMENTS = [
+        {
+            "video_id": "7622850963597970718",
+            "video_music_id": "7123456789012345678",
+            "video_music_cover": "https://p16.tiktokcdn.com/music-cover.jpg?x-expires=1",
+            "creator_username": "fang.shop",
+            "creator_avatar": "https://p16.tiktokcdn.com/creator.jpg?x-expires=1",
+        },
+        {
+            "video_id": "7622850963597970719",
+            "video_music_id": "7123456789012345678",
+            "video_music_cover": "https://p16.tiktokcdn.com/music-cover-2.jpg?x-expires=2",
+        },
+        {
+            "video_id": "7622850963597970720",
+            "username": "fan.one",
+            "avatar_url": "https://p16.tiktokcdn.com/fan.jpg?x-expires=3",
+        },
+    ]
+
+    def test_sound_cover_url_takes_the_latest_row(self):
+        url = api_server._sound_cover_url(self.COMMENTS, "7123456789012345678")
+        self.assertEqual(url, "https://p16.tiktokcdn.com/music-cover-2.jpg?x-expires=2")
+
+    def test_avatar_url_falls_back_to_comment_author_avatar(self):
+        self.assertEqual(
+            api_server._avatar_url(self.COMMENTS, "fang.shop"),
+            "https://p16.tiktokcdn.com/creator.jpg?x-expires=1",
+        )
+        self.assertEqual(
+            api_server._avatar_url(self.COMMENTS, "fan.one"),
+            "https://p16.tiktokcdn.com/fan.jpg?x-expires=3",
+        )
+        self.assertEqual(api_server._avatar_url(self.COMMENTS, "unknown.user"), "")
+
+    def test_sound_cover_endpoint_serves_cached_image(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler.comments = self.COMMENTS
+        served = {}
+        handler._serve_file = lambda path, content_type, cache_control=None: served.update(
+            path=str(path), content_type=content_type, cache_control=cache_control
+        )
+
+        cache_file = api_server._media_path("sound", "7123456789012345678")
+        with patch.object(api_server, "_get_cached_media", return_value=cache_file):
+            handler._serve_media("sound", "7123456789012345678", "https://p16.tiktokcdn.com/music-cover.jpg")
+        self.assertEqual(served.get("content_type"), "image/jpeg")
+        self.assertEqual(served.get("cache_control"), api_server._IMAGE_CACHE_CONTROL)
+
+    def test_sound_cover_endpoint_downloads_when_not_cached(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler.comments = self.COMMENTS
+        served = {}
+        handler._serve_file = lambda path, content_type, cache_control=None: served.update(content_type=content_type)
+
+        cache_file = api_server._media_path("sound", "7123456789012345678")
+        with patch.object(api_server, "_get_cached_media", side_effect=[None, cache_file]), \
+                patch.object(api_server, "_download_media", return_value=cache_file), \
+                patch.object(api_server, "_cache_lock", return_value=api_server.threading.Lock()):
+            handler._serve_media("sound", "7123456789012345678", "https://p16.tiktokcdn.com/music-cover.jpg")
+        self.assertEqual(served.get("content_type"), "image/jpeg")
+
+    def test_sound_cover_endpoint_404_when_no_source_url(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler.comments = self.COMMENTS
+        responses = []
+        handler._json = lambda data, status=200: responses.append((data, status))
+
+        with patch.object(api_server, "_get_cached_media", return_value=None):
+            handler._serve_media("sound", "9999999999999999999", "")
+        self.assertEqual(responses[0][1], 404)
+
+    def test_warm_media_starts_background_warm(self):
+        api_server.ScraperAPI.videos = [
+            {"id": "7622850963597970718", "url": "https://www.tiktok.com/@fang.shop/video/7622850963597970718"},
+        ]
+        api_server.ScraperAPI.comments = self.COMMENTS
+        with patch.object(api_server, "_get_cached_thumbnail", return_value=None), \
+                patch.object(api_server, "_get_cached_media", return_value=None), \
+                patch.object(api_server, "_page_extract", return_value={"cover": "", "playAddr": ""}), \
+                patch.object(api_server, "_download_thumbnail", return_value=None), \
+                patch.object(api_server, "_download_media", return_value=None):
+            result = api_server._warm_media()
+        self.assertTrue(result.get("started"))
+        self.assertGreaterEqual(result.get("queued", 0), 1)
+
+
 class ScraperPageExtractionTests(unittest.TestCase):
     """Les URLs TikTok signées expirent (~2 jours) et sont validées par IP : le
     scraper relit la page vidéo pour obtenir des URLs fraîches côté serveur."""
@@ -359,7 +453,7 @@ class ScraperPageExtractionTests(unittest.TestCase):
             "7622850963597970718": "https://www.tiktok.com/@tiktok/video/7622850963597970718",
         }
         served = {}
-        handler._serve_file = lambda path, content_type: served.update(path=str(path), content_type=content_type)
+        handler._serve_file = lambda path, content_type, cache_control=None: served.update(path=str(path), content_type=content_type, cache_control=cache_control)
 
         cache_file = api_server._thumbnail_path("7622850963597970718")
         with patch.object(api_server, "_get_cached_thumbnail", side_effect=[None, cache_file]), \
@@ -368,6 +462,21 @@ class ScraperPageExtractionTests(unittest.TestCase):
                 patch.object(api_server, "_cache_lock", return_value=api_server.threading.Lock()):
             handler._thumbnail("7622850963597970718")
         self.assertEqual(served.get("content_type"), "image/jpeg")
+
+    def test_thumbnail_endpoint_sets_public_immutable_cache_control(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler._url_index = {
+            "7622850963597970718": "https://www.tiktok.com/@tiktok/video/7622850963597970718",
+        }
+        served = {}
+        handler._serve_file = lambda path, content_type, cache_control=None: served.update(cache_control=cache_control)
+
+        with patch.object(api_server, "_get_cached_thumbnail", return_value=api_server._thumbnail_path("7622850963597970718")):
+            handler._thumbnail("7622850963597970718")
+        self.assertEqual(served.get("cache_control"), api_server._IMAGE_CACHE_CONTROL)
+        self.assertIn("public", api_server._IMAGE_CACHE_CONTROL)
+        self.assertIn("immutable", api_server._IMAGE_CACHE_CONTROL)
 
     def test_thumbnail_endpoint_returns_error_when_page_has_no_cover(self):
         handler = object.__new__(api_server.ScraperAPI)

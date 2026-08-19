@@ -6,6 +6,8 @@ export const dynamic = 'force-dynamic';
 
 const INTERNAL_SCRAPER_URL = process.env.SCRAPER_API_INTERNAL_URL || 'http://127.0.0.1:8502';
 const ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
+// Clés médias (ids son, usernames TikTok) : les usernames peuvent contenir des points.
+const KEY_RE = /^[A-Za-z0-9._-]{1,128}$/;
 const RATE_WINDOW_MS = 60_000;
 const metadataHits = new Map<string, { count: number; resetAt: number }>();
 const streamHits = new Map<string, { count: number; resetAt: number }>();
@@ -42,10 +44,18 @@ function allowedPath(path: string[]): { ok: boolean; stream: boolean } {
   if (path.length === 1 && ['health', 'stats', 'videos'].includes(path[0])) {
     return { ok: true, stream: false };
   }
-  if (path.length === 2 && path[0] === 'admin' && path[1] === 'refresh-status') {
-    return { ok: true, stream: false };
+  if (path.length === 2 && path[0] === 'admin' && (path[1] === 'refresh-status' || path[1] === 'warm')) {
+    return { ok: true, stream: path[1] === 'warm' };
   }
   if (path.length === 2 && path[0] === 'stream' && ID_RE.test(path[1])) {
+    return { ok: true, stream: true };
+  }
+  // Covers son + avatars : URLs TikTok signées (TTL court, validées par IP) —
+  // le scraper les télécharge côté serveur et les sert depuis son cache local.
+  if (path.length === 2 && path[0] === 'sound-cover' && KEY_RE.test(path[1])) {
+    return { ok: true, stream: true };
+  }
+  if (path.length === 2 && path[0] === 'avatar' && KEY_RE.test(path[1])) {
     return { ok: true, stream: true };
   }
   // Thumbnail proxy: le navigateur ne doit jamais charger une URL TikTok signée

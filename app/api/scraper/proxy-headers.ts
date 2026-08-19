@@ -32,7 +32,11 @@ export function scraperResponseHeaders(upstream: { headers: Headers }, isStream:
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
-  headers.set('cache-control', isStream ? 'private, max-age=3600' : 'no-store');
+  // Cache-Control navigateur/CDN : les médias servis par le scraper portent
+  // déjà des directives publiques (images immutables 1j, vidéos 1h) — on les
+  // transmet telles quelles. Métadonnées : jamais de cache.
+  const upstreamCache = upstream.headers.get('cache-control');
+  headers.set('cache-control', upstreamCache || (isStream ? 'private, max-age=3600' : 'no-store'));
   headers.set('x-content-type-options', 'nosniff');
   return headers;
 }

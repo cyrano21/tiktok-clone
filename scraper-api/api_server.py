@@ -33,6 +33,21 @@ VIDEO_CACHE_TTL = int(os.environ.get("VIDEO_CACHE_TTL_SECONDS", "86400"))
 # sert depuis le cache local pour ne jamais exposer d'URL TikTok au navigateur.
 THUMBNAIL_CACHE = Path(os.environ.get("THUMBNAIL_CACHE_DIR", str(ROOT / "thumbnail_cache")))
 THUMBNAIL_CACHE_TTL = int(os.environ.get("THUMBNAIL_CACHE_TTL_SECONDS", "604800"))
+# Covers son et avatars : mêmes URLs TikTok signées (TTL court, validées par
+# requêteur). Même stratégie que les miniatures : téléchargement côté serveur,
+# cache local, jamais d'URL TikTok exposée au navigateur. Le cache vit sur le
+# volume persistant pour survivre aux redémarrages.
+MEDIA_CACHE = Path(os.environ.get("MEDIA_CACHE_DIR", str(DATA_DIR / "media_cache")))
+MEDIA_CACHE_TTL = int(os.environ.get("MEDIA_CACHE_TTL_SECONDS", "604800"))
+# Préchauffage des médias au démarrage / après régénération du catalogue : les
+# miniatures/covers/avatars manquants sont téléchargés en arrière-plan pour que
+# la première visite d'un utilisateur ne déclenche pas une lecture de page TikTok.
+SCRAPER_WARM_ON_RELOAD = os.environ.get("SCRAPER_WARM_ON_RELOAD", "1") == "1"
+SCRAPER_WARM_MAX = int(os.environ.get("SCRAPER_WARM_MAX", "120") or 120)
+# Cache-Control navigateur/CDN : les médias sont stables tant que le TTL local
+# n'a pas expiré — on autorise un cache public long + stale-while-revalidate.
+_IMAGE_CACHE_CONTROL = "public, max-age=86400, stale-while-revalidate=604800, immutable"
+_VIDEO_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400"
 SCRAPER_INTERNAL_SECRET = os.environ.get("SCRAPER_INTERNAL_SECRET", "").strip()
 # Association vidéo → produit Orchidy (voir docs/trend-sourcing-contract.md).
 # Auto-match désactivé par défaut : SCRAPER_AUTO_MATCH=1 l'active. Les
@@ -134,6 +149,8 @@ _CACHE_LOCKS: dict[str, threading.Lock] = {}
 _CACHE_LOCKS_GUARD = threading.Lock()
 _DOWNLOAD_SEMAPHORE = threading.BoundedSemaphore(MAX_CONCURRENT_DOWNLOADS)
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+# Clés médias (ids son, usernames) : les usernames TikTok peuvent contenir des points.
+_MEDIA_KEY_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 
 def _safe_int(value, default=0):
@@ -683,6 +700,171 @@ def _download_thumbnail(video_id: str, cover_url: str) -> Path | None:
         return None
 
 
+def _media_path(kind: str, key: str) -> Path:
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(key))[:128]
+    MEDIA_CACHE.mkdir(parents=True, exist_ok=True)
+    return MEDIA_CACHE / f"{kind}-{safe}.jpg"
+
+
+def _get_cached_media(kind: str, key: str) -> Path | None:
+    path = _media_path(kind, key)
+    if not path.exists():
+        return None
+    if time.time() - path.stat().st_mtime > MEDIA_CACHE_TTL or path.stat().st_size < 100:
+        path.unlink(missing_ok=True)
+        return None
+    return path
+
+
+def _download_media(kind: str, key: str, url: str) -> Path | None:
+    """Télécharge une cover son / avatar (URL TikTok signée, valide pour notre
+    IP) et la met en cache local : le navigateur ne touche jamais TikTok CDN."""
+    if not url.startswith("https://"):
+        return None
+    outpath = _media_path(kind, key)
+    temporary = outpath.with_suffix(".part")
+    try:
+        request = urllib.request.Request(
+            url, headers={"User-Agent": _PAGE_UA, "Referer": "https://www.tiktok.com/"}
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read()
+        if len(body) < 100:
+            return None
+        with open(temporary, "wb") as handle:
+            handle.write(body)
+        os.replace(temporary, outpath)
+        return outpath
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        return None
+
+
+def _latest_field(comments: list[dict], field: str, matches) -> str:
+    """Dernière valeur non vide (https) du champ parmi les lignes correspondantes."""
+    best = ""
+    for row in comments:
+        if matches(row):
+            value = str(row.get(field) or "").strip()
+            if value.startswith("https://"):
+                best = value
+    return best
+
+
+def _sound_cover_url(comments: list[dict], music_id: str) -> str:
+    return _latest_field(
+        comments, "video_music_cover",
+        lambda row, mid=music_id: str(row.get("video_music_id") or "") == mid,
+    )
+
+
+def _avatar_url(comments: list[dict], username: str) -> str:
+    """Avatar du créateur vidéo, puis avatar d'auteur de commentaire sinon."""
+    creator = (
+        _latest_field(comments, "creator_avatar", lambda row, u=username: str(row.get("creator_username") or "") == u)
+        or _latest_field(comments, "author_avatar", lambda row, u=username: str(row.get("author_username") or "") == u)
+    )
+    if creator:
+        return creator
+    return (
+        _latest_field(comments, "avatar_url", lambda row, u=username: str(row.get("username") or "") == u)
+        or _latest_field(comments, "avatarUrl", lambda row, u=username: str(row.get("username") or "") == u)
+        or _latest_field(comments, "avatar", lambda row, u=username: str(row.get("username") or "") == u)
+    )
+
+
+_WARM_LOCK = threading.Lock()
+_WARM_STATE: dict = {"running": False, "last_run": "", "warmed": 0, "failed": 0, "message": ""}
+
+
+def _warm_media(max_items: int = SCRAPER_WARM_MAX) -> dict:
+    """Préchauffe miniatures, covers son et avatars manquants en arrière-plan.
+
+    Lancé au démarrage / après régénération du catalogue et à la demande via
+    /api/admin/warm. Ne télécharge que ce qui manque ou a expiré ; le
+    sémaphore global limite la pression sur TikTok.
+    """
+    with _WARM_LOCK:
+        if _WARM_STATE.get("running"):
+            return {"started": False, "error": "Préchauffage déjà en cours"}
+        _WARM_STATE.update(running=True, last_run="", warmed=0, failed=0, message="Démarrage…")
+
+    tasks: list[tuple[str, str, str]] = []
+    for video in ScraperAPI.videos:
+        if len(tasks) >= max_items:
+            break
+        vid = str(video.get("id") or "")
+        if vid and _VIDEO_ID_RE.fullmatch(vid) and not _get_cached_thumbnail(vid):
+            tasks.append(("thumbnail", vid, str(video.get("url") or "")))
+
+    sound_ids = {str(row.get("video_music_id") or "").strip() for row in ScraperAPI.comments}
+    for music_id in sorted(sound_ids):
+        if not music_id or len(tasks) >= max_items or _get_cached_media("sound", music_id):
+            continue
+        url = _sound_cover_url(ScraperAPI.comments, music_id)
+        if url:
+            tasks.append(("sound", music_id, url))
+
+    usernames = set()
+    for row in ScraperAPI.comments:
+        for field in ("creator_username", "author_username", "username"):
+            value = str(row.get(field) or "").strip()
+            if value:
+                usernames.add(value)
+                break
+    for username in sorted(usernames):
+        if not username or len(tasks) >= max_items or _get_cached_media("avatar", username):
+            continue
+        url = _avatar_url(ScraperAPI.comments, username)
+        if url:
+            tasks.append(("avatar", username, url))
+
+    def _run_one(kind: str, key: str, url: str) -> bool:
+        with _DOWNLOAD_SEMAPHORE:
+            if kind == "thumbnail":
+                if not url.startswith("https://"):
+                    return False
+                extracted = _page_extract(url)
+                cover = (extracted or {}).get("cover", "")
+                return bool(cover) and _download_thumbnail(key, cover) is not None
+            return _download_media(kind, key, url) is not None
+
+    def _worker(items: list, index: int):
+        warmed = failed = 0
+        for item in items[index::4]:
+            try:
+                if _run_one(*item):
+                    warmed += 1
+                else:
+                    failed += 1
+            except Exception:
+                failed += 1
+        with _WARM_LOCK:
+            _WARM_STATE["warmed"] += warmed
+            _WARM_STATE["failed"] += failed
+
+    worker_count = min(4, len(tasks)) or 1
+    threads = [
+        threading.Thread(target=_worker, args=(tasks, i), daemon=True, name=f"media-warm-{i}")
+        for i in range(worker_count)
+    ]
+    for thread in threads:
+        thread.start()
+
+    def _done():
+        for thread in threads:
+            thread.join()
+        with _WARM_LOCK:
+            _WARM_STATE.update(
+                running=False,
+                last_run=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                message=f"{_WARM_STATE['warmed']} médias préchauffés, {_WARM_STATE['failed']} échecs",
+            )
+
+    threading.Thread(target=_done, daemon=True, name="media-warm-done").start()
+    return {"started": True, "queued": len(tasks), "message": f"{len(tasks)} médias à préchauffer en arrière-plan."}
+
+
 class ScraperAPI(BaseHTTPRequestHandler):
     comments: list[dict] = []
     videos: list[dict] = []
@@ -701,6 +883,10 @@ class ScraperAPI(BaseHTTPRequestHandler):
             for video in cls.videos
             if video.get("url")
         }
+        # Préchauffage des médias en arrière-plan (démarrage + après régénération) :
+        # la première visite ne doit pas déclencher de lecture de page TikTok.
+        if SCRAPER_WARM_ON_RELOAD and cls.videos:
+            threading.Thread(target=_warm_media, daemon=True, name="media-warm").start()
 
     def _authorized(self) -> bool:
         if not SCRAPER_INTERNAL_SECRET:
@@ -718,7 +904,7 @@ class ScraperAPI(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _serve_file(self, path: Path, content_type: str):
+    def _serve_file(self, path: Path, content_type: str, cache_control: str = "public, max-age=3600"):
         try:
             size = path.stat().st_size
             start = 0
@@ -754,7 +940,7 @@ class ScraperAPI(BaseHTTPRequestHandler):
             self.send_header("Accept-Ranges", "bytes")
             if partial:
                 self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
-            self.send_header("Cache-Control", "private, max-age=3600")
+            self.send_header("Cache-Control", cache_control)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.end_headers()
             with open(path, "rb") as handle:
@@ -775,13 +961,32 @@ class ScraperAPI(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def _serve_media(self, kind: str, key: str, url: str):
+        """Sert une cover son / avatar depuis le cache local, sinon la télécharge."""
+        cached = _get_cached_media(kind, key)
+        if cached:
+            self._serve_file(cached, "image/jpeg", _IMAGE_CACHE_CONTROL)
+            return
+        if not url:
+            self._json({"error": "External media source unavailable"}, 404)
+            return
+        lock = _cache_lock(f"media:{kind}:{key}")
+        with lock:
+            cached = _get_cached_media(kind, key)
+            if not cached:
+                cached = _download_media(kind, key, url)
+        if cached:
+            self._serve_file(cached, "image/jpeg", _IMAGE_CACHE_CONTROL)
+            return
+        self._json({"error": "External media unavailable"}, 502)
+
     def _thumbnail(self, video_id: str):
         if not _VIDEO_ID_RE.fullmatch(video_id):
             self._json({"error": "Invalid video id"}, 400)
             return
         cached = _get_cached_thumbnail(video_id)
         if cached:
-            self._serve_file(cached, "image/jpeg")
+            self._serve_file(cached, "image/jpeg", _IMAGE_CACHE_CONTROL)
             return
 
         source_url = self._url_index.get(video_id, "")
@@ -798,7 +1003,7 @@ class ScraperAPI(BaseHTTPRequestHandler):
                 if cover:
                     cached = _download_thumbnail(video_id, cover)
         if cached:
-            self._serve_file(cached, "image/jpeg")
+            self._serve_file(cached, "image/jpeg", _IMAGE_CACHE_CONTROL)
             return
         self._json({"error": "External thumbnail unavailable"}, 502)
 
@@ -822,7 +1027,7 @@ class ScraperAPI(BaseHTTPRequestHandler):
             if not cached:
                 cached = _download_to_cache(video_id, source_url)
         if cached:
-            self._serve_file(cached, "video/mp4")
+            self._serve_file(cached, "video/mp4", _VIDEO_CACHE_CONTROL)
             return
         self._json({"error": "External stream unavailable"}, 502)
 
@@ -851,6 +1056,26 @@ class ScraperAPI(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/thumbnail/"):
             self._thumbnail(path.split("/api/thumbnail/", 1)[1])
+            return
+        if path == "/api/admin/warm":
+            result = _warm_media()
+            self._json(result, 200 if result.get("started", True) else 409)
+            return
+        if path.startswith("/api/sound-cover/"):
+            music_id = path.split("/api/sound-cover/", 1)[1]
+            if not _MEDIA_KEY_RE.fullmatch(music_id):
+                self._json({"error": "Invalid sound id"}, 400)
+                return
+            url = _sound_cover_url(self.comments, music_id)
+            self._serve_media("sound", music_id, url)
+            return
+        if path.startswith("/api/avatar/"):
+            username = path.split("/api/avatar/", 1)[1]
+            if not _MEDIA_KEY_RE.fullmatch(username):
+                self._json({"error": "Invalid username"}, 400)
+                return
+            url = _avatar_url(self.comments, username)
+            self._serve_media("avatar", username, url)
             return
 
         if path.startswith("/api/videos/") and path.endswith("/comments"):

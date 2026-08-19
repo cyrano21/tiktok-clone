@@ -151,7 +151,11 @@ export function toOrkyVideo(sv: ScraperVideo): Video {
   const creatorFromUrl = sv.url.match(/\/@@?([^/]+)/)?.[1] || '';
   const creatorUsername = sv.creatorUsername || creatorFromUrl || 'source-externe';
   const creatorDisplayName = sv.creatorDisplayName || (creatorUsername === 'source-externe' ? 'Créateur externe' : creatorUsername);
-  const creatorAvatarUrl = sv.creatorAvatarUrl || '';
+  // Les avatars TikTok sont aussi des URLs signées qui expirent : ils passent
+  // par le proxy scraper (téléchargement côté serveur + cache local).
+  const creatorAvatarUrl = sv.creatorAvatarUrl
+    ? scraperUrl(`avatar/${encodeURIComponent(creatorUsername)}`)
+    : '';
   const dur = sv.duration > 0 ? sv.duration : 0;
   const explicitMatches = (sv.productMatches ?? [])
     .filter((match) => typeof match.orchidyCatalogItemId === 'string' && match.orchidyCatalogItemId.trim() !== '')
@@ -220,7 +224,10 @@ export function toOrkyVideo(sv: ScraperVideo): Video {
           id: sv.sound.id || `sound-${sv.id}`,
           title: sv.sound.title,
           artist: sv.sound.artist || '',
-          coverUrl: sv.sound.coverUrl || sv.thumbnailUrl || '',
+          // Cover son = URL TikTok signée (expire ~2 jours) : proxy scraper.
+          coverUrl: sv.sound.coverUrl && sv.sound.id
+            ? scraperUrl(`sound-cover/${encodeURIComponent(sv.sound.id)}`)
+            : scraperUrl(`thumbnail/${sv.id}`),
           audioUrl: '',
           duration: 0,
           usageCount: 0,
@@ -248,7 +255,8 @@ function mapComment(sc: ScraperComment, index: number): Comment {
       id: `external:${username}`,
       username,
       displayName: sc.nickname || (username === 'source-externe' ? 'Utilisateur externe' : username),
-      avatarUrl: sc.avatarUrl || '',
+      // Avatar d'auteur de commentaire : URL TikTok signée → proxy scraper.
+      avatarUrl: sc.avatarUrl ? scraperUrl(`avatar/${encodeURIComponent(username)}`) : '',
       bio: '',
       followersCount: 0,
       followingCount: 0,

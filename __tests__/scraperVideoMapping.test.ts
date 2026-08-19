@@ -1,4 +1,4 @@
-import { toOrkyVideo, ScraperVideo } from '@/services/scraperBridge';
+import { toOrkyVideo, scraperBridge, ScraperVideo } from '@/services/scraperBridge';
 
 describe('scraper video mapping', () => {
   const base: ScraperVideo = {
@@ -21,10 +21,10 @@ describe('scraper video mapping', () => {
     });
 
     // Les URLs TikTok signées expirent et sont rejetées depuis une autre IP :
-    // miniatures et vidéos passent par le proxy scraper same-origin.
+    // vidéos, miniatures et covers son passent par le proxy scraper same-origin.
     expect(video.videoUrl).toBe('/api/scraper/stream/provider-1');
     expect(video.thumbnailUrl).toBe('/api/scraper/thumbnail/provider-1');
-    expect(video.sound?.coverUrl).toBe(base.thumbnailUrl);
+    expect(video.sound?.coverUrl).toBe('/api/scraper/sound-cover/sound-1');
     expect(video.sourceType).toBe('external_reference');
     expect(video.interactionMode).toBe('read_only');
     expect(video.likesCount).toBe(6200000);
@@ -88,5 +88,37 @@ describe('scraper video mapping', () => {
   it('leaves native matches without a status (treated as approved)', () => {
     const video = toOrkyVideo(base);
     expect(video.productMatches).toEqual([]);
+  });
+
+  it('proxies creator avatars through the scraper', () => {
+    const video = toOrkyVideo({
+      ...base,
+      creatorUsername: 'fang.shop',
+      creatorAvatarUrl: 'https://cdn.example.test/creator.jpg',
+    });
+
+    expect(video.user.avatarUrl).toBe('/api/scraper/avatar/fang.shop');
+  });
+
+  it('proxies comment author avatars through the scraper', async () => {
+    const mockFetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        comments: [{
+          id: 'c1',
+          text: 'joli',
+          username: 'fan.one',
+          nickname: 'Fan',
+          likes: 2,
+          replyCount: 0,
+          createdAt: '2026-01-01T00:00:00Z',
+          avatarUrl: 'https://cdn.example.test/fan.jpg',
+        }],
+      }),
+    });
+    global.fetch = mockFetch as unknown as typeof fetch;
+
+    const comments = await scraperBridge.getComments('provider-1');
+    expect(comments[0].user.avatarUrl).toBe('/api/scraper/avatar/fan.one');
   });
 });
