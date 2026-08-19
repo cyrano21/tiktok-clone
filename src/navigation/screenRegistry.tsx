@@ -25,6 +25,7 @@ import { ImageGeneratorScreen } from '@/screens/shop/ImageGeneratorScreen';
 import { OrdersScreen } from '@/screens/shop/OrdersScreen';
 import { MediaEditorScreen } from '@/screens/studio/MediaEditorScreen';
 import { StudioHubScreen } from '@/screens/studio/StudioHubScreen';
+import { OpenMontageProductionScreen } from '@/screens/studio/OpenMontageProductionScreen';
 import { StudioAnalyticsScreen } from '@/screens/studio/StudioAnalyticsScreen';
 import { StudioMonetizationScreen } from '@/screens/studio/StudioMonetizationScreen';
 import { StudioContentScreen } from '@/screens/studio/StudioContentScreen';
@@ -75,6 +76,7 @@ export const SCREEN_REGISTRY: Record<RouteName, React.ComponentType> = {
   'shop.image.generator': ImageGeneratorScreen,
   orders: OrdersScreen,
   'studio.editor': MediaEditorScreen,
+  'studio.production': OpenMontageProductionScreen,
   studio: StudioHubScreen,
   'studio.analytics': StudioAnalyticsScreen,
   'studio.monetization': StudioMonetizationScreen,
@@ -128,6 +130,7 @@ export const ROUTE_TO_TAB: Record<RouteName, RouteName> = {
   'shop.image.generator': 'shop',
   orders: 'profile',
   'studio.editor': 'create',
+  'studio.production': 'create',
   studio: 'profile',
   'studio.analytics': 'profile',
   'studio.monetization': 'profile',
