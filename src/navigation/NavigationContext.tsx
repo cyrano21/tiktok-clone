@@ -24,6 +24,7 @@ export type RouteName =
   | 'orders'
   | 'studio'
   | 'studio.editor'
+  | 'studio.production'
   | 'studio.analytics'
   | 'studio.monetization'
   | 'studio.content'
