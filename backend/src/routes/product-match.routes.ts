@@ -127,11 +127,12 @@ export async function productMatchRoutes(app: FastifyInstance) {
     }).parse(req.query);
 
     const upstream = new URL('/api/integrations/orky/products', ORCHIDY_BASE_URL);
-    upstream.searchParams.set('q', query.title);
+    // NB: l'API Orchidy ignore/refuse le paramètre `q` (0 résultat) — le tri
+    // `relevance` est sans requête. On récupère donc une large fenêtre et on
+    // laisse le scoring lexical local classer/filtrer.
     upstream.searchParams.set('market', 'FR');
     upstream.searchParams.set('sort', 'relevance');
-    // Demander un surplus en amont : le scoring lexical filtre ensuite.
-    upstream.searchParams.set('limit', String(Math.min(40, query.limit * 3)));
+    upstream.searchParams.set('limit', String(Math.min(40, Math.max(query.limit * 4, 16))));
 
     let payload: any = null;
     try {
@@ -173,6 +174,10 @@ export async function productMatchRoutes(app: FastifyInstance) {
         };
       })
       .filter((candidate: any) => candidate !== null && candidate.score >= 0.2)
+      // Dédupliquer par itemId (l'upstream peut répéter le même slug)
+      .filter((candidate: any, index: number, self: any[]) =>
+        self.findIndex((c) => c.orchidyCatalogItemId === candidate.orchidyCatalogItemId) === index
+      )
       .sort((a: any, b: any) => b.score - a.score)
       .slice(0, query.limit);
 
