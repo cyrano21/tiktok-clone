@@ -5,7 +5,10 @@ FROM node:20-alpine AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY backend/package.json backend/package-lock.json* ./
-RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
+# Coolify injects NODE_ENV=production as a build arg, which would make npm
+# skip devDependencies (typescript, jest, ...) — exactly what the build stage
+# needs. Force devDependencies explicitly.
+RUN NODE_ENV=development npm ci --legacy-peer-deps --include=dev || NODE_ENV=development npm install --legacy-peer-deps --include=dev
 
 FROM node:20-alpine AS build
 WORKDIR /app
@@ -14,7 +17,7 @@ COPY backend/tsconfig.json ./
 COPY backend/src ./src
 COPY backend/prisma ./prisma
 RUN npx prisma generate
-RUN npx tsc
+RUN npx --no-install tsc
 
 FROM node:20-alpine AS runtime
 WORKDIR /app
