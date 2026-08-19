@@ -27,7 +27,8 @@ ENV NODE_ENV=production
 # predictable font inside the container for server-side text overlays.
 # openssl: the Prisma schema engine is a native binary that needs libssl
 # on musl; without it the process dies with "Error load...".
-RUN apk add --no-cache ffmpeg font-dejavu openssl
+# curl: Coolify's Dockerfile healthcheck probes /health with curl/wget.
+RUN apk add --no-cache ffmpeg font-dejavu openssl curl
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
