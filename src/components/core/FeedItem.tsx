@@ -8,6 +8,7 @@ import { DoubleTapHeart } from './DoubleTapHeart';
 import { SafetySheet } from '@/components/shared/SafetySheet';
 import { useDoubleTap } from '@/hooks/useDoubleTap';
 import { useFeedStore } from '@/store/feedStore';
+import { useSessionStore } from '@/store/sessionStore';
 import { formatPrice, getProductById } from '@/services/demoShop';
 import { CommerceProduct, getCommerceProductById } from '@/services/orchidyProducts';
 import { feedService } from '@/services/feedService';
@@ -67,6 +68,11 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
   const [associateVisible, setAssociateVisible] = useState(false);
   const [importState, setImportState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const readOnly = video.interactionMode === 'read_only' || video.sourceType === 'external_reference';
+  // Associer un produit est une action de propriétaire (admin/moderator ORKY) :
+  // les visiteurs voient les produits mais ne peuvent pas les associer.
+  const role = useSessionStore((s) => s.role);
+  const authenticated = useSessionStore((s) => s.authenticated);
+  const canAssociate = readOnly && authenticated && (role === 'admin' || role === 'moderator');
 
   useEffect(() => {
     setProgress(0);
@@ -214,7 +220,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         ) : null}
 
         {!approvedMatch && suggestedMatch && commerceProduct ? (
-          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Associer ce produit" onPress={() => setAssociateVisible(true)}>
+          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={canAssociate ? 'Associer ce produit' : 'Voir le produit'} onPress={() => (canAssociate ? setAssociateVisible(true) : onProductPress?.(commerceProduct.id))}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
               <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>
@@ -225,7 +231,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
           </TouchableOpacity>
         ) : null}
 
-        {readOnly && !approvedMatch && !suggestedMatch ? (
+        {canAssociate && !approvedMatch && !suggestedMatch ? (
           <TouchableOpacity style={styles.associateButton} activeOpacity={0.85} onPress={() => setAssociateVisible(true)}>
             <Text style={styles.associateButtonText}>＋ Associer un produit</Text>
           </TouchableOpacity>
@@ -255,7 +261,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
       {!readOnly ? (
         <SafetySheet isVisible={safetyVisible} onClose={() => setSafetyVisible(false)} videoId={video.id} creatorId={video.user.id} creatorUsername={video.user.username} onBlocked={() => { setSafetyVisible(false); setBlockedNotice(true); }} />
       ) : null}
-      {readOnly ? (
+      {canAssociate ? (
         <ProductAssociateSheet isVisible={associateVisible} onClose={() => setAssociateVisible(false)} video={video} />
       ) : null}
     </View>
