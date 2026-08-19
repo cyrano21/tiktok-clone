@@ -28,6 +28,11 @@ ROOT = Path(__file__).parent
 DATA_DIR = Path(os.environ.get("SCRAPER_DATA_DIR", str(ROOT / "data")))
 VIDEO_CACHE = Path(os.environ.get("VIDEO_CACHE_DIR", str(ROOT / "video_cache")))
 VIDEO_CACHE_TTL = int(os.environ.get("VIDEO_CACHE_TTL_SECONDS", "86400"))
+# Miniatures TikTok : les URLs signées expirent (~2 jours) et sont validées
+# par IP. On les télécharge donc côté serveur dès la première demande et on les
+# sert depuis le cache local pour ne jamais exposer d'URL TikTok au navigateur.
+THUMBNAIL_CACHE = Path(os.environ.get("THUMBNAIL_CACHE_DIR", str(ROOT / "thumbnail_cache")))
+THUMBNAIL_CACHE_TTL = int(os.environ.get("THUMBNAIL_CACHE_TTL_SECONDS", "604800"))
 SCRAPER_INTERNAL_SECRET = os.environ.get("SCRAPER_INTERNAL_SECRET", "").strip()
 # Association vidéo → produit Orchidy (voir docs/trend-sourcing-contract.md).
 # Auto-match désactivé par défaut : SCRAPER_AUTO_MATCH=1 l'active. Les
@@ -519,6 +524,48 @@ def _summary(comments: list[dict]) -> dict:
     }
 
 
+_PAGE_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+)
+
+
+def _page_extract(source_url: str) -> dict | None:
+    """Re-lire la page TikTok d'une vidéo pour obtenir des URLs média fraîches.
+
+    TikTok signe ses URLs CDN avec un TTL court (~2 jours) et les valide par
+    requêteur : les URLs stockées au moment du scrape pourrissent vite. Relire
+    la page donne une cover + un playAddr valides pour l'IP courante du serveur.
+    Retourne None si la page est injoignable ou sans données vidéo.
+    """
+    if not source_url.startswith(("https://www.tiktok.com/", "https://vm.tiktok.com/")):
+        return None
+    try:
+        request = urllib.request.Request(
+            source_url,
+            headers={
+                "User-Agent": _PAGE_UA,
+                "Accept-Language": "en-US,en;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=25) as response:
+            html = response.read().decode("utf-8", "ignore")
+        match = re.search(r"__UNIVERSAL_DATA_FOR_REHYDRATION__[^>]*>(.*?)</script>", html, re.S)
+        if not match:
+            return None
+        data = json.loads(match.group(1))
+        item = data["__DEFAULT_SCOPE__"]["webapp.video-detail"]["itemInfo"]["itemStruct"]
+        video = item.get("video") or {}
+        cover = str(video.get("cover") or video.get("dynamicCover") or "").strip()
+        play = str(video.get("playAddr") or "").strip()
+        if not cover.startswith("https://") and not play.startswith("https://"):
+            return None
+        return {"cover": cover, "playAddr": play}
+    except Exception:
+        return None
+
+
 def _cached_video_path(video_id: str) -> Path:
     if not _VIDEO_ID_RE.fullmatch(video_id):
         raise ValueError("invalid video id")
@@ -551,6 +598,29 @@ def _download_to_cache(video_id: str, tiktok_url: str) -> Path | None:
     if not acquired:
         return None
     try:
+        # Extraction fraîche de la page d'abord : TikTok signe playAddr avec un
+        # TTL court lié au requêteur, et l'empreinte réseau de yt-dlp est souvent
+        # bloquée sur les IP de datacenter. Le téléchargement direct d'un
+        # playAddr frais (valide pour notre IP) est plus fiable.
+        extracted = _page_extract(tiktok_url)
+        play_addr = (extracted or {}).get("playAddr", "")
+        if play_addr.startswith("https://"):
+            try:
+                request = urllib.request.Request(play_addr, headers={"User-Agent": _PAGE_UA})
+                with urllib.request.urlopen(request, timeout=90) as response, open(temporary, "wb") as handle:
+                    cap = 50 * 1024 * 1024
+                    downloaded = 0
+                    while downloaded < cap:
+                        chunk = response.read(65536)
+                        if not chunk:
+                            break
+                        downloaded += len(chunk)
+                        handle.write(chunk)
+                if temporary.exists() and temporary.stat().st_size > 1000:
+                    os.replace(temporary, outpath)
+                    return outpath
+            except Exception:
+                temporary.unlink(missing_ok=True)
         completed = subprocess.run(
             [
                 "yt-dlp", "-o", str(temporary),
@@ -572,6 +642,45 @@ def _download_to_cache(video_id: str, tiktok_url: str) -> Path | None:
         _DOWNLOAD_SEMAPHORE.release()
     temporary.unlink(missing_ok=True)
     return None
+
+
+def _thumbnail_path(video_id: str) -> Path:
+    if not _VIDEO_ID_RE.fullmatch(video_id):
+        raise ValueError("invalid video id")
+    THUMBNAIL_CACHE.mkdir(parents=True, exist_ok=True)
+    return THUMBNAIL_CACHE / f"{video_id}.jpg"
+
+
+def _get_cached_thumbnail(video_id: str) -> Path | None:
+    path = _thumbnail_path(video_id)
+    if not path.exists():
+        return None
+    if time.time() - path.stat().st_mtime > THUMBNAIL_CACHE_TTL or path.stat().st_size < 100:
+        path.unlink(missing_ok=True)
+        return None
+    return path
+
+
+def _download_thumbnail(video_id: str, cover_url: str) -> Path | None:
+    """Télécharge l'image cover fraîche (URL signée valide pour notre IP) et la
+    met en cache localement : le navigateur ne touche jamais TikTok CDN."""
+    if not cover_url.startswith("https://"):
+        return None
+    outpath = _thumbnail_path(video_id)
+    temporary = outpath.with_suffix(".part")
+    try:
+        request = urllib.request.Request(cover_url, headers={"User-Agent": _PAGE_UA})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            body = response.read()
+        if len(body) < 100:
+            return None
+        with open(temporary, "wb") as handle:
+            handle.write(body)
+        os.replace(temporary, outpath)
+        return outpath
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        return None
 
 
 class ScraperAPI(BaseHTTPRequestHandler):
@@ -666,6 +775,33 @@ class ScraperAPI(BaseHTTPRequestHandler):
             except Exception:
                 pass
 
+    def _thumbnail(self, video_id: str):
+        if not _VIDEO_ID_RE.fullmatch(video_id):
+            self._json({"error": "Invalid video id"}, 400)
+            return
+        cached = _get_cached_thumbnail(video_id)
+        if cached:
+            self._serve_file(cached, "image/jpeg")
+            return
+
+        source_url = self._url_index.get(video_id, "")
+        if not source_url:
+            self._json({"error": "External media source unavailable"}, 404)
+            return
+
+        lock = _cache_lock(video_id)
+        with lock:
+            cached = _get_cached_thumbnail(video_id)
+            if not cached:
+                extracted = _page_extract(source_url)
+                cover = (extracted or {}).get("cover", "")
+                if cover:
+                    cached = _download_thumbnail(video_id, cover)
+        if cached:
+            self._serve_file(cached, "image/jpeg")
+            return
+        self._json({"error": "External thumbnail unavailable"}, 502)
+
     def _stream_video(self, video_id: str):
         if not _VIDEO_ID_RE.fullmatch(video_id):
             self._json({"error": "Invalid video id"}, 400)
@@ -712,6 +848,9 @@ class ScraperAPI(BaseHTTPRequestHandler):
             return
         if path.startswith("/api/stream/"):
             self._stream_video(path.split("/api/stream/", 1)[1])
+            return
+        if path.startswith("/api/thumbnail/"):
+            self._thumbnail(path.split("/api/thumbnail/", 1)[1])
             return
 
         if path.startswith("/api/videos/") and path.endswith("/comments"):

@@ -20,6 +20,11 @@ describe('scraper video mapping', () => {
       sound: { id: 'sound-1', title: 'Sunset', artist: 'fang', coverUrl: base.thumbnailUrl },
     });
 
+    // Les URLs TikTok signées expirent et sont rejetées depuis une autre IP :
+    // miniatures et vidéos passent par le proxy scraper same-origin.
+    expect(video.videoUrl).toBe('/api/scraper/stream/provider-1');
+    expect(video.thumbnailUrl).toBe('/api/scraper/thumbnail/provider-1');
+    expect(video.sound?.coverUrl).toBe(base.thumbnailUrl);
     expect(video.sourceType).toBe('external_reference');
     expect(video.interactionMode).toBe('read_only');
     expect(video.likesCount).toBe(6200000);

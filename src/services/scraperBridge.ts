@@ -192,7 +192,10 @@ export function toOrkyVideo(sv: ScraperVideo): Video {
       createdAt: sv.createdAt || new Date(0).toISOString(),
     },
     videoUrl: scraperUrl(`stream/${sv.id}`),
-    thumbnailUrl: sv.thumbnailUrl || '',
+    // La miniature passe par le proxy scraper : les URLs TikTok signées expirent
+    // en ~2 jours et sont rejetées depuis une IP différente. Le scraper re-fetch
+    // la cover fraîchement et la sert depuis son cache local.
+    thumbnailUrl: scraperUrl(`thumbnail/${sv.id}`),
     description: sv.title || '',
     likesCount: Number(sv.likes || 0),
     commentsCount: Number(sv.commentCount || 0),

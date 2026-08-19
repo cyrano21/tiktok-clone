@@ -310,5 +310,80 @@ class ScraperVideoSourceTests(unittest.TestCase):
         self.assertEqual(video["commentCount"], 2)
 
 
+class ScraperPageExtractionTests(unittest.TestCase):
+    """Les URLs TikTok signées expirent (~2 jours) et sont validées par IP : le
+    scraper relit la page vidéo pour obtenir des URLs fraîches côté serveur."""
+
+    PAGE_HTML = (
+        '<html><head><script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">'
+        '{"__DEFAULT_SCOPE__":{"webapp.video-detail":{"itemInfo":{"itemStruct":'
+        '{"id":"7622850963597970718","video":{"cover":"https://p16.tiktokcdn.com/cover.jpg?x-expires=1787277600&x-signature=abc",'
+        '"playAddr":"https://v16-webapp-prime.tiktok.com/video/tos/maliva/test.mp4?x-expires=1787277600&x-signature=def"}}}}}}'
+        '</script></head></html>'
+    )
+
+    class _FakeResponse:
+        def __init__(self, body: bytes):
+            self.body = body
+
+        def read(self, *args, **kwargs):
+            return self.body
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def test_page_extract_parses_fresh_cover_and_playaddr(self):
+        with patch.object(
+            api_server.urllib.request, "urlopen", return_value=self._FakeResponse(self.PAGE_HTML.encode())
+        ):
+            result = api_server._page_extract("https://www.tiktok.com/@tiktok/video/7622850963597970718")
+        self.assertIsNotNone(result)
+        self.assertTrue(result["cover"].startswith("https://p16.tiktokcdn.com/cover.jpg"))
+        self.assertTrue(result["playAddr"].startswith("https://v16-webapp-prime.tiktok.com/"))
+
+    def test_page_extract_rejects_non_tiktok_sources(self):
+        self.assertIsNone(api_server._page_extract("https://example.com/video/123"))
+
+    def test_page_extract_returns_none_when_page_unreachable(self):
+        with patch.object(api_server.urllib.request, "urlopen", side_effect=OSError("timeout")):
+            result = api_server._page_extract("https://www.tiktok.com/@tiktok/video/1234567890123456789")
+        self.assertIsNone(result)
+
+    def test_thumbnail_endpoint_serves_freshly_downloaded_cover(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler._url_index = {
+            "7622850963597970718": "https://www.tiktok.com/@tiktok/video/7622850963597970718",
+        }
+        served = {}
+        handler._serve_file = lambda path, content_type: served.update(path=str(path), content_type=content_type)
+
+        cache_file = api_server._thumbnail_path("7622850963597970718")
+        with patch.object(api_server, "_get_cached_thumbnail", side_effect=[None, cache_file]), \
+                patch.object(api_server, "_page_extract", return_value={"cover": "https://p16.tiktokcdn.com/cover.jpg", "playAddr": ""}), \
+                patch.object(api_server, "_download_thumbnail", return_value=cache_file), \
+                patch.object(api_server, "_cache_lock", return_value=api_server.threading.Lock()):
+            handler._thumbnail("7622850963597970718")
+        self.assertEqual(served.get("content_type"), "image/jpeg")
+
+    def test_thumbnail_endpoint_returns_error_when_page_has_no_cover(self):
+        handler = object.__new__(api_server.ScraperAPI)
+        handler.client_address = ("127.0.0.1", 12345)
+        handler._url_index = {
+            "7622850963597970718": "https://www.tiktok.com/@tiktok/video/7622850963597970718",
+        }
+        responses = []
+        handler._json = lambda data, status=200: responses.append((data, status))
+
+        with patch.object(api_server, "_get_cached_thumbnail", return_value=None), \
+                patch.object(api_server, "_page_extract", return_value=None), \
+                patch.object(api_server, "_cache_lock", return_value=api_server.threading.Lock()):
+            handler._thumbnail("7622850963597970718")
+        self.assertEqual(responses[0][1], 502)
+
+
 if __name__ == "__main__":
     unittest.main()

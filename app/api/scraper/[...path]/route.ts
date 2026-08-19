@@ -48,6 +48,12 @@ function allowedPath(path: string[]): { ok: boolean; stream: boolean } {
   if (path.length === 2 && path[0] === 'stream' && ID_RE.test(path[1])) {
     return { ok: true, stream: true };
   }
+  // Thumbnail proxy: le navigateur ne doit jamais charger une URL TikTok signée
+  // (TTL court, validée par IP) — la miniature passe par le scraper qui la
+  // télécharge fraîchement côté serveur. Traitée comme un stream (timeout long).
+  if (path.length === 2 && path[0] === 'thumbnail' && ID_RE.test(path[1])) {
+    return { ok: true, stream: true };
+  }
   if (path.length === 2 && path[0] === 'videos' && ID_RE.test(path[1])) {
     return { ok: true, stream: false };
   }
