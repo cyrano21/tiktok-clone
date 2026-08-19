@@ -14,6 +14,7 @@ COPY comments.json ./
 # (volume persistant) pour survivre aux redémarrages.
 COPY enrich_catalog.py ./
 COPY apify_source.py ./
+COPY scrapling_source.py ./
 RUN mkdir -p /app/data /app/data/video_cache
 
 VOLUME ["/app/data"]
