@@ -44,16 +44,22 @@ def discover_profile_video_urls(username: str, limit: int = 10) -> list[str]:
 
     profile_url = f"https://www.tiktok.com/@{username}"
     page = _fetch(profile_url)
-    selector = 'a[href*="/video/"]::attr(href)'
+    selector = 'a[href*="/video/"]'
+    identifier = "orky:tiktok:profile-video-links"
     try:
-        hrefs = page.css(selector, auto_save=True, identifier="orky:tiktok:profile-video-links").getall()
+        links = page.css(selector, auto_save=True, identifier=identifier)
+    except Exception:
+        links = []
+    if not links:
+        try:
+            links = page.css(selector, adaptive=True, identifier=identifier)
+        except Exception:
+            links = page.css(selector)
+
+    try:
+        hrefs = links.css("::attr(href)").getall()
     except Exception:
         hrefs = []
-    if not hrefs:
-        try:
-            hrefs = page.css(selector, adaptive=True, identifier="orky:tiktok:profile-video-links").getall()
-        except Exception:
-            hrefs = page.css(selector).getall()
 
     output: list[str] = []
     seen: set[str] = set()
