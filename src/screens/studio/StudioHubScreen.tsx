@@ -34,6 +34,7 @@ export const StudioHubScreen: React.FC = () => {
     { icon: '💰', label: 'Monétisation', sub: formatEuro(monetization.available) + ' dispo', route: 'studio.monetization', color: tokens.colors.action.tip },
     { icon: '🛍️', label: 'Ma boutique', sub: 'Produits & commandes', route: 'shop.dashboard', color: tokens.colors.semantic.success },
     { icon: '✨', label: 'Créer', sub: 'Studio vidéo & image', route: 'studio.editor', color: tokens.colors.text.link },
+    { icon: 'AI', label: 'Production IA', sub: 'Brief → validation → rendu', route: 'studio.production', color: tokens.colors.action.tip },
     { icon: '🎵', label: 'Mes vidéos TikTok', sub: 'Compte TikTok connecté', route: 'studio.tiktok', color: tokens.colors.brand.secondary },
     { icon: '📡', label: 'LIVE', sub: 'Lancer un direct', route: 'live.broadcast', color: tokens.colors.semantic.live },
     { icon: '💎', label: 'Abonnement', sub: analytics.live ? 'Plan Pro & Business' : 'Passe au Pro', route: 'studio.billing', color: tokens.colors.semantic.success },
@@ -179,7 +180,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   toolIcon: { width: 44, height: 44, borderRadius: tokens.radius.md, justifyContent: 'center', alignItems: 'center' },
-  toolEmoji: { fontSize: 22 },
+  toolEmoji: { color: tokens.colors.white, fontSize: 22, fontWeight: '800' },
   toolLabel: { color: tokens.colors.white, fontSize: tokens.typography.body.fontSize, fontWeight: '700' },
   toolSub: { color: tokens.colors.text.secondary, fontSize: tokens.typography.caption.fontSize },
 });
