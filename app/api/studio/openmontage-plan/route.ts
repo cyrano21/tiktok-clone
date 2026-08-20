@@ -4,20 +4,18 @@ import {
   buildOpenMontageProductionPlan,
   openMontagePlanInputSchema,
 } from '@/services/openMontagePlan';
+import { readJsonBodyLimited } from '../_server';
 
 export const dynamic = 'force-dynamic';
 
 const MAX_BODY_BYTES = 32_000;
 
 export async function POST(request: NextRequest) {
-  const length = Number(request.headers.get('content-length') || 0);
-  if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: 'Payload trop volumineux.' }, { status: 413 });
-  }
+  const body = await readJsonBodyLimited(request, MAX_BODY_BYTES);
+  if (!body.ok) return body.response;
 
   try {
-    const body = await request.json();
-    const input = openMontagePlanInputSchema.parse(body);
+    const input = openMontagePlanInputSchema.parse(body.value);
     const plan = buildOpenMontageProductionPlan(input);
 
     return NextResponse.json({
