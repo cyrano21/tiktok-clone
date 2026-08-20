@@ -6,10 +6,16 @@ import {
   type OpenMontageExecutorJob,
 } from '@/server/openmontage/executor';
 import { sameOriginRequest } from '../../../../auth/session/_server';
-import { requireStudioBearer, verifyOpenMontageJobHandle } from '../../../_server';
+import {
+  readJsonBodyLimited,
+  requireStudioBearer,
+  verifyOpenMontageJobHandle,
+} from '../../../_server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+const MAX_APPROVAL_BODY_BYTES = 8_192;
 
 const approvalSchema = z
   .object({
@@ -51,7 +57,10 @@ export async function POST(
     );
   }
 
-  const parsed = approvalSchema.safeParse(await request.json().catch(() => null));
+  const body = await readJsonBodyLimited(request, MAX_APPROVAL_BODY_BYTES);
+  if (!body.ok) return body.response;
+
+  const parsed = approvalSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'INVALID_APPROVAL', issues: parsed.error.issues },
