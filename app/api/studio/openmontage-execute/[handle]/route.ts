@@ -4,12 +4,16 @@ import {
   isOpenMontageExecutorConfigured,
   type OpenMontageExecutorJob,
 } from '@/server/openmontage/executor';
-import { requireStudioBearer, verifyOpenMontageJobHandle } from '../../_server';
+import {
+  createOpenMontageRenderToken,
+  requireStudioBearer,
+  verifyOpenMontageJobHandle,
+} from '../../_server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-function publicJob(job: OpenMontageExecutorJob, handle: string) {
+function publicJob(job: OpenMontageExecutorJob, handle: string, renderDownloadUrl?: string) {
   const { jobId: _jobId, render, ...safeJob } = job;
   return {
     ...safeJob,
@@ -17,10 +21,12 @@ function publicJob(job: OpenMontageExecutorJob, handle: string) {
       ? {
           render: {
             ...render,
-            // Never expose the executor's internal hostname or bearer-protected
-            // download URL to the browser. The client asks ORKY for a short-lived
-            // signed render link when the user explicitly opens the file.
-            downloadUrl: `/api/studio/openmontage-execute/${encodeURIComponent(handle)}/render-link`,
+            // Never expose the executor's internal hostname or bearer token.
+            // The URL below is an ORKY same-origin proxy protected by a short-
+            // lived signed render grant.
+            downloadUrl:
+              renderDownloadUrl ||
+              `/api/studio/openmontage-execute/${encodeURIComponent(handle)}/render-link`,
           },
         }
       : {}),
@@ -53,7 +59,24 @@ export async function GET(
 
   try {
     const job = await getOpenMontageJob(verified.jobId);
-    return NextResponse.json({ ok: true, production: publicJob(job, handle) });
+    let renderDownloadUrl: string | undefined;
+    if (job.status === 'completed' && job.render) {
+      const token = createOpenMontageRenderToken({
+        jobId: verified.jobId,
+        userId: auth.user.id,
+      });
+      const url = new URL(
+        `/api/studio/openmontage-execute/${encodeURIComponent(handle)}/render`,
+        request.nextUrl.origin,
+      );
+      url.searchParams.set('token', token);
+      renderDownloadUrl = url.toString();
+    }
+
+    return NextResponse.json({
+      ok: true,
+      production: publicJob(job, handle, renderDownloadUrl),
+    });
   } catch (error) {
     return NextResponse.json(
       {
