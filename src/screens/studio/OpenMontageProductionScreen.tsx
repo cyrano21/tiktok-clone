@@ -14,6 +14,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRouteParams } from '@/navigation/NavigationContext';
 import { tokens } from '@/theme/tokens';
 import {
+  createOpenMontageRenderLink,
   decideOpenMontageGate,
   getOpenMontageProduction,
   startOpenMontageProduction,
@@ -182,6 +183,22 @@ export const OpenMontageProductionScreen: React.FC = () => {
     }
   }
 
+  async function openRender() {
+    if (!production?.handle || !production.render || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const url = await createOpenMontageRenderLink(production.handle);
+      const supported = await Linking.canOpenURL(url);
+      if (!supported) throw new Error('Ce navigateur ne peut pas ouvrir le rendu final.');
+      await Linking.openURL(url);
+    } catch (renderError) {
+      setError(renderError instanceof Error ? renderError.message : 'Le rendu final n’a pas pu être ouvert.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function forgetProduction() {
     await persistProduction(null);
     setApprovalNote('');
@@ -295,8 +312,8 @@ export const OpenMontageProductionScreen: React.FC = () => {
                   {production.render.width && production.render.height ? `${production.render.width}×${production.render.height}` : 'Dimensions non renseignées'}
                   {production.render.durationSeconds ? ` · ${Math.round(production.render.durationSeconds)} s` : ''}
                 </Text>
-                <TouchableOpacity onPress={() => void Linking.openURL(production.render!.downloadUrl)} style={styles.primaryButton}>
-                  <Text style={styles.primaryButtonText}>Ouvrir le rendu final</Text>
+                <TouchableOpacity disabled={busy} onPress={() => void openRender()} style={[styles.primaryButton, busy && styles.disabled]}>
+                  <Text style={styles.primaryButtonText}>{busy ? 'Préparation du lien…' : 'Ouvrir le rendu final'}</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
