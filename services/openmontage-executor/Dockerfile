@@ -1,7 +1,7 @@
-FROM node:22-bookworm
+FROM node:22-bookworm@sha256:0557ac14e0d45d02ed563067b82856ca5e7aa3437fa28d98d4350ea9c3d9494a
 
 ARG OPENMONTAGE_REF=1bab711820828c2e5fc1f87ed274a32587cb048f
-ARG CODEX_NPM_SPEC=@openai/codex@latest
+ARG CODEX_NPM_SPEC=@openai/codex@0.148.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     OPENMONTAGE_ROOT=/opt/openmontage \
@@ -44,9 +44,8 @@ RUN cd /opt/openmontage \
     && (npx --yes hyperframes --version >/dev/null 2>&1 \
       || echo '[openmontage] HyperFrames cache warm skipped; it can resolve at runtime')
 
-# Codex is the default headless driver. The executor can run any other agent by
-# setting OPENMONTAGE_AGENT_COMMAND_JSON, so this does not lock the bridge to one
-# model/provider.
+# Codex is the default headless driver. Pin the version that passed ORKY's image
+# smoke tests; override CODEX_NPM_SPEC deliberately when upgrading it.
 RUN npm install -g "$CODEX_NPM_SPEC"
 
 WORKDIR /opt/orky-openmontage-executor
