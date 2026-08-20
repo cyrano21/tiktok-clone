@@ -10,6 +10,7 @@ import { sameOriginRequest } from '../../auth/session/_server';
 import {
   canSignOpenMontageHandles,
   createOpenMontageJobHandle,
+  readJsonBodyLimited,
   requireStudioBearer,
 } from '../_server';
 
@@ -50,14 +51,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const declaredLength = Number(request.headers.get('content-length') || 0);
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
-    return NextResponse.json({ error: 'Payload trop volumineux.' }, { status: 413 });
-  }
+  const body = await readJsonBodyLimited(request, MAX_BODY_BYTES);
+  if (!body.ok) return body.response;
 
   try {
-    const rawBody = await request.json();
-    const input = openMontagePlanInputSchema.parse(rawBody);
+    const input = openMontagePlanInputSchema.parse(body.value);
     const manifest = buildOpenMontageProductionPlan(input);
     const job = await submitOpenMontageJob({ manifest });
     const handle = createOpenMontageJobHandle({ jobId: job.jobId, userId: auth.user.id });
