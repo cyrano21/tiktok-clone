@@ -39,7 +39,7 @@ describe('ORKY OpenMontage execution boundary', () => {
     expect(worker).toContain('awaiting_approval');
     expect(worker).toContain('renderPath');
     expect(worker).toContain('subprocess.Popen');
-    expect(worker).toContain('shell=False').or;
+    expect(worker).not.toContain('shell=True');
     expect(dockerfile).toContain('1bab711820828c2e5fc1f87ed274a32587cb048f');
     expect(dockerfile).toContain('@openai/codex');
     expect(compose).toContain("profiles: ['openmontage']");
