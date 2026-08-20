@@ -42,7 +42,9 @@ jobs:
             set -eu
             python3 --version
             ffmpeg -version | head -1
-            codex --version
+            test "$(codex --version)" = "codex-cli 0.148.0"
+            test -x /usr/local/bin/codex
+            test -e /usr/local/bin/codex-real
             test "$(cd /opt/openmontage && git rev-parse HEAD)" = "1bab711820828c2e5fc1f87ed274a32587cb048f"
             test -f /opt/openmontage/AGENT_GUIDE.md
             test -f /opt/openmontage/remotion-composer/package.json
