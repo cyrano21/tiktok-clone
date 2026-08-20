@@ -37,10 +37,13 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Compile OpenMontage executor
-        run: python -m py_compile services/openmontage-executor/server.py services/openmontage-executor/contract_probe.py
+        run: python -m py_compile services/openmontage-executor/server.py services/openmontage-executor/contract_probe.py services/openmontage-executor/codex_guard.py services/openmontage-executor/budget_guard_probe.py
 
       - name: Exercise OpenMontage executor lifecycle
         run: python services/openmontage-executor/contract_probe.py
+
+      - name: Exercise OpenMontage budget guard
+        run: python services/openmontage-executor/budget_guard_probe.py
 
       - name: OpenMontage contract tests
         run: npm test -- --runInBand __tests__/openMontagePlan.test.ts __tests__/openMontageExecutionContract.test.ts
