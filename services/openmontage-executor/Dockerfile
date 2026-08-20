@@ -32,10 +32,17 @@ RUN git clone https://github.com/calesthio/OpenMontage.git /opt/openmontage \
 RUN python3 -m venv /opt/openmontage/.venv \
     && /opt/openmontage/.venv/bin/python -m pip install --upgrade pip wheel setuptools \
     && /opt/openmontage/.venv/bin/python -m pip install -r /opt/openmontage/requirements.txt \
-    && /opt/openmontage/.venv/bin/python -m pip install piper-tts
+    && (/opt/openmontage/.venv/bin/python -m pip install piper-tts \
+      || echo '[openmontage] Piper install unavailable; cloud TTS remains usable')
 
 RUN cd /opt/openmontage/remotion-composer \
     && if [ -f package-lock.json ]; then npm ci; else npm install; fi
+
+# Match upstream `make setup`: warm HyperFrames when npm can resolve it, but do
+# not make a temporary npm outage prevent the entire executor image from building.
+RUN cd /opt/openmontage \
+    && (npx --yes hyperframes --version >/dev/null 2>&1 \
+      || echo '[openmontage] HyperFrames cache warm skipped; it can resolve at runtime')
 
 # Codex is the default headless driver. The executor can run any other agent by
 # setting OPENMONTAGE_AGENT_COMMAND_JSON, so this does not lock the bridge to one
