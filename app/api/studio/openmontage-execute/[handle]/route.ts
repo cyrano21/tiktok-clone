@@ -10,8 +10,22 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function publicJob(job: OpenMontageExecutorJob, handle: string) {
-  const { jobId: _jobId, ...safeJob } = job;
-  return { ...safeJob, handle };
+  const { jobId: _jobId, render, ...safeJob } = job;
+  return {
+    ...safeJob,
+    ...(render
+      ? {
+          render: {
+            ...render,
+            // Never expose the executor's internal hostname or bearer-protected
+            // download URL to the browser. The client asks ORKY for a short-lived
+            // signed render link when the user explicitly opens the file.
+            downloadUrl: `/api/studio/openmontage-execute/${encodeURIComponent(handle)}/render-link`,
+          },
+        }
+      : {}),
+    handle,
+  };
 }
 
 export async function GET(
