@@ -24,6 +24,87 @@ type StudioAuthFailure = {
 
 export type StudioAuthResult = StudioAuthSuccess | StudioAuthFailure;
 
+export type LimitedJsonResult =
+  | { ok: true; value: unknown }
+  | { ok: false; response: NextResponse };
+
+/**
+ * Read a JSON request body while enforcing the byte limit on the stream itself.
+ * Content-Length is only an early rejection hint; chunked requests cannot bypass
+ * the limit because reading stops as soon as the accumulated bytes exceed it.
+ */
+export async function readJsonBodyLimited(
+  request: NextRequest,
+  maxBytes: number,
+): Promise<LimitedJsonResult> {
+  const declaredRaw = request.headers.get('content-length');
+  if (declaredRaw) {
+    const declared = Number(declaredRaw);
+    if (!Number.isFinite(declared) || declared < 0) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: 'INVALID_CONTENT_LENGTH' }, { status: 400 }),
+      };
+    }
+    if (declared > maxBytes) {
+      return {
+        ok: false,
+        response: NextResponse.json({ error: 'Payload trop volumineux.' }, { status: 413 }),
+      };
+    }
+  }
+
+  if (!request.body) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Corps JSON requis.' }, { status: 400 }),
+    };
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel('payload_too_large').catch(() => undefined);
+        return {
+          ok: false,
+          response: NextResponse.json({ error: 'Payload trop volumineux.' }, { status: 413 }),
+        };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'Lecture du corps impossible.' }, { status: 400 }),
+    };
+  }
+
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  try {
+    const text = new TextDecoder('utf-8', { fatal: true }).decode(combined);
+    return { ok: true, value: JSON.parse(text) as unknown };
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: 'JSON invalide.' }, { status: 400 }),
+    };
+  }
+}
+
 function handleSecret(): string | null {
   return (
     process.env.OPENMONTAGE_JOB_HANDLE_SECRET?.trim() ||
