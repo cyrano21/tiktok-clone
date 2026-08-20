@@ -45,8 +45,12 @@ function executorBaseUrl(): string | null {
   return value ? value.replace(/\/$/, '') : null;
 }
 
+function executorToken(): string | null {
+  return process.env.OPENMONTAGE_EXECUTOR_TOKEN?.trim() || null;
+}
+
 function executorHeaders(): Record<string, string> {
-  const token = process.env.OPENMONTAGE_EXECUTOR_TOKEN?.trim();
+  const token = executorToken();
   return {
     'Content-Type': 'application/json',
     Accept: 'application/json',
@@ -143,4 +147,35 @@ export async function approveOpenMontageJob(params: {
   });
 
   return readExecutorResponse(response);
+}
+
+export async function getOpenMontageRenderResponse(
+  jobId: string,
+  range?: string | null,
+): Promise<Response> {
+  const base = executorBaseUrl();
+  if (!base) throw new Error('OPENMONTAGE_EXECUTOR_URL is not configured.');
+  if (!/^[A-Za-z0-9._:-]{1,200}$/.test(jobId)) throw new Error('Invalid OpenMontage job id.');
+
+  const token = executorToken();
+  const response = await fetch(`${base}/jobs/${encodeURIComponent(jobId)}/render`, {
+    method: 'GET',
+    headers: {
+      Accept: 'video/*,application/octet-stream;q=0.8',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(range ? { Range: range.slice(0, 200) } : {}),
+    },
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10 * 60_000),
+  });
+
+  if (!response.ok && response.status !== 206) {
+    const payload = await response.json().catch(() => null);
+    const message =
+      payload && typeof payload === 'object' && 'error' in payload
+        ? String((payload as { error?: unknown }).error || '')
+        : '';
+    throw new Error(message || `OpenMontage render HTTP ${response.status}`);
+  }
+  return response;
 }
