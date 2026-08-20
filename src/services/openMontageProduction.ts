@@ -119,3 +119,14 @@ export async function decideOpenMontageGate(params: {
   );
   return payload.production;
 }
+
+export async function createOpenMontageRenderLink(handle: string): Promise<string> {
+  const payload = await studioRequest<{ url: string }>(
+    `/api/studio/openmontage-execute/${encodeURIComponent(handle)}/render-link`,
+    { method: 'POST' },
+  );
+  if (!payload.url || !/^https?:\/\//i.test(payload.url)) {
+    throw new Error('ORKY n’a pas reçu de lien de rendu valide.');
+  }
+  return payload.url;
+}
