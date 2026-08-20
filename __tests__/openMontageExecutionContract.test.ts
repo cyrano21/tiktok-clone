@@ -71,7 +71,8 @@ describe('ORKY OpenMontage execution boundary', () => {
     expect(screen).toContain('decideOpenMontageGate');
     expect(screen).toContain('setInterval');
     expect(screen).toContain('awaitingApproval');
-    expect(screen).toContain('production.render!.downloadUrl');
+    expect(screen).toContain('createOpenMontageRenderLink');
+    expect(screen).toContain('Linking.openURL(url)');
     expect(registry).toContain("'studio.production': OpenMontageProductionScreen");
     expect(hub).toContain("label: 'Production IA'");
   });
