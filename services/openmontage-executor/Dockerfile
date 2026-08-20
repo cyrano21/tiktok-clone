@@ -8,7 +8,8 @@ ENV DEBIAN_FRONTEND=noninteractive \
     OPENMONTAGE_EXECUTOR_DATA=/data/openmontage-executor \
     PATH=/opt/openmontage/.venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    ORKY_REAL_CODEX=/usr/local/bin/codex-real
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -44,12 +45,15 @@ RUN cd /opt/openmontage \
     && (npx --yes hyperframes --version >/dev/null 2>&1 \
       || echo '[openmontage] HyperFrames cache warm skipped; it can resolve at runtime')
 
-# Codex is the default headless driver. Pin the version that passed ORKY's image
-# smoke tests; override CODEX_NPM_SPEC deliberately when upgrading it.
-RUN npm install -g "$CODEX_NPM_SPEC"
+# Codex is the default headless driver. Pin the validated version, keep the real
+# binary under a private name, then put ORKY's budget bridge guard in front of it.
+RUN npm install -g "$CODEX_NPM_SPEC" \
+    && mv /usr/local/bin/codex /usr/local/bin/codex-real
 
 WORKDIR /opt/orky-openmontage-executor
 COPY server.py ./server.py
+COPY codex_guard.py ./codex_guard.py
+COPY --chmod=0755 codex_guard.py /usr/local/bin/codex
 
 RUN mkdir -p /data/openmontage-executor \
     && useradd --create-home --uid 10001 executor \
