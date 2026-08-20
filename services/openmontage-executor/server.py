@@ -127,7 +127,7 @@ def bounded_number(value: Any, minimum: float, maximum: float) -> float | None:
 
 def sanitize_project_name(value: str) -> str:
     base = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")[:64]
-    return base or f"orky-production-{uuid.uuid4().hex[:8]}"
+    return base or "orky-production"
 
 
 def validate_manifest(payload: Any) -> dict[str, Any]:
@@ -382,7 +382,8 @@ def run_agent(job_id: str, decision: dict[str, Any] | None = None) -> None:
         )
 
         with log_path(job_id).open("a", encoding="utf-8") as log:
-            log.write(f"\n[{now_iso()}] COMMAND: {json.dumps(command[:4] + (['<prompt>'] if '{prompt}' not in command else []), ensure_ascii=False)}\n")
+            safe_command = [item.replace(prompt, "<prompt>") if prompt and prompt in item else item for item in command]
+            log.write(f"\n[{now_iso()}] COMMAND: {json.dumps(safe_command[:12], ensure_ascii=False)}\n")
             log.flush()
             process = subprocess.Popen(
                 command,
@@ -392,6 +393,7 @@ def run_agent(job_id: str, decision: dict[str, Any] | None = None) -> None:
                 stdout=log,
                 stderr=subprocess.STDOUT,
                 text=True,
+                shell=False,
             )
             try:
                 return_code = process.wait(timeout=AGENT_TIMEOUT)
@@ -429,8 +431,9 @@ def enqueue(job_id: str, decision: dict[str, Any] | None = None) -> None:
 def create_job(body: dict[str, Any]) -> dict[str, Any]:
     manifest = validate_manifest(body.get("manifest"))
     topic = str(manifest["brief"]["topic"])
-    project_id = sanitize_project_name(topic)
     job_id = uuid.uuid4().hex
+    project_base = sanitize_project_name(topic)
+    project_id = f"{project_base[:55]}-{job_id[:8]}"
     manifest_file = DATA / "manifests" / f"{job_id}.json"
     manifest_file.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_json(manifest_file, manifest)
