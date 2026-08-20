@@ -29,6 +29,38 @@ describe('ORKY OpenMontage execution boundary', () => {
     expect(submitRoute).toContain('jobId: _jobId');
   });
 
+  it('ships a persistent OpenMontage worker instead of a placeholder HTTP contract', () => {
+    const worker = read('services/openmontage-executor/server.py');
+    const dockerfile = read('services/openmontage-executor/Dockerfile');
+    const compose = read('docker-compose.prod.yml');
+
+    expect(worker).toContain('ThreadingHTTPServer');
+    expect(worker).toContain('recover_jobs()');
+    expect(worker).toContain('awaiting_approval');
+    expect(worker).toContain('renderPath');
+    expect(worker).toContain('subprocess.Popen');
+    expect(worker).toContain('shell=False').or;
+    expect(dockerfile).toContain('1bab711820828c2e5fc1f87ed274a32587cb048f');
+    expect(dockerfile).toContain('@openai/codex');
+    expect(compose).toContain("profiles: ['openmontage']");
+    expect(compose).toContain('openmontage_executor_data');
+  });
+
+  it('keeps executor secrets and internal render URLs out of the browser', () => {
+    const statusRoute = read('app/api/studio/openmontage-execute/[handle]/route.ts');
+    const renderRoute = read('app/api/studio/openmontage-execute/[handle]/render/route.ts');
+    const renderLinkRoute = read('app/api/studio/openmontage-execute/[handle]/render-link/route.ts');
+    const studioServer = read('app/api/studio/_server.ts');
+
+    expect(statusRoute).toContain('createOpenMontageRenderToken');
+    expect(statusRoute).not.toContain('OPENMONTAGE_EXECUTOR_TOKEN');
+    expect(renderRoute).toContain('getOpenMontageRenderResponse');
+    expect(renderRoute).toContain("request.headers.get('range')");
+    expect(renderRoute).toContain('verifyOpenMontageRenderToken');
+    expect(renderLinkRoute).toContain('expiresInSeconds: 600');
+    expect(studioServer).toContain('RENDER_TOKEN_TTL_MS');
+  });
+
   it('surfaces a real Studio production workspace with polling and approval gates', () => {
     const screen = read('src/screens/studio/OpenMontageProductionScreen.tsx');
     const registry = read('src/navigation/screenRegistry.tsx');
