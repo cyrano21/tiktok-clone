@@ -149,6 +149,39 @@ services:
       - scraper_data:/app/data
     networks: [orky]
 
+  # Optional heavy production worker. It is disabled by default so existing ORKY
+  # deployments do not suddenly build OpenMontage. Enable with
+  # COMPOSE_PROFILES=openmontage and configure the server-only secrets below.
+  openmontage-executor:
+    profiles: ['openmontage']
+    build:
+      context: ./services/openmontage-executor
+      dockerfile: Dockerfile
+      args:
+        OPENMONTAGE_REF: ${OPENMONTAGE_REF:-1bab711820828c2e5fc1f87ed274a32587cb048f}
+        CODEX_NPM_SPEC: ${CODEX_NPM_SPEC:-@openai/codex@0.148.0}
+    restart: unless-stopped
+    environment:
+      OPENMONTAGE_EXECUTOR_TOKEN: ${OPENMONTAGE_EXECUTOR_TOKEN:-}
+      OPENMONTAGE_EXECUTOR_PUBLIC_BASE_URL: http://openmontage-executor:8787
+      OPENMONTAGE_EXECUTOR_MAX_CONCURRENT: ${OPENMONTAGE_EXECUTOR_MAX_CONCURRENT:-1}
+      OPENMONTAGE_AGENT_TIMEOUT_SECONDS: ${OPENMONTAGE_AGENT_TIMEOUT_SECONDS:-7200}
+      OPENMONTAGE_AGENT_COMMAND_JSON: ${OPENMONTAGE_AGENT_COMMAND_JSON:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CODEX_HOME: /data/openmontage-executor/codex
+      # OpenMontage capability/provider secrets. All are server-only and optional;
+      # the agent's preflight exposes only what is actually configured.
+      FAL_KEY: ${FAL_KEY:-}
+      ATLASCLOUD_API_KEY: ${ATLASCLOUD_API_KEY:-}
+      KLING_API_KEY: ${KLING_API_KEY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+    volumes:
+      - openmontage_executor_data:/data/openmontage-executor
+    networks: [orky]
+
   web:
     build:
       context: .
@@ -177,6 +210,11 @@ services:
       ORCHIDY_PRO_API_KEY: ${ORCHIDY_PRO_API_KEY:?ORCHIDY_PRO_API_KEY is required}
       ORKY_PRO_DELEGATION_SECRET: ${ORKY_PRO_DELEGATION_SECRET:?ORKY_PRO_DELEGATION_SECRET is required}
       ORKY_COMMERCE_IMPORT_SECRET: ${ORKY_COMMERCE_IMPORT_SECRET:?ORKY_COMMERCE_IMPORT_SECRET is required}
+      # Leave empty when the optional profile is disabled. When enabled in the
+      # same compose project, set this to http://openmontage-executor:8787.
+      OPENMONTAGE_EXECUTOR_URL: ${OPENMONTAGE_EXECUTOR_URL:-}
+      OPENMONTAGE_EXECUTOR_TOKEN: ${OPENMONTAGE_EXECUTOR_TOKEN:-}
+      OPENMONTAGE_JOB_HANDLE_SECRET: ${OPENMONTAGE_JOB_HANDLE_SECRET:-}
     depends_on:
       api:
         condition: service_healthy
@@ -186,6 +224,7 @@ services:
 
 volumes:
   scraper_data:
+  openmontage_executor_data:
   postgres_data:
   redis_data:
   minio_data:
