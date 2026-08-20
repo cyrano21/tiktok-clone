@@ -29,10 +29,25 @@ describe('ORKY OpenMontage execution boundary', () => {
     expect(submitRoute).toContain('jobId: _jobId');
   });
 
-  it('ships a persistent OpenMontage worker instead of a placeholder HTTP contract', () => {
+  it('enforces JSON size on the request stream instead of trusting Content-Length', () => {
+    const studioServer = read('app/api/studio/_server.ts');
+    const submitRoute = read('app/api/studio/openmontage-execute/route.ts');
+    const planRoute = read('app/api/studio/openmontage-plan/route.ts');
+    const approvalRoute = read('app/api/studio/openmontage-execute/[handle]/approval/route.ts');
+
+    expect(studioServer).toContain('readJsonBodyLimited');
+    expect(studioServer).toContain('request.body.getReader()');
+    expect(studioServer).toContain('total > maxBytes');
+    expect(submitRoute).toContain('readJsonBodyLimited(request, MAX_BODY_BYTES)');
+    expect(planRoute).toContain('readJsonBodyLimited(request, MAX_BODY_BYTES)');
+    expect(approvalRoute).toContain('readJsonBodyLimited(request, MAX_APPROVAL_BODY_BYTES)');
+  });
+
+  it('ships a persistent OpenMontage worker with a pinned guarded Codex runtime', () => {
     const worker = read('services/openmontage-executor/server.py');
     const dockerfile = read('services/openmontage-executor/Dockerfile');
     const compose = read('docker-compose.prod.yml');
+    const budgetGuard = read('services/openmontage-executor/codex_guard.py');
 
     expect(worker).toContain('ThreadingHTTPServer');
     expect(worker).toContain('recover_jobs()');
@@ -41,9 +56,16 @@ describe('ORKY OpenMontage execution boundary', () => {
     expect(worker).toContain('subprocess.Popen');
     expect(worker).not.toContain('shell=True');
     expect(dockerfile).toContain('1bab711820828c2e5fc1f87ed274a32587cb048f');
-    expect(dockerfile).toContain('@openai/codex');
+    expect(dockerfile).toContain('@openai/codex@0.148.0');
+    expect(dockerfile).toContain('node:22-bookworm@sha256:');
+    expect(dockerfile).toContain('/usr/local/bin/codex-real');
     expect(compose).toContain("profiles: ['openmontage']");
+    expect(compose).toContain('${CODEX_NPM_SPEC:-@openai/codex@0.148.0}');
     expect(compose).toContain('openmontage_executor_data');
+    expect(budgetGuard).toContain('BUDGET_GUARD');
+    expect(budgetGuard).toContain('estimated > budget + EPSILON_EUR');
+    expect(budgetGuard).toContain('actual > budget + EPSILON_EUR');
+    expect(budgetGuard).toContain('completed signal is missing a valid actualCostEur');
   });
 
   it('keeps executor secrets and internal render URLs out of the browser', () => {
