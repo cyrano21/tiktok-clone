@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { backendOrigin, noStore } from '../auth/session/_server';
 
 const JOB_HANDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const RENDER_TOKEN_TTL_MS = 10 * 60 * 1000;
 
 type StudioUser = {
   id: string;
@@ -35,6 +36,36 @@ function signPayload(payload: string): string {
   const secret = handleSecret();
   if (!secret) throw new Error('OPENMONTAGE_JOB_HANDLE_SECRET is not configured.');
   return createHmac('sha256', secret).update(payload).digest('base64url');
+}
+
+function verifySignedPayload(token: string): Record<string, unknown> | null {
+  if (!token || token.length > 1600) return null;
+  const [payload, signature, extra] = token.split('.');
+  if (!payload || !signature || extra) return null;
+
+  let expectedSignature: string;
+  try {
+    expectedSignature = signPayload(payload);
+  } catch {
+    return null;
+  }
+
+  const provided = Buffer.from(signature, 'utf8');
+  const expected = Buffer.from(expectedSignature, 'utf8');
+  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
+
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as unknown;
+    if (!decoded || typeof decoded !== 'object' || Array.isArray(decoded)) return null;
+    return decoded as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function createSignedPayload(value: Record<string, unknown>): string {
+  const payload = Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+  return `${payload}.${signPayload(payload)}`;
 }
 
 export function canSignOpenMontageHandles(): boolean {
@@ -98,47 +129,42 @@ export async function requireStudioBearer(request: NextRequest): Promise<StudioA
 }
 
 export function createOpenMontageJobHandle(params: { jobId: string; userId: string }): string {
-  const payload = Buffer.from(
-    JSON.stringify({
-      j: params.jobId,
-      u: params.userId,
-      exp: Date.now() + JOB_HANDLE_TTL_MS,
-    }),
-    'utf8',
-  ).toString('base64url');
-  return `${payload}.${signPayload(payload)}`;
+  return createSignedPayload({
+    typ: 'job',
+    j: params.jobId,
+    u: params.userId,
+    exp: Date.now() + JOB_HANDLE_TTL_MS,
+  });
 }
 
 export function verifyOpenMontageJobHandle(
   handle: string,
   expectedUserId: string,
 ): { jobId: string } | null {
-  if (!handle || handle.length > 1200) return null;
-  const [payload, signature, extra] = handle.split('.');
-  if (!payload || !signature || extra) return null;
+  const decoded = verifySignedPayload(handle);
+  if (!decoded || decoded.typ !== 'job') return null;
+  if (typeof decoded.j !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(decoded.j)) return null;
+  if (decoded.u !== expectedUserId) return null;
+  if (typeof decoded.exp !== 'number' || !Number.isFinite(decoded.exp) || decoded.exp < Date.now()) return null;
+  return { jobId: decoded.j };
+}
 
-  let expectedSignature: string;
-  try {
-    expectedSignature = signPayload(payload);
-  } catch {
-    return null;
-  }
+export function createOpenMontageRenderToken(params: { jobId: string; userId: string }): string {
+  return createSignedPayload({
+    typ: 'render',
+    j: params.jobId,
+    u: params.userId,
+    exp: Date.now() + RENDER_TOKEN_TTL_MS,
+  });
+}
 
-  const provided = Buffer.from(signature, 'utf8');
-  const expected = Buffer.from(expectedSignature, 'utf8');
-  if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) return null;
-
-  try {
-    const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as {
-      j?: unknown;
-      u?: unknown;
-      exp?: unknown;
-    };
-    if (typeof decoded.j !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(decoded.j)) return null;
-    if (decoded.u !== expectedUserId) return null;
-    if (typeof decoded.exp !== 'number' || !Number.isFinite(decoded.exp) || decoded.exp < Date.now()) return null;
-    return { jobId: decoded.j };
-  } catch {
-    return null;
-  }
+export function verifyOpenMontageRenderToken(
+  token: string,
+): { jobId: string; userId: string } | null {
+  const decoded = verifySignedPayload(token);
+  if (!decoded || decoded.typ !== 'render') return null;
+  if (typeof decoded.j !== 'string' || !/^[A-Za-z0-9._:-]{1,200}$/.test(decoded.j)) return null;
+  if (typeof decoded.u !== 'string' || decoded.u.length < 1 || decoded.u.length > 200) return null;
+  if (typeof decoded.exp !== 'number' || !Number.isFinite(decoded.exp) || decoded.exp < Date.now()) return null;
+  return { jobId: decoded.j, userId: decoded.u };
 }
