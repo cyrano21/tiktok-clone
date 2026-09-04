@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Dimensions, TouchableOpacity, Image } from 'react-native';
 import { tokens } from '@/theme/tokens';
 import { Video } from '@/types';
@@ -12,6 +12,7 @@ import { useSessionStore } from '@/store/sessionStore';
 import { formatPrice, getProductById } from '@/services/demoShop';
 import { CommerceProduct, getCommerceProductById } from '@/services/orchidyProducts';
 import { feedService } from '@/services/feedService';
+import { track, createWatchTracker } from '@/services/telemetry';
 import { ProductAssociateSheet } from './ProductAssociateSheet';
 
 interface FeedItemProps {
@@ -47,7 +48,19 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
     setRate(RATES[(index + 1) % RATES.length]);
   }, [rate]);
 
+  const watchTracker = useRef(createWatchTracker());
+
+  useEffect(() => {
+    watchTracker.current = createWatchTracker();
+  }, [video.id]);
+
+  // Une impression par entrée dans le viewport (pas par frame).
+  useEffect(() => {
+    if (isActive) track('video_impression', { videoId: video.id });
+  }, [isActive, video.id]);
+
   const handleShare = useCallback(() => {
+    track('video_shared', { videoId: video.id });
     const url = video.externalUrl
       || (typeof window !== 'undefined' ? `${window.location.origin}/v1/videos/${video.id}` : video.id);
     const fallback = () => {
@@ -136,8 +149,14 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
 
   const handleSingleTap = useCallback(() => setIsPaused((prev) => !prev), []);
   const handleProgress = useCallback((value: number) => {
-    if (isActive) setProgress(Math.max(0, Math.min(1, value)));
-  }, [isActive]);
+    if (!isActive) return;
+    const p = Math.max(0, Math.min(1, value));
+    setProgress(p);
+    // Milestones (25/50/75/100/replay) : jamais une requête par frame.
+    for (const event of watchTracker.current.onProgress(p)) {
+      track(event.type, { videoId: video.id, payload: event.payload });
+    }
+  }, [isActive, video.id]);
   const handleLoad = useCallback(() => setProgress(0), [video.id]);
   const { onPress } = useDoubleTap({ onSingleTap: handleSingleTap, onDoubleTap: handleDoubleTap as (event: unknown) => void, maxDelay: 300, excludeRight: true });
   const containerStyle = itemHeight ? [styles.container, { height: itemHeight }] : styles.container;
@@ -176,8 +195,8 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         onLike={() => toggleLike(video.id)}
         onComment={onCommentPress}
         onShare={handleShare}
-        onSave={() => toggleSave(video.id)}
-        onFollow={() => toggleFollow(video.user.id)}
+        onSave={() => { toggleSave(video.id); track('video_saved', { videoId: video.id }); }}
+        onFollow={() => { toggleFollow(video.user.id); track('creator_followed', { payload: { creatorId: video.user.id } }); }}
         onAvatarPress={() => {
           if (readOnly) {
             // External creator: open their public TikTok profile instead of a fake ORKY page.
@@ -208,7 +227,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
         {video.viewsCount > 0 && (!readOnly || video.metricAvailability?.views !== false) ? <Text style={styles.viewsLabel}>{formatCount(video.viewsCount)} vues</Text> : null}
 
         {commerceProduct && approvedMatch ? (
-          <TouchableOpacity style={styles.productPill} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Voir" onPress={() => onProductPress?.(commerceProduct.id)}>
+          <TouchableOpacity style={styles.productPill} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel="Voir" onPress={() => { track('product_clicked', { videoId: video.id, productId: commerceProduct.id }); track('product_detail_viewed', { videoId: video.id, productId: commerceProduct.id }); onProductPress?.(commerceProduct.id); }}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
               <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>
@@ -219,8 +238,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
           </TouchableOpacity>
         ) : null}
 
-        {!approvedMatch && suggestedMatch && commerceProduct ? (
-          <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={canAssociate ? 'Associer ce produit' : 'Voir le produit'} onPress={() => (canAssociate ? setAssociateVisible(true) : onProductPress?.(commerceProduct.id))}>
+        {!approvedMatch && suggestedMatch && commerceProduct ? (            <TouchableOpacity style={[styles.productPill, styles.suggestionPill]} activeOpacity={0.85} accessibilityRole="button" accessibilityLabel={canAssociate ? 'Associer ce produit' : 'Voir le produit'} onPress={() => { if (!canAssociate) { track('product_clicked', { videoId: video.id, productId: commerceProduct.id }); track('product_detail_viewed', { videoId: video.id, productId: commerceProduct.id }); } if (canAssociate) setAssociateVisible(true); else onProductPress?.(commerceProduct.id); }}>
             <Image source={{ uri: commerceProduct.images[0] }} style={styles.productThumb} />
             <View style={styles.productInfo}>
               <Text style={styles.productTitle} numberOfLines={1}>{commerceProduct.title}</Text>

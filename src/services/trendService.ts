@@ -1,11 +1,20 @@
 import { scraperBridge } from './scraperBridge';
 import { apiClient } from './api';
+import { toCommerceStats, videoIdFromSignal } from './commerceStats';
+import type { CommerceStats } from './commerceStats';
+import type { FunnelAggregate } from './commerceStats';
 
 export type TrendSignalSource = 'tiktok' | 'reels' | 'shorts';
 
 export interface TrendSignal {
   id: string;
   sourceSignalId?: string;
+  /**
+   * LOT 8 : identifiant de corrélation inter-applications, déterministe par
+   * tendance (dérivé de l'id stable) — suit trendSignalId → sourcingRequestId
+   * → … → orderId pour reconstruire toute l'histoire depuis un orderId.
+   */
+  correlationId?: string;
   sourceApp: 'orky';
   sourcePlatform: TrendSignalSource;
   sourceVideoUrl: string;
@@ -19,7 +28,11 @@ export interface TrendSignal {
   detectedCategory?: string;
   thumbnailUrl?: string;
   viralStats: { views: number; likes: number; comments: number };
+  /** Signal commerce agrégé (Lot 3) joint au signal viral avant envoi à Pro. */
+  commerceStats?: CommerceStats;
 }
+
+export type { CommerceStats, FunnelAggregate } from './commerceStats';
 
 export interface SourcingCandidate {
   candidateId: string;
@@ -144,6 +157,7 @@ function toTrendSignal(video: Awaited<ReturnType<typeof scraperBridge.getVideos>
   return {
     id,
     sourceSignalId: id,
+    correlationId: `corr-${id}`,
     sourceApp: 'orky',
     sourcePlatform: 'tiktok',
     sourceVideoUrl: externalUrl,
@@ -169,6 +183,7 @@ function viralOpportunityScore(signal: TrendSignal): number {
   return Math.log10(views + 1) * 100 + Math.min(1, engagementRate) * 500;
 }
 
+
 export const trendService = {
   async listTrends(limit = 50): Promise<TrendSignal[]> {
     const videos = await scraperBridge.getVideos(limit);
@@ -179,8 +194,31 @@ export const trendService = {
   },
 
   async sendToSourcing(signal: TrendSignal): Promise<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }> {
-    const persistedSignal = { ...signal, sourceSignalId: signal.sourceSignalId || signal.id };
+    const persistedSignal: TrendSignal = {
+      ...signal,
+      sourceSignalId: signal.sourceSignalId || signal.id,
+      commerceStats: signal.commerceStats ?? (await this.attachCommerceStats(signal)),
+    };
     return apiClient.post<{ success: boolean; requestId: string; status: string; candidates: SourcingCandidate[]; error?: string }>(`${PROXY_BASE}/requests`, { signal: persistedSignal });
+  },
+
+  /**
+   * Joint le signal commerce (entonnoir de lecture de la vidéo) au signal
+   * viral. Toute erreur réseau est silencieuse : le signal part sans
+   * commerceStats plutôt que de bloquer l'envoi.
+   */
+  async attachCommerceStats(signal: TrendSignal): Promise<CommerceStats | undefined> {
+    const videoId = videoIdFromSignal(signal.id);
+    if (!videoId) return undefined;
+    try {
+      const funnel = await apiClient.get<FunnelAggregate | null>(
+        `/telemetry/funnel?videoId=${encodeURIComponent(videoId)}`,
+        { timeout: 4000 },
+      );
+      return toCommerceStats(funnel);
+    } catch {
+      return undefined;
+    }
   },
 
   async getSourcingRequest(requestId: string): Promise<SourcingRequest | null> {

@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/generated-commerce-video.schema.json",
+  "title": "GeneratedCommerceVideoV1",
+  "description": "Vidéo commerce générée par Orchidy Pro et transmise à ORKY (champ generatedVideo de SourcingRequest). Aligné sur GeneratedVideoState (trendService.ts). Nullable dans ViralSourcingRequestV1.",
+  "type": ["object", "null"],
+  "additionalProperties": false,
+  "required": ["status", "jobId"],
+  "properties": {
+    "status": { "type": "string", "enum": ["queued", "processing", "completed", "failed"] },
+    "jobId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "requestedBy": { "type": "string", "maxLength": 256 },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" },
+    "model": { "type": ["string", "null"], "maxLength": 128 },
+    "sourceUrl": { "type": ["string", "null"], "maxLength": 2048 },
+    "hostedUrl": { "type": ["string", "null"], "maxLength": 2048 },
+    "error": { "type": ["string", "null"], "maxLength": 1024 },
+    "orkyVideoId": { "type": ["string", "null"], "maxLength": 128 }
+  }
+}

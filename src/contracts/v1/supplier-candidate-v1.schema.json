@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/supplier-candidate.schema.json",
+  "title": "SupplierCandidateV1",
+  "description": "Candidat fournisseur produit par Orchidy Pro vers ORKY. Aligné sur SourcingCandidate (trendService.ts).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["candidateId", "supplierId", "supplierName", "platform", "title", "imageUrl", "productUrl", "price", "currency", "stockKnown", "matchScore", "matchType", "riskFlags"],
+  "properties": {
+    "candidateId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "supplierId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "supplierName": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "platform": { "type": "string", "maxLength": 64 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "imageUrl": { "type": "string", "maxLength": 2048 },
+    "productUrl": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "price": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "stock": { "type": ["integer", "null"], "minimum": 0 },
+    "stockKnown": { "type": "boolean" },
+    "shippingDays": { "type": ["integer", "null"], "minimum": 0 },
+    "matchScore": { "type": "number", "minimum": 0, "maximum": 1 },
+    "matchType": { "type": "string", "enum": ["exact", "similar", "alternative"] },
+    "riskFlags": { "type": "array", "items": { "type": "string", "maxLength": 128 }, "maxItems": 32 },
+    "suggestedRetailPrice": { "type": "number", "minimum": 0 },
+    "estimatedMargin": { "type": "number" }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/orky-video-link.schema.json",
+  "title": "OrkyVideoLinkV1",
+  "description": "Lien retour vidéo ORKY → Orchidy Pro : référence la vidéo publiée côté ORKY et son rattachement produit. Contrat neuf (à implémenter côté ORKY, Lot 1/7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orkyVideoId", "requestId", "status", "createdAt"],
+  "properties": {
+    "orkyVideoId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "status": { "type": "string", "enum": ["created", "published", "failed"] },
+    "videoUrl": { "type": "string", "maxLength": 2048 },
+    "sourceVideoUrl": { "type": "string", "maxLength": 2048 },
+    "orchidyMarketplaceProductId": { "type": ["string", "null"], "maxLength": 128 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "error": { "type": ["string", "null"], "maxLength": 1024 }
+  }
+}

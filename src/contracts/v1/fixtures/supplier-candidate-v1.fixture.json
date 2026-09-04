@@ -1,0 +1,19 @@
+{
+  "candidateId": "cand_9f2",
+  "supplierId": "cj_142",
+  "supplierName": "CJ Dropshipping",
+  "platform": "CJ",
+  "title": "Mini projecteur LED portable HD 1080p",
+  "imageUrl": "https://img.example.com/cj/142/main.jpg",
+  "productUrl": "https://cj.example.com/products/142",
+  "price": "12.50",
+  "currency": "EUR",
+  "stock": 500,
+  "stockKnown": true,
+  "shippingDays": 12,
+  "matchScore": 0.92,
+  "matchType": "exact",
+  "riskFlags": [],
+  "suggestedRetailPrice": 39.9,
+  "estimatedMargin": 0.52
+}

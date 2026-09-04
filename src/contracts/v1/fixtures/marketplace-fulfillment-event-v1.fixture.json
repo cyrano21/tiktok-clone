@@ -1,0 +1,11 @@
+{
+  "eventId": "fe_9c02",
+  "orderId": "ord_8e21",
+  "fulfillmentJobId": "fj_5a1",
+  "supplierOrderId": "AE_ORDER_123",
+  "status": "processing",
+  "occurredAt": "2026-09-01T13:00:00.000Z",
+  "authority": "orchidy",
+  "version": "v1",
+  "error": null
+}

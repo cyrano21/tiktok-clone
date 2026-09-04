@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "productId": "orchidy:sku-2026-0913",
+      "variantKey": "var-noir",
+      "quantity": 2,
+      "selectedOptions": { "color": "noir" }
+    },
+    {
+      "productId": "orchidy:sku-2026-0914",
+      "quantity": 1
+    }
+  ],
+  "returnUrl": "https://orky.local/"
+}

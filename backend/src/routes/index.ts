@@ -22,6 +22,7 @@ import { brandingRoutes } from "./branding.routes";
 import { moderationRoutes } from "./moderation.routes";
 import { productMatchRoutes } from "./product-match.routes";
 import { mediaRoutes } from "./media.routes";
+import { telemetryRoutes } from "./telemetry.routes";
 
 export async function registerRoutes(app: FastifyInstance) {
   app.register(authRoutes, { prefix: "/v1/auth" });
@@ -31,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance) {
   app.register(compositionRoutes, { prefix: "/v1/videos" });
   app.register(externalImportRoutes, { prefix: "/v1/videos" });
   app.register(videoRoutes, { prefix: "/v1/videos" });
+  app.register(telemetryRoutes, { prefix: "/v1/telemetry" });
   app.register(commerceImportRoutes, { prefix: "/v1/commerce-imports" });
   app.register(mediaRoutes, { prefix: "/v1/media" });
   app.register(productMatchRoutes, { prefix: "/v1/product-matches" });

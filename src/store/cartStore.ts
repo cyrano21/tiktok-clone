@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { Product, getProductById } from '@/services/demoShop';
 import { CommerceProduct, CommerceVariant, getCachedCommerceProduct } from '@/services/orchidyProducts';
+import { track } from '@/services/telemetry';
 
 export interface CartLine {
   key: string; // productId + variantId
@@ -73,6 +74,7 @@ export const useCartStore = create<CartStore>()(
       pendingHandoffs: {},
 
       addToCart: (product, variantId, quantity = 1) => {
+        track('add_to_cart', { productId: product.id });
         const variant = product.variants.find(v => v.id === variantId) ?? product.variants[0] ?? { id: 'default', label: 'Standard' };
         const key = `${product.id}__${variant.id}`;
         const selectedOptions: Record<string, string> | undefined =
@@ -110,16 +112,24 @@ export const useCartStore = create<CartStore>()(
         });
       },
 
-      removeLine: key =>
-        set(state => ({ lines: state.lines.filter(l => l.key !== key) })),
+      removeLine: key => {
+        const line = get().lines.find(l => l.key === key);
+        if (line) track('remove_from_cart', { productId: line.productId });
+        set(state => ({ lines: state.lines.filter(l => l.key !== key) }));
+      },
 
-      setQuantity: (key, quantity) =>
+      setQuantity: (key, quantity) => {
+        if (quantity <= 0) {
+          const line = get().lines.find(l => l.key === key);
+          if (line) track('remove_from_cart', { productId: line.productId });
+        }
         set(state => ({
           lines:
             quantity <= 0
               ? state.lines.filter(l => l.key !== key)
               : state.lines.map(l => (l.key === key ? { ...l, quantity: Math.min(25, quantity) } : l)),
-        })),
+        }));
+      },
 
       clear: () => set({ lines: [], pendingHandoffs: {} }),
 
@@ -130,6 +140,7 @@ export const useCartStore = create<CartStore>()(
       markHandoff: (handoffId, handoffLines) => {
         const normalizedId = String(handoffId || '').trim();
         if (!normalizedId || handoffLines.length === 0) return;
+        track('checkout_handoff_created', { handoffId: normalizedId });
         set(state => ({
           pendingHandoffs: {
             ...cleanPendingHandoffs(state.pendingHandoffs),
@@ -144,6 +155,7 @@ export const useCartStore = create<CartStore>()(
       completeHandoff: (handoffId) => {
         const pending = get().pendingHandoffs[handoffId];
         if (!pending) return false;
+        track('checkout_paid', { handoffId });
         const purchasedByKey = new Map(pending.lines.map((line) => [line.key, line.quantity]));
         set(state => {
           const nextHandoffs = { ...state.pendingHandoffs };
@@ -162,6 +174,7 @@ export const useCartStore = create<CartStore>()(
       },
 
       cancelHandoff: (handoffId) => {
+        if (get().pendingHandoffs[handoffId]) track('checkout_cancelled', { handoffId });
         set(state => {
           if (!state.pendingHandoffs[handoffId]) return state;
           const nextHandoffs = { ...state.pendingHandoffs };

@@ -1,0 +1,10 @@
+{
+  "eventId": "evt_4d21b",
+  "orderId": "ord_8e21",
+  "checkoutId": "cs_test_9f2a1b",
+  "currency": "EUR",
+  "paidAt": "2026-09-01T12:31:00.000Z",
+  "items": [
+    { "requestId": "req_7c41", "productId": "sku-2026-0913", "units": 2, "lineRevenueCents": 2500 }
+  ]
+}

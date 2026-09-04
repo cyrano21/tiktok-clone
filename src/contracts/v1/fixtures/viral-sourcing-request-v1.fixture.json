@@ -1,0 +1,49 @@
+{
+  "_id": "req_7c41",
+  "status": "sourcing_completed",
+  "signal": {
+    "id": "sig_ab82",
+    "sourceSignalId": "7344321987654321987",
+    "sourceApp": "orky",
+    "sourcePlatform": "tiktok",
+    "sourceVideoUrl": "https://www.tiktok.com/@boutique.test/video/7344321987654321987",
+    "creatorUsername": "boutique.test",
+    "creatorDisplayName": "Boutique Test",
+    "caption": "Ce mini projecteur LED est parfait pour les soirées cinéma à la maison #gadget #foryou",
+    "hashtags": ["gadget", "foryou", "cinema"],
+    "detectedProductName": "Mini projecteur LED portable",
+    "detectedKeywords": ["projecteur", "led", "portable"],
+    "detectedCategory": "Electronique",
+    "thumbnailUrl": "https://img.example.com/thumb/t1.jpg",
+    "viralStats": { "views": 100000, "likes": 12000, "comments": 1800 }
+  },
+  "candidates": [
+    {
+      "candidateId": "cand_9f2",
+      "supplierId": "cj_142",
+      "supplierName": "CJ Dropshipping",
+      "platform": "CJ",
+      "title": "Mini projecteur LED portable HD 1080p",
+      "imageUrl": "https://img.example.com/cj/142/main.jpg",
+      "productUrl": "https://cj.example.com/products/142",
+      "price": "12.50",
+      "currency": "EUR",
+      "stock": 500,
+      "stockKnown": true,
+      "shippingDays": 12,
+      "matchScore": 0.92,
+      "matchType": "exact",
+      "riskFlags": [],
+      "suggestedRetailPrice": 39.9,
+      "estimatedMargin": 0.52
+    }
+  ],
+  "approvedCandidateId": "cand_9f2",
+  "orchidyProProductId": null,
+  "orchidyMarketplaceProductId": null,
+  "conversion": null,
+  "generatedVideo": null,
+  "error": null,
+  "createdAt": "2026-09-01T10:15:00.000Z",
+  "updatedAt": "2026-09-01T10:22:00.000Z"
+}

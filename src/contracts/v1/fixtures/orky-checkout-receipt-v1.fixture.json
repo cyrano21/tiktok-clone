@@ -1,0 +1,27 @@
+{
+  "handoffId": "0123456789abcdef01234567",
+  "checkoutId": "cs_test_9f2a1b",
+  "orderId": "ord_8e21",
+  "currency": "EUR",
+  "total": 25.0,
+  "paidAt": "2026-09-01T12:30:00.000Z",
+  "clientPricesIgnored": true,
+  "version": "v1",
+  "signature": "9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b9f2a1b",
+  "signedAt": "2026-09-01T12:30:05.000Z",
+  "nonce": "4f6e2a91c8b3d7e5",
+  "validatedLines": [
+    {
+      "productId": "orchidy:sku-2026-0913",
+      "catalogItemId": "cat_0913",
+      "variantKey": "var-noir",
+      "title": "Mini projecteur LED portable",
+      "variantTitle": "Noir",
+      "quantity": 2,
+      "unitPrice": 12.5,
+      "lineTotal": 25.0,
+      "currency": "EUR",
+      "availableQuantity": 10
+    }
+  ]
+}

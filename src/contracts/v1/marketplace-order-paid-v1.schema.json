@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/marketplace-order-paid.schema.json",
+  "title": "MarketplaceOrderPaidV1",
+  "description": "Webhook 'commande payée' émis par Orchidy (marketplace) vers Orchidy Pro. Aligné sur app/api/integrations/marketplace/orders/paid/route.ts (HMAC ORKY_CHECKOUT_PRO_MARKETPLACE_SECRET). Idempotence : eventId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "orderId", "checkoutId", "currency", "paidAt", "items"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "checkoutId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "paidAt": { "type": "string", "format": "date-time" },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "units", "lineRevenueCents"],
+        "properties": {
+          "requestId": { "type": "string", "maxLength": 128 },
+          "productId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "units": { "type": "integer", "minimum": 1 },
+          "lineRevenueCents": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

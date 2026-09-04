@@ -51,6 +51,7 @@ model User {
   following       Follow[]       @relation("follower")
   messages        Message[]
   views           VideoView[]
+  analyticsEvents AnalyticsEvent[]
   shares          Share[]
   saves           Save[]
   notifications   Notification[]
@@ -321,6 +322,23 @@ model VideoView {
   video           Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
 
   @@index([videoId, createdAt])
+}
+
+model AnalyticsEvent {
+  id        String   @id @default(uuid())
+  sessionId String
+  eventId   String   @unique
+  type      String
+  videoId   String?
+  productId String?
+  userId    String?
+  payload   Json?
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([sessionId, createdAt])
 }
 
 model Conversation {

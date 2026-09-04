@@ -1,0 +1,17 @@
+{
+  "id": "sig_ab82",
+  "sourceSignalId": "7344321987654321987",
+  "sourceApp": "orky",
+  "sourcePlatform": "tiktok",
+  "sourceVideoUrl": "https://www.tiktok.com/@boutique.test/video/7344321987654321987",
+  "sourceEmbedUrl": "https://www.tiktok.com/embed/v2/7344321987654321987",
+  "creatorUsername": "boutique.test",
+  "creatorDisplayName": "Boutique Test",
+  "caption": "Ce mini projecteur LED est parfait pour les soirées cinéma à la maison #gadget #foryou",
+  "hashtags": ["gadget", "foryou", "cinema"],
+  "detectedProductName": "Mini projecteur LED portable",
+  "detectedKeywords": ["projecteur", "led", "portable", "cinema"],
+  "detectedCategory": "Electronique",
+  "thumbnailUrl": "https://img.example.com/thumb/t1.jpg",
+  "viralStats": { "views": 100000, "likes": 12000, "comments": 1800 }
+}

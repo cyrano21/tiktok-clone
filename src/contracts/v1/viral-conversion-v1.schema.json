@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/viral-conversion.schema.json",
+  "title": "ViralConversionV1",
+  "description": "Conversion commerciale calculée par Orchidy Pro et renvoyée à ORKY (champ conversion de SourcingRequest). Aligné sur trendService.ts. Nullable dans ViralSourcingRequestV1.",
+  "type": ["object", "null"],
+  "additionalProperties": false,
+  "required": ["ordersCount", "unitsSold", "revenueCents", "currency"],
+  "properties": {
+    "ordersCount": { "type": "integer", "minimum": 0 },
+    "unitsSold": { "type": "integer", "minimum": 0 },
+    "revenueCents": { "type": "integer", "minimum": 0 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "mixedCurrency": { "type": "boolean" },
+    "byCurrency": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordersCount", "unitsSold", "revenueCents"],
+        "properties": {
+          "ordersCount": { "type": "integer", "minimum": 0 },
+          "unitsSold": { "type": "integer", "minimum": 0 },
+          "revenueCents": { "type": "integer", "minimum": 0 },
+          "minorUnitFactor": { "type": "integer", "minimum": 1 }
+        }
+      },
+      "maxProperties": 16
+    },
+    "lastSaleAt": { "type": ["string", "null"], "format": "date-time" }
+  }
+}

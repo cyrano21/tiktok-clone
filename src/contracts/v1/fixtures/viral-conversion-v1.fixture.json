@@ -1,0 +1,11 @@
+{
+  "ordersCount": 430,
+  "unitsSold": 510,
+  "revenueCents": 107500,
+  "currency": "EUR",
+  "mixedCurrency": false,
+  "byCurrency": {
+    "EUR": { "ordersCount": 430, "unitsSold": 510, "revenueCents": 107500, "minorUnitFactor": 100 }
+  },
+  "lastSaleAt": "2026-09-01T12:31:00.000Z"
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/viral-sourcing-request.schema.json",
+  "title": "ViralSourcingRequestV1",
+  "description": "Requête de sourcing viral émise par ORKY vers Orchidy Pro. Aligné sur SourcingRequest (trendService.ts). Embarque OrkyTrendSignalV1, SupplierCandidateV1, ViralConversionV1 et GeneratedCommerceVideoV1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["_id", "status", "signal", "candidates", "createdAt", "updatedAt"],
+  "properties": {
+    "_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "status": { "type": "string", "maxLength": 64 },
+    "signal": { "$ref": "orky-trend-signal-v1.schema.json" },
+    "candidates": {
+      "type": "array",
+      "items": { "$ref": "supplier-candidate-v1.schema.json" },
+      "maxItems": 64
+    },
+    "approvedCandidateId": { "type": ["string", "null"], "maxLength": 128 },
+    "orchidyProProductId": { "type": ["string", "null"], "maxLength": 128 },
+    "orchidyMarketplaceProductId": { "type": ["string", "null"], "maxLength": 128 },
+    "conversion": { "$ref": "viral-conversion-v1.schema.json" },
+    "generatedVideo": { "$ref": "generated-commerce-video-v1.schema.json" },
+    "error": { "type": ["string", "null"], "maxLength": 1024 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "updatedAt": { "type": "string", "format": "date-time" }
+  }
+}

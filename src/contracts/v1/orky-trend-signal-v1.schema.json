@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/orky-trend-signal.schema.json",
+  "title": "OrkyTrendSignalV1",
+  "description": "Signal viral émis par ORKY vers Orchidy Pro. Aligné sur src/services/trendService.ts (TrendSignal).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "sourceApp", "sourcePlatform", "sourceVideoUrl", "hashtags", "detectedProductName", "detectedKeywords", "viralStats"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "sourceSignalId": { "type": "string", "maxLength": 256 },
+    "sourceApp": { "type": "string", "enum": ["orky"] },
+    "sourcePlatform": { "type": "string", "enum": ["tiktok", "reels", "shorts"] },
+    "sourceVideoUrl": { "type": "string", "minLength": 1, "maxLength": 2048 },
+    "sourceEmbedUrl": { "type": "string", "maxLength": 2048 },
+    "creatorUsername": { "type": "string", "maxLength": 256 },
+    "creatorDisplayName": { "type": "string", "maxLength": 256 },
+    "caption": { "type": "string", "maxLength": 8192 },
+    "hashtags": { "type": "array", "items": { "type": "string", "maxLength": 128 }, "maxItems": 64 },
+    "detectedProductName": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "detectedKeywords": { "type": "array", "items": { "type": "string", "maxLength": 128 }, "maxItems": 64 },
+    "detectedCategory": { "type": "string", "maxLength": 256 },
+    "thumbnailUrl": { "type": "string", "maxLength": 2048 },
+    "viralStats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["views", "likes", "comments"],
+      "properties": {
+        "views": { "type": "integer", "minimum": 0 },
+        "likes": { "type": "integer", "minimum": 0 },
+        "comments": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

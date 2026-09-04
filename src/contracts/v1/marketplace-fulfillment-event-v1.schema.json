@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/marketplace-fulfillment-event.schema.json",
+  "title": "MarketplaceFulfillmentEventV1",
+  "description": "Événement de fulfillment échangé entre Orchidy et Orchidy Pro (autorité fulfillment, Lot 5/8). Statuts alignés sur le cycle DLQ du plan (pending → processing → success | retryable_failed | permanent_failed | quarantined). Idempotence : eventId.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "orderId", "status", "occurredAt", "version"],
+  "properties": {
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "fulfillmentJobId": { "type": ["string", "null"], "maxLength": 128 },
+    "supplierOrderId": { "type": ["string", "null"], "maxLength": 128 },
+    "status": { "type": "string", "enum": ["pending", "processing", "success", "retryable_failed", "permanent_failed", "quarantined"] },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "authority": { "type": "string", "enum": ["orchidy", "orchidy-pro"] },
+    "version": { "type": "string", "enum": ["v1"] },
+    "error": { "type": ["string", "null"], "maxLength": 1024 }
+  }
+}

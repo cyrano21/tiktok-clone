@@ -1,0 +1,44 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://contracts.orchids.local/v1/orky-checkout-receipt.schema.json",
+  "title": "OrkyCheckoutReceiptV1",
+  "description": "Reçu de checkout signé émis par Orchidy vers ORKY (route checkout-return/verify côté ORKY). Champs alignés sur la réponse de handoff + paiement. À re-valider contre la route verify avant implémentation définitive.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["handoffId", "checkoutId", "orderId", "currency", "total", "paidAt", "validatedLines", "clientPricesIgnored", "version", "signature", "signedAt", "nonce"],
+  "properties": {
+    "handoffId": { "type": "string", "pattern": "^[a-f\\d]{24}$" },
+    "checkoutId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "orderId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "total": { "type": ["number", "null"], "minimum": 0 },
+    "paidAt": { "type": "string", "format": "date-time" },
+    "clientPricesIgnored": { "type": "boolean", "enum": [true] },
+    "version": { "type": "string", "enum": ["v1"] },
+    "signature": { "type": "string", "minLength": 32, "maxLength": 512 },
+    "signedAt": { "type": "string", "format": "date-time" },
+    "nonce": { "type": "string", "minLength": 8, "maxLength": 128 },
+    "validatedLines": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["catalogItemId", "title", "quantity", "unitPrice", "lineTotal", "currency", "availableQuantity"],
+        "properties": {
+          "productId": { "type": ["string", "null"], "maxLength": 256 },
+          "catalogItemId": { "type": "string", "minLength": 1, "maxLength": 128 },
+          "variantKey": { "type": ["string", "null"], "maxLength": 256 },
+          "title": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "variantTitle": { "type": ["string", "null"], "maxLength": 512 },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "unitPrice": { "type": "number", "minimum": 0 },
+          "lineTotal": { "type": "number", "minimum": 0 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "availableQuantity": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
-import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { buildOrchidyHandoffHeaders, requireOrchidyHandoffSecret } from '@/lib/orchidyCheckoutCrypto';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,12 +18,7 @@ function text(value: unknown, max = 2_048): string {
 }
 
 function secret(): string {
-  const value = text(process.env.ORKY_CHECKOUT_HANDOFF_SECRET, 1_024);
-  if (!value) throw new Error('ORKY_CHECKOUT_HANDOFF_SECRET is not configured');
-  if (process.env.NODE_ENV === 'production' && value.length < 32) {
-    throw new Error('ORKY_CHECKOUT_HANDOFF_SECRET is too weak');
-  }
-  return value;
+  return requireOrchidyHandoffSecret();
 }
 
 function orchidyBaseUrl(): string {
@@ -110,21 +105,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Panier trop volumineux.' }, { status: 413 });
     }
 
-    const timestamp = String(Math.floor(Date.now() / 1_000));
-    const nonce = crypto.randomBytes(24).toString('base64url');
-    const signature = crypto
-      .createHmac('sha256', secret())
-      .update(`${timestamp}.${nonce}.${body}`, 'utf8')
-      .digest('hex');
+    const headers = buildOrchidyHandoffHeaders({ rawBody: body, now: new Date() });
 
     const upstream = await fetch(`${orchidyBaseUrl()}/api/integrations/orky/checkout-handoff`, {
       method: 'POST',
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
-        'x-orky-timestamp': timestamp,
-        'x-orky-nonce': nonce,
-        'x-orky-signature': signature,
+        ...headers,
       },
       body,
       cache: 'no-store',

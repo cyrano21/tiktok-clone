@@ -1,4 +1,17 @@
 // Keep Jest focused on the web renderer used by this Next.js app.
+// L'environnement jsdom ne fournit pas setImmediate ; le client redis
+// (rate limiter ORKY→Pro, Lot 4) en dépend pour sa file d'attente.
+import {
+  setImmediate as nodeSetImmediate,
+  clearImmediate as nodeClearImmediate,
+} from 'node:timers';
+if (typeof (globalThis as any).setImmediate !== 'function') {
+  (globalThis as any).setImmediate = nodeSetImmediate;
+}
+if (typeof (globalThis as any).clearImmediate !== 'function') {
+  (globalThis as any).clearImmediate = nodeClearImmediate;
+}
+
 jest.mock('react-native', () => {
   const actual = jest.requireActual('react-native-web');
   const React = jest.requireActual('react');

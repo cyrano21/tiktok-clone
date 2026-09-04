@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { consumeRate, costForOperation } from '@/lib/rateLimit/redisRateLimiter';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,10 +11,7 @@ const PRO_BASE = String(
     'http://127.0.0.1:3100',
 ).replace(/\/$/, '');
 
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 20;
 const MAX_BODY_BYTES = 64 * 1024;
-const hits = new Map<string, { count: number; resetAt: number }>();
 
 function proApiKey(): string {
   const value = String(process.env.ORCHIDY_PRO_API_KEY || '').trim();
@@ -48,20 +46,6 @@ function createDelegation(userId: string): string {
 function clientKey(request: NextRequest): string {
   const forwarded = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim();
   return forwarded || request.headers.get('x-real-ip') || 'unknown';
-}
-
-function consumeRate(key: string, max: number): { allowed: boolean; retryAfter: number } {
-  const now = Date.now();
-  const current = hits.get(key);
-  if (!current || current.resetAt <= now) {
-    hits.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return { allowed: true, retryAfter: 0 };
-  }
-  current.count += 1;
-  if (current.count > max) {
-    return { allowed: false, retryAfter: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
-  }
-  return { allowed: true, retryAfter: 0 };
 }
 
 function isAllowedPath(path: string[]): boolean {
@@ -119,12 +103,16 @@ export async function GET(request: NextRequest, { params }: { params: { path: st
     if (!session.ok || !session.userId) {
       return NextResponse.json({ success: false, error: session.error }, { status: session.status ?? 401 });
     }
-    const rate = consumeRate(`${session.userId}:${clientKey(request)}`, RATE_MAX);
-    if (!rate.allowed) {
-      return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: { 'retry-after': String(rate.retryAfter) } });
-    }
     const path = (params.path || []).map(String);
     if (!isAllowedPath(path)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    // Lot 4 : rate limiting Redis partagé (user + IP + sourcing), coût 1 en GET.
+    const rate = await consumeRate(
+      { userId: session.userId, ip: clientKey(request) },
+      costForOperation('GET', path),
+    );
+    if (!rate.allowed) {
+      return NextResponse.json({ error: 'Rate limit exceeded', failingBucket: rate.failingBucket }, { status: 429, headers: { 'retry-after': String(rate.retryAfter) } });
+    }
 
     const upstream = await fetch(
       `${PRO_BASE}/api/viral-sourcing/${path.join('/')}${request.nextUrl.search || ''}`,
@@ -151,12 +139,16 @@ export async function POST(request: NextRequest, { params }: { params: { path: s
     if (!session.ok || !session.userId) {
       return NextResponse.json({ success: false, error: session.error }, { status: session.status ?? 401 });
     }
-    const rate = consumeRate(`${session.userId}:${clientKey(request)}`, RATE_MAX);
-    if (!rate.allowed) {
-      return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429, headers: { 'retry-after': String(rate.retryAfter) } });
-    }
     const path = (params.path || []).map(String);
     if (!isAllowedPath(path)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    // Lot 4 : coût pondéré selon l'opération (create=5, approve=10, vidéo=20).
+    const rate = await consumeRate(
+      { userId: session.userId, ip: clientKey(request) },
+      costForOperation('POST', path),
+    );
+    if (!rate.allowed) {
+      return NextResponse.json({ error: 'Rate limit exceeded', failingBucket: rate.failingBucket }, { status: 429, headers: { 'retry-after': String(rate.retryAfter) } });
+    }
 
     const declaredLength = Number(request.headers.get('content-length') || 0);
     if (Number.isFinite(declaredLength) && declaredLength > MAX_BODY_BYTES) {
