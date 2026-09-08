@@ -1,4 +1,5 @@
 import { Product, ProductCategory, ProductVariant, getProductById, getProducts } from './demoShop';
+import { sanitizeHandoffRequestId } from './handoffRequestId';
 
 export type CommerceVariant = ProductVariant & {
   selectedOptions?: Record<string, string>;
@@ -14,6 +15,13 @@ export type CommerceProduct = Omit<Product, 'variants'> & {
   externalId?: string;
   externalSlug?: string;
   externalUrl?: string;
+  /**
+   * Viral-sourcing request id (orchidy-pro) that produced this product,
+   * carried through the checkout handoff so paid orders can be attributed
+   * back to a Trend Radar request. Optional: present only when the upstream
+   * product exposes a valid id.
+   */
+  requestId?: string;
   orderable?: boolean;
   availabilityLabel?: string;
   stockStatus?: string;
@@ -280,6 +288,9 @@ export function mapOrchidyProduct(product: any): CommerceProduct {
     externalId,
     externalSlug,
     externalUrl: buildExternalUrl(product),
+    requestId: sanitizeHandoffRequestId(
+      product?.requestId ?? product?.sourceRequestId ?? product?.viralSourcingRequestId,
+    ),
     orderable,
     availabilityLabel: asText(product?.availabilityLabel),
     stockStatus: asText(product?.stockStatus),

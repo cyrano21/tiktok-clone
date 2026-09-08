@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildOrchidyHandoffHeaders, requireOrchidyHandoffSecret } from '@/lib/orchidyCheckoutCrypto';
+import { sanitizeHandoffRequestId } from '@/services/handoffRequestId';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,6 +12,8 @@ type HandoffItem = {
   variantKey?: string;
   quantity: number;
   selectedOptions?: Record<string, string>;
+  /** Optional viral-sourcing request id, attributed by the paid-order webhook. */
+  requestId?: string;
 };
 
 function text(value: unknown, max = 2_048): string {
@@ -77,11 +80,13 @@ function parseItems(value: unknown): HandoffItem[] {
     const identity = `${productId}::${variantKey || 'base'}`;
     if (seen.has(identity)) throw new Error('Ligne de panier dupliquée.');
     seen.add(identity);
+    const requestId = sanitizeHandoffRequestId(raw.requestId);
     return {
       productId,
       variantKey,
       quantity,
       selectedOptions: sanitizeSelectedOptions(raw.selectedOptions),
+      ...(requestId ? { requestId } : {}),
     };
   });
 }

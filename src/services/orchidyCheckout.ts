@@ -1,4 +1,5 @@
 import { useCartStore, type CartLine } from '@/store/cartStore';
+import { sanitizeHandoffRequestId } from './handoffRequestId';
 
 export type OrchidyHandoffValidatedLine = {
   productId: string | null;
@@ -46,11 +47,13 @@ export async function createOrchidyCheckoutHandoff(
   const items = lines.map((line) => {
     const productId = externalIdentity(line);
     if (!productId) throw new Error('Identifiant Orchidy manquant pour un article.');
+    const requestId = sanitizeHandoffRequestId(line.productSnapshot.requestId);
     return {
       productId,
       variantKey: line.variantId && line.variantId !== 'default' ? line.variantId : undefined,
       quantity: line.quantity,
       selectedOptions: line.selectedOptions,
+      ...(requestId ? { requestId } : {}),
     };
   });
 
