@@ -84,7 +84,7 @@ export async function findOrchidyCatalogCandidates(
 
   const url = `${(process.env.ORCHIDY_API_BASE_URL || 'https://orchidy.fr').replace(/\/$/, '')}/api/integrations/orky/products?q=${encodeURIComponent(query)}&market=FR&limit=50&sort=trending`;
   try {
-    const response = await fetchImpl(url, {
+    const response = await (fetchImpl as any)(url, {
       method: 'GET',
       headers: { accept: 'application/json' },
       cache: 'no-store',

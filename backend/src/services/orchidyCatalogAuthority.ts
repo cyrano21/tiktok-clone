@@ -49,7 +49,7 @@ export async function resolvePublishedOrchidyCatalogItem(
 
   const url = `${baseUrl()}/api/integrations/orky/products/${encodeURIComponent(id)}?market=FR`;
   try {
-    const response = await fetchImpl(url, {
+    const response = await (fetchImpl as any)(url, {
       method: 'GET',
       headers: { accept: 'application/json' },
       cache: 'no-store',
