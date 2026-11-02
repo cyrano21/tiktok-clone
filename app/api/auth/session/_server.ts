@@ -20,7 +20,16 @@ export function sameOriginRequest(request: NextRequest): boolean {
   const origin = request.headers.get('origin');
   if (!origin) return true;
   try {
-    return new URL(origin).origin === request.nextUrl.origin;
+    const originUrl = new URL(origin);
+    const hostHeader = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.host;
+    if (originUrl.host === hostHeader) return true;
+    if (process.env.NEXT_PUBLIC_APP_URL) {
+      try {
+        const appUrl = new URL(process.env.NEXT_PUBLIC_APP_URL);
+        if (originUrl.origin === appUrl.origin) return true;
+      } catch {}
+    }
+    return originUrl.origin === request.nextUrl.origin;
   } catch {
     return false;
   }
