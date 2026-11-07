@@ -5,6 +5,9 @@ import { useNavigation, RouteName } from './NavigationContext';
 import { SCREEN_REGISTRY, TAB_ROUTES, ROUTE_TO_TAB } from './screenRegistry';
 import { useBrandingStore } from '@/store/brandingStore';
 import { OrchidyCheckoutReturnNotice } from '@/components/shop/OrchidyCheckoutReturnNotice';
+import { DesktopHeader } from '@/components/desktop/DesktopHeader';
+import { DesktopSidebar } from '@/components/desktop/DesktopSidebar';
+import { DesktopFeedControls } from '@/components/desktop/DesktopFeedControls';
 
 interface TabDef {
   route: RouteName;
@@ -22,7 +25,7 @@ const TABS: TabDef[] = [
   { route: 'profile', icon: '👤', label: 'Profil' },
 ];
 
-// Routes that take over the full screen (no bottom tab bar).
+// Routes qui prennent tout l'écran sur mobile (pas de barre inférieure).
 const FULLSCREEN_ROUTES: RouteName[] = [
   'create.record',
   'create.edit',
@@ -57,20 +60,53 @@ const FULLSCREEN_ROUTES: RouteName[] = [
 export function WebAppShell() {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const isMobile = width < 500;
+  const isDesktop = width >= 860;
   const nav = useNavigation();
   const route = nav.current.name;
   const Screen = SCREEN_REGISTRY[route];
-  const showTabBar = !FULLSCREEN_ROUTES.includes(route);
   const activeTab = ROUTE_TO_TAB[route];
   const branding = useBrandingStore((s) => s.branding);
 
-  const isFeedRoute = ['feed.foryou', 'feed.following', 'shop.products'].includes(route);
-  const desktopStyle = isFeedRoute ? styles.phoneDesktopFeed : styles.phoneDesktopWide;
+  const isFeedRoute = ['feed.foryou', 'feed.following'].includes(route);
+
+  // Mise en page Desktop (≥ 860px) : Header en haut, Sidebar à gauche, contenu central et aucun onglet mobile
+  if (isDesktop) {
+    return (
+      <View style={styles.desktopOuter}>
+        <DesktopHeader />
+
+        <View style={styles.desktopBody}>
+          <DesktopSidebar />
+
+          <View style={styles.desktopMainArea}>
+            {isFeedRoute ? (
+              <View style={styles.desktopFeedLayout}>
+                <View style={styles.desktopFeedCard}>
+                  {Screen ? <Screen /> : <Missing route={route} />}
+                </View>
+                <DesktopFeedControls />
+              </View>
+            ) : (
+              <View style={styles.desktopWideContainer}>
+                <View style={styles.desktopWideInner}>
+                  {Screen ? <Screen /> : <Missing route={route} />}
+                </View>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <OrchidyCheckoutReturnNotice />
+      </View>
+    );
+  }
+
+  // Mise en page Mobile (< 860px) : plein écran immersif avec barre inférieure
+  const showTabBar = !FULLSCREEN_ROUTES.includes(route);
 
   return (
     <View style={styles.outer}>
-      <View style={[styles.phone, isMobile ? styles.phoneMobile : desktopStyle]}>
+      <View style={[styles.phone, styles.phoneMobile]}>
         <View style={styles.screen}>
           {Screen ? (
             <View style={styles.screenFill}>
@@ -118,6 +154,67 @@ function Missing({ route }: { route: string }) {
 }
 
 const styles = StyleSheet.create({
+  // Desktop
+  desktopOuter: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#09090F',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  desktopBody: {
+    flex: 1,
+    flexDirection: 'row',
+    width: '100%',
+    minHeight: 0,
+    backgroundColor: '#09090F',
+    overflow: 'hidden',
+  },
+  desktopMainArea: {
+    flex: 1,
+    height: '100%',
+    minWidth: 0,
+    backgroundColor: '#09090F',
+    overflow: 'hidden',
+  },
+  desktopFeedLayout: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    height: '100%',
+  },
+  desktopFeedCard: {
+    width: 480,
+    maxWidth: '100%',
+    height: '100%',
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#000000',
+    borderWidth: 1,
+    borderColor: '#1E1E2C',
+    shadowColor: '#000',
+    shadowOpacity: 0.45,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  desktopWideContainer: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  desktopWideInner: {
+    width: '100%',
+    maxWidth: 1160,
+    height: '100%',
+    overflow: 'hidden',
+  },
+
+  // Mobile
   outer: {
     flex: 1,
     backgroundColor: '#09090F',
@@ -132,14 +229,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     position: 'relative',
   },
-  phoneMobile: { maxWidth: '100%', maxHeight: '100%', borderRadius: 0 },
-  phoneDesktopFeed: { maxWidth: 480, height: '100%', maxHeight: '100%', borderRadius: 0 },
-  phoneDesktopWide: { maxWidth: 1040, height: '100%', maxHeight: '100%', borderRadius: 0 },
-  screen: { flex: 1, position: 'relative' },
-  screenFill: { flex: 1, width: '100%', height: '100%' },
+  phoneMobile: {
+    maxWidth: '100%',
+    maxHeight: '100%',
+    borderRadius: 0,
+  },
+  screen: {
+    flex: 1,
+    position: 'relative',
+  },
+  screenFill: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+  },
   bottomNav: {
     position: 'absolute',
-    left: 0, right: 0, bottom: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: 'row',
     backgroundColor: 'rgba(9, 9, 15, 0.96)',
     borderTopWidth: 0.5,
@@ -147,18 +255,49 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     zIndex: 50,
   },
-  navItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 2 },
-  navIcon: { fontSize: 21, opacity: 0.65 },
-  navLabel: { fontSize: 9, color: '#9A9AA8' },
+  navItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    paddingHorizontal: 2,
+  },
+  navIcon: {
+    fontSize: 21,
+    opacity: 0.65,
+  },
+  navLabel: {
+    fontSize: 9,
+    color: '#9A9AA8',
+  },
   createBtn: {
-    width: 46, height: 30, borderRadius: 8,
+    width: 46,
+    height: 30,
+    borderRadius: 8,
     backgroundColor: '#15151F',
     borderWidth: 2,
     borderColor: '#7C3AED',
-    justifyContent: 'center', alignItems: 'center',
-    shadowColor: '#F72585', shadowOpacity: 0.45, shadowRadius: 8, shadowOffset: { width: -2, height: 0 },
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#F72585',
+    shadowOpacity: 0.45,
+    shadowRadius: 8,
+    shadowOffset: { width: -2, height: 0 },
   },
-  createBtnText: { fontSize: 22, color: '#fff', lineHeight: 24, fontWeight: '700' },
-  missing: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#09090F' },
-  missingText: { color: '#fff', fontSize: 16 },
+  createBtnText: {
+    fontSize: 22,
+    color: '#fff',
+    lineHeight: 24,
+    fontWeight: '700',
+  },
+  missing: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#09090F',
+  },
+  missingText: {
+    color: '#fff',
+    fontSize: 16,
+  },
 });

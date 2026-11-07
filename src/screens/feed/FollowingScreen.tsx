@@ -13,6 +13,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 export const FollowingScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const flatListRef = useRef<FlatList>(null);
   const [videos, setVideos] = useState<Video[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -51,6 +52,45 @@ export const FollowingScreen: React.FC = () => {
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 80 }).current;
   const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const scrollNext = () => {
+      if (currentIndex < videos.length - 1) {
+        flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
+      }
+    };
+
+    const scrollPrev = () => {
+      if (currentIndex > 0) {
+        flatListRef.current?.scrollToIndex({ index: currentIndex - 1, animated: true });
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        scrollNext();
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        scrollPrev();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('orky:next-video', scrollNext);
+    window.addEventListener('orky:prev-video', scrollPrev);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('orky:next-video', scrollNext);
+      window.removeEventListener('orky:prev-video', scrollPrev);
+    };
+  }, [currentIndex, videos.length]);
 
   const handleLayout = useCallback((e: LayoutChangeEvent) => {
     const h = e.nativeEvent.layout.height;
@@ -115,6 +155,7 @@ export const FollowingScreen: React.FC = () => {
       </View>
 
       <FlatList
+        ref={flatListRef}
         data={videos}
         renderItem={renderItem}
         keyExtractor={(item) => item.id}

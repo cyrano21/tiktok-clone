@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, FlatList, Dimensions, RefreshControl, Text, TouchableOpacity, LayoutChangeEvent } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
@@ -27,6 +27,45 @@ export const ForYouScreen: React.FC = () => {
 
   const [containerHeight, setContainerHeight] = useState(Dimensions.get('window').height);
   const [commentsVideo, setCommentsVideo] = useState<Video | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const scrollNext = () => {
+      if (currentIndex < videos.length - 1) {
+        flatListRef.current?.scrollToIndex({ index: currentIndex + 1, animated: true });
+      }
+    };
+
+    const scrollPrev = () => {
+      if (currentIndex > 0) {
+        flatListRef.current?.scrollToIndex({ index: currentIndex - 1, animated: true });
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = (document.activeElement as HTMLElement)?.tagName;
+      if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
+
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        scrollNext();
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        scrollPrev();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('orky:next-video', scrollNext);
+    window.addEventListener('orky:prev-video', scrollPrev);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('orky:next-video', scrollNext);
+      window.removeEventListener('orky:prev-video', scrollPrev);
+    };
+  }, [currentIndex, videos.length]);
 
   const renderItem = useCallback(
     ({ item, index }: { item: Video; index: number }) => (
