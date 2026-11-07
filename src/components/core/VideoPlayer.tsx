@@ -5,6 +5,7 @@ import { tokens } from '@/theme/tokens';
 
 interface VideoPlayerProps {
   uri: string;
+  poster?: string;
   isActive: boolean;
   isPaused?: boolean;
   isMuted?: boolean;
@@ -17,6 +18,7 @@ interface VideoPlayerProps {
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   uri,
+  poster,
   isActive,
   isPaused = false,
   isMuted = false,
@@ -56,6 +58,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         <Video
           ref={videoRef}
           source={{ uri }}
+          poster={poster}
           style={styles.video}
           resizeMode={resizeMode}
           repeat
@@ -80,7 +83,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: tokens.colors.black,
+    backgroundColor: 'transparent',
   },
   video: {
     position: 'absolute',

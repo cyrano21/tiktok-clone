@@ -6,6 +6,7 @@ interface VideoSource {
 
 interface VideoProps {
   source?: VideoSource;
+  poster?: string;
   style?: any;
   resizeMode?: 'contain' | 'cover' | 'stretch' | 'none';
   paused?: boolean;
@@ -38,6 +39,7 @@ const flattenStyle = (style: any): React.CSSProperties => {
 const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
   const {
     source,
+    poster,
     style,
     resizeMode = 'cover',
     paused = false,
@@ -95,7 +97,7 @@ const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
     width: '100%',
     height: '100%',
     objectFit: resizeMode === 'cover' ? 'cover' : resizeMode === 'contain' ? 'contain' : 'fill',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
     ...flattenStyle(style),
   };
 
@@ -103,6 +105,7 @@ const Video = React.forwardRef<VideoRef, VideoProps>((props, ref) => {
     <video
       ref={videoRef}
       src={source?.uri}
+      poster={poster}
       loop={repeat}
       muted={muted}
       autoPlay={!paused}

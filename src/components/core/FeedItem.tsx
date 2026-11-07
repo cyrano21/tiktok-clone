@@ -170,6 +170,7 @@ export const FeedItem: React.FC<FeedItemProps> = ({ video, isActive, itemHeight,
       {video.thumbnailUrl ? <Image source={{ uri: video.thumbnailUrl }} style={styles.thumbnailBg} resizeMode="cover" /> : null}
       <VideoPlayer
         uri={video.videoUrl}
+        poster={video.thumbnailUrl}
         isActive={isActive && !safetyVisible}
         isPaused={isPaused || safetyVisible || externalPause}
         isMuted={muted}
