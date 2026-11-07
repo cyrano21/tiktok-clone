@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   card: {
-    width: SCREEN_WIDTH,
+    width: '100%',
     backgroundColor: tokens.colors.black,
   },
   mediaWrap: {
@@ -244,7 +244,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'space-between',
     paddingHorizontal: tokens.spacing.md,
-    paddingBottom: 96,
+    paddingBottom: 84,
     paddingTop: 96,
   },
   topRow: {

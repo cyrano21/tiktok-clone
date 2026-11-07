@@ -321,12 +321,39 @@ export const AdvancedMediaEditor: React.FC<Props> = ({ onExport, productMode }) 
         <div style={styles.durationBadge}>{totalDuration.toFixed(1)} s</div>
       </div>
 
-      <div style={styles.stage}>
+      <div
+        style={{
+          ...styles.stage,
+          ...((!selected || !selectedSource) ? styles.stageEmpty : {}),
+        }}
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        onDrop={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const dropped = Array.from(e.dataTransfer.files ?? []);
+          if (dropped.length) void addFiles(dropped);
+        }}
+      >
         {!selected || !selectedSource ? (
-          <div style={styles.emptyStage}>
+          <div
+            style={styles.emptyStage}
+            onClick={() => fileInputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+          >
             <div style={styles.emptyMark}>＋</div>
             <div style={styles.emptyTitle}>Construis ton montage</div>
-            <div style={styles.emptyText}>Importe jusqu’à 8 sources. Une même source peut être scindée en plusieurs clips sans être réimportée.</div>
+            <div style={styles.emptyText}>Importe jusqu’à 8 sources (vidéos ou images). Clique ici ou glisse-dépose tes fichiers.</div>
+            <button
+              type="button"
+              style={styles.primaryButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+            >
+              {loadingFiles ? 'Lecture des médias…' : 'Choisir des fichiers'}
+            </button>
           </div>
         ) : selected.kind === 'video' ? (
           <video
@@ -517,8 +544,9 @@ const styles: Record<string, React.CSSProperties> = {
   infoText: { color: '#a7a2b7', fontSize: 13 },
   durationBadge: { whiteSpace: 'nowrap', background: '#251f3f', borderRadius: 999, padding: '6px 10px', fontSize: 12, fontWeight: 800 },
   stage: { position: 'relative', width: '100%', maxWidth: 470, aspectRatio: '9 / 16', margin: '0 auto', borderRadius: 18, overflow: 'hidden', background: '#09090f', boxShadow: '0 18px 60px rgba(0,0,0,.28)' },
+  stageEmpty: { aspectRatio: 'auto', minHeight: 280, maxHeight: 360, cursor: 'pointer', border: '2px dashed #40385d' },
   previewMedia: { width: '100%', height: '100%', objectFit: 'contain', background: '#09090f' },
-  emptyStage: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 9, padding: 34 },
+  emptyStage: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 12, padding: 24, cursor: 'pointer' },
   emptyMark: { width: 58, height: 58, borderRadius: 18, background: '#22183f', display: 'grid', placeItems: 'center', fontSize: 30 },
   emptyTitle: { fontWeight: 900, fontSize: 20 },
   emptyText: { color: '#9993aa', fontSize: 13, lineHeight: 1.5, maxWidth: 330 },

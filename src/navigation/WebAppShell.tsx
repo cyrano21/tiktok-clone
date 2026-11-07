@@ -65,9 +65,12 @@ export function WebAppShell() {
   const activeTab = ROUTE_TO_TAB[route];
   const branding = useBrandingStore((s) => s.branding);
 
+  const isFeedRoute = ['feed.foryou', 'feed.following', 'shop.products'].includes(route);
+  const desktopStyle = isFeedRoute ? styles.phoneDesktopFeed : styles.phoneDesktopWide;
+
   return (
     <View style={styles.outer}>
-      <View style={[styles.phone, isMobile ? styles.phoneMobile : styles.phoneDesktop]}>
+      <View style={[styles.phone, isMobile ? styles.phoneMobile : desktopStyle]}>
         <View style={styles.screen}>
           {Screen ? (
             <View style={styles.screenFill}>
@@ -130,7 +133,8 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   phoneMobile: { maxWidth: '100%', maxHeight: '100%', borderRadius: 0 },
-  phoneDesktop: { maxWidth: 430, maxHeight: 932, borderRadius: 36 },
+  phoneDesktopFeed: { maxWidth: 480, height: '100%', maxHeight: '100%', borderRadius: 0 },
+  phoneDesktopWide: { maxWidth: 1040, height: '100%', maxHeight: '100%', borderRadius: 0 },
   screen: { flex: 1, position: 'relative' },
   screenFill: { flex: 1, width: '100%', height: '100%' },
   bottomNav: {

@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { tokens } from '@/theme/tokens';
 import { useNavigation, RouteName } from '@/navigation/NavigationContext';
+import { useStudioStore, MediaPost } from '@/store/studioStore';
 
 interface CreateOption {
   id: string;
@@ -13,19 +14,18 @@ interface CreateOption {
 }
 
 const CREATE_OPTIONS: CreateOption[] = [
-  { id: 'studio', icon: '🎬', label: 'Studio', color: tokens.colors.brand.primary, route: 'studio.editor' },
-  // Camera et Duet passent par le vrai éditeur média (upload/enregistrement) :
-  // il n'existe pas de fausse caméra ni de faux parcours d'édition sur main.
-  { id: 'camera', icon: '📷', label: 'Camera', color: tokens.colors.brand.secondary, route: 'studio.editor' },
-  { id: 'upload', icon: '📁', label: 'Upload', color: tokens.colors.semantic.success, route: 'studio.editor' },
+  { id: 'studio', icon: '🎬', label: 'Studio Hub', color: tokens.colors.brand.primary, route: 'studio' },
+  { id: 'camera', icon: '📷', label: 'Caméra', color: tokens.colors.brand.secondary, route: 'create.record' },
+  { id: 'upload', icon: '📁', label: 'Importer', color: tokens.colors.semantic.success, route: 'studio.editor' },
   { id: 'live', icon: '📡', label: 'LIVE', color: tokens.colors.semantic.live, route: 'live.broadcast' },
   { id: 'shop', icon: '🛍️', label: 'Ma boutique', color: tokens.colors.action.tip, route: 'shop.dashboard' },
-  { id: 'duet', icon: '👥', label: 'Duet', color: tokens.colors.text.link, route: 'studio.editor' },
+  { id: 'duet', icon: '👥', label: 'Duet', color: tokens.colors.text.link, route: 'feed.foryou' },
 ];
 
 export const CreateScreen: React.FC = () => {
   const insets = useSafeAreaInsets();
   const nav = useNavigation();
+  const posts = useStudioStore((s) => s.posts);
 
   const renderOption = ({ item }: { item: CreateOption }) => (
     <TouchableOpacity style={styles.optionItem} onPress={() => nav.push(item.route)}>
@@ -36,10 +36,29 @@ export const CreateScreen: React.FC = () => {
     </TouchableOpacity>
   );
 
+  const renderDraftItem = ({ item }: { item: MediaPost }) => (
+    <TouchableOpacity style={styles.draftCard} onPress={() => nav.push('studio.editor')}>
+      {item.thumbnailUrl ? (
+        <Image source={{ uri: item.thumbnailUrl }} style={styles.draftThumb} />
+      ) : (
+        <View style={styles.draftThumbPlaceholder}>
+          <Text style={styles.draftThumbIcon}>{item.type === 'video' ? '🎬' : '📷'}</Text>
+        </View>
+      )}
+      <View style={styles.draftMeta}>
+        <Text style={styles.draftTitle} numberOfLines={1}>{item.caption || 'Sans titre'}</Text>
+        <Text style={styles.draftSub}>
+          {item.type === 'video' ? 'Vidéo' : 'Photo'} · {new Date(item.createdAt).toLocaleDateString('fr-FR')}
+        </Text>
+      </View>
+      <Text style={styles.draftArrow}>→</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Create</Text>
+        <Text style={styles.headerTitle}>Création</Text>
       </View>
 
       <View style={styles.optionsGrid}>
@@ -55,13 +74,28 @@ export const CreateScreen: React.FC = () => {
 
       <View style={styles.draftsSection}>
         <View style={styles.draftsSectionHeader}>
-          <Text style={styles.draftsTitle}>Drafts</Text>
-          <Text style={styles.draftsCount}>0</Text>
+          <Text style={styles.draftsTitle}>Brouillons & Vidéos</Text>
+          <Text style={styles.draftsCount}>{posts.length}</Text>
         </View>
-        <View style={styles.draftsEmpty}>
-          <Text style={styles.draftsEmptyText}>Aucun brouillon pour l’instant.</Text>
-          <Text style={styles.draftsEmptyHint}>Tes vidéos en préparation apparaîtront ici. Crée et publie depuis le Studio.</Text>
-        </View>
+
+        {posts.length > 0 ? (
+          <FlatList
+            data={posts}
+            renderItem={renderDraftItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.draftsContent}
+          />
+        ) : (
+          <View style={styles.draftsEmpty}>
+            <Text style={styles.draftsEmptyText}>Aucun brouillon pour l’instant.</Text>
+            <Text style={styles.draftsEmptyHint}>
+              Tes vidéos en préparation et publications apparaîtront ici. Crée et publie depuis le Studio.
+            </Text>
+            <TouchableOpacity style={styles.createDraftBtn} onPress={() => nav.push('studio.editor')}>
+              <Text style={styles.createDraftBtnText}>+ Créer une nouvelle vidéo</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </View>
   );
@@ -111,8 +145,9 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   draftsSection: {
-    marginTop: tokens.spacing.xxl,
+    marginTop: tokens.spacing.xl,
     paddingHorizontal: tokens.spacing.md,
+    flex: 1,
   },
   draftsSectionHeader: {
     flexDirection: 'row',
@@ -126,17 +161,63 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   draftsCount: {
-    color: tokens.colors.text.secondary,
+    color: tokens.colors.brand.secondary,
     fontSize: tokens.typography.body.fontSize,
+    fontWeight: '700',
   },
   draftsContent: {
     gap: tokens.spacing.sm,
+  },
+  draftCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: tokens.colors.elevated,
+    borderRadius: tokens.radius.sm,
+    padding: tokens.spacing.sm,
+    gap: tokens.spacing.sm,
+    borderWidth: 1,
+    borderColor: tokens.colors.surface,
+  },
+  draftThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: tokens.colors.black,
+  },
+  draftThumbPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: tokens.radius.xs,
+    backgroundColor: '#1E1E2C',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  draftThumbIcon: {
+    fontSize: 20,
+  },
+  draftMeta: {
+    flex: 1,
+    gap: 2,
+  },
+  draftTitle: {
+    color: tokens.colors.white,
+    fontSize: tokens.typography.body.fontSize,
+    fontWeight: '700',
+  },
+  draftSub: {
+    color: tokens.colors.text.secondary,
+    fontSize: tokens.typography.caption.fontSize,
+  },
+  draftArrow: {
+    color: tokens.colors.text.tertiary,
+    fontSize: 18,
+    paddingRight: tokens.spacing.xs,
   },
   draftsEmpty: {
     backgroundColor: tokens.colors.elevated,
     borderRadius: tokens.radius.md,
     padding: tokens.spacing.lg,
-    gap: tokens.spacing.xs,
+    gap: tokens.spacing.sm,
   },
   draftsEmptyText: {
     color: tokens.colors.white,
@@ -147,5 +228,17 @@ const styles = StyleSheet.create({
     color: tokens.colors.text.secondary,
     fontSize: tokens.typography.caption.fontSize,
     lineHeight: 17,
+  },
+  createDraftBtn: {
+    marginTop: tokens.spacing.sm,
+    backgroundColor: tokens.colors.brand.primary,
+    borderRadius: tokens.radius.sm,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  createDraftBtnText: {
+    color: tokens.colors.white,
+    fontSize: tokens.typography.caption.fontSize,
+    fontWeight: '700',
   },
 });
